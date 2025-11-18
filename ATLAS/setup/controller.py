@@ -33,6 +33,8 @@ __all__ = [
     "ProviderState",
     "RetryPolicyState",
     "SetupTypeState",
+    "SetupUserEntry",
+    "SetupUsersState",
     "SetupWizardController",
     "SpeechState",
     "UserState",
@@ -141,6 +143,19 @@ class AdminProfile:
 
 
 @dataclass
+class SetupUserEntry:
+    username: str
+    full_name: str
+    password: str
+
+
+@dataclass
+class SetupUsersState:
+    entries: list[SetupUserEntry] = field(default_factory=list)
+    initial_admin_username: str = ""
+
+
+@dataclass
 class OptionalState:
     tenant_id: Optional[str] = None
     retention_days: Optional[int] = None
@@ -169,6 +184,7 @@ class WizardState:
     kv_store: KvStoreState = field(default_factory=KvStoreState)
     providers: ProviderState = field(default_factory=ProviderState)
     speech: SpeechState = field(default_factory=SpeechState)
+    users: SetupUsersState = field(default_factory=SetupUsersState)
     user: UserState = field(default_factory=UserState)
     optional: OptionalState = field(default_factory=OptionalState)
     setup_type: SetupTypeState = field(default_factory=SetupTypeState)
@@ -970,6 +986,43 @@ class SetupWizardController:
             self.set_privileged_credentials((db_username, db_password))
         return self.state.user
 
+    def set_users(self, users: list[SetupUserEntry], *, initial_admin: str | None = None) -> SetupUsersState:
+        usernames: set[str] = set()
+        unique_users: list[SetupUserEntry] = []
+        for entry in users:
+            username = entry.username.strip()
+            if not username:
+                continue
+            if username in usernames:
+                continue
+            usernames.add(username)
+            unique_users.append(
+                SetupUserEntry(
+                    username=username,
+                    full_name=entry.full_name.strip(),
+                    password=entry.password,
+                )
+            )
+        admin_username = (initial_admin or self.state.users.initial_admin_username).strip()
+        if admin_username and admin_username not in usernames:
+            admin_username = ""
+        if not admin_username and unique_users:
+            admin_username = unique_users[0].username
+        self.state.users = SetupUsersState(entries=unique_users, initial_admin_username=admin_username)
+        return self.state.users
+
+    def add_user_entry(self, entry: SetupUserEntry) -> SetupUsersState:
+        existing = [e for e in self.state.users.entries if e.username != entry.username]
+        existing.append(entry)
+        return self.set_users(existing, initial_admin=self.state.users.initial_admin_username)
+
+    def remove_user(self, username: str) -> SetupUsersState:
+        remaining = [e for e in self.state.users.entries if e.username != username]
+        admin_username = self.state.users.initial_admin_username
+        if admin_username == username:
+            admin_username = remaining[0].username if remaining else ""
+        return self.set_users(remaining, initial_admin=admin_username)
+
     def set_privileged_credentials(
         self, credentials: tuple[str | None, str | None] | None
     ) -> None:
@@ -1034,6 +1087,17 @@ class SetupWizardController:
                 "configured_providers": sorted(self.state.providers.api_keys.keys()),
             },
             "speech": dataclasses.asdict(self.state.speech),
+            "users": {
+                "initial_admin": self.state.users.initial_admin_username,
+                "entries": [
+                    {
+                        "username": entry.username,
+                        "full_name": entry.full_name,
+                        "has_password": bool(entry.password),
+                    }
+                    for entry in self.state.users.entries
+                ],
+            },
             "user": user_summary,
             "optional": dataclasses.asdict(self.state.optional),
             "setup_type": dataclasses.asdict(self.state.setup_type),

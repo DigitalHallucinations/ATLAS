@@ -24,6 +24,7 @@ from ATLAS.setup import (
     OptionalState,
     ProviderState,
     RetryPolicyState,
+    SetupUserEntry,
     SetupWizardController as CoreSetupWizardController,
     SpeechState,
     UserState,
@@ -539,8 +540,11 @@ class SetupWizardWindow(AtlasWindow):
         self._provider_stack: Gtk.Stack | None = None
         self._provider_show_toggle: Gtk.CheckButton | None = None
         self._local_only_toggle: Gtk.CheckButton | None = None
+        self._user_collection_entries: Dict[str, Gtk.Entry] = {}
+        self._user_list_box: Gtk.ListBox | None = None
         self._user_entries: Dict[str, Gtk.Entry] = {}
         self._user_advanced_widgets: Dict[str, Gtk.Widget] = {}
+        self._admin_user_combo: Gtk.ComboBoxText | None = None
         self._kv_widgets: Dict[str, Gtk.Widget] = {}
         self._job_widgets: Dict[str, Gtk.Widget] = {}
         self._message_widgets: Dict[str, Gtk.Widget] = {}
@@ -918,6 +922,7 @@ class SetupWizardWindow(AtlasWindow):
         overview_page = self._build_overview_page()
         setup_type_page = self._build_setup_type_page()
         administrator_intro = self._build_administrator_intro_page()
+        user_collection_page = self._build_users_page()
         administrator_form = self._build_user_page()
         database_intro = self._build_database_intro_page()
         database_form = self._build_database_page()
@@ -971,8 +976,8 @@ class SetupWizardWindow(AtlasWindow):
             self._steps.append(
                 WizardStep(
                     name="Users",
-                    widget=administrator_intro,
-                    subpages=[administrator_intro],
+                    widget=user_collection_page,
+                    subpages=[user_collection_page],
                     apply=self._apply_users_overview,
                 )
             )
@@ -2096,6 +2101,200 @@ class SetupWizardWindow(AtlasWindow):
             "Grab a strong password and the administrator's contact info, then continue when you're set.",
         )
 
+    def _build_users_page(self) -> Gtk.Widget:
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        box.set_hexpand(True)
+        box.set_vexpand(True)
+
+        heading = Gtk.Label(label="Seed user accounts")
+        heading.set_wrap(True)
+        heading.set_xalign(0.0)
+        if hasattr(heading, "add_css_class"):
+            heading.add_css_class("heading")
+        box.append(heading)
+
+        subtitle = Gtk.Label(
+            label=(
+                "Add one or more accounts with a temporary password. We'll let you pick the first administrator next."
+            )
+        )
+        subtitle.set_wrap(True)
+        subtitle.set_xalign(0.0)
+        box.append(subtitle)
+
+        grid = Gtk.Grid(column_spacing=12, row_spacing=6)
+        grid.set_hexpand(True)
+        grid.set_vexpand(False)
+
+        row = 0
+        self._user_collection_entries["full_name"] = self._create_labeled_entry(
+            grid, row, "Full name", ""
+        )
+        row += 1
+        self._user_collection_entries["username"] = self._create_labeled_entry(
+            grid, row, "Username", ""
+        )
+        row += 1
+        password_entry = self._create_labeled_entry(
+            grid, row, "Temporary password", "", visibility=False
+        )
+        self._user_collection_entries["password"] = password_entry
+        row += 1
+        confirm_entry = self._create_labeled_entry(
+            grid, row, "Confirm password", "", visibility=False
+        )
+        self._user_collection_entries["confirm_password"] = confirm_entry
+        row += 1
+
+        def _password_validator() -> tuple[bool, str | None]:
+            password = password_entry.get_text()
+            confirm = confirm_entry.get_text()
+            if not password:
+                return False, "Password is required"
+            if password != confirm:
+                return False, "Passwords must match"
+            return True, None
+
+        self._register_validation(confirm_entry, _password_validator)
+        self._register_linked_validation_trigger(password_entry, confirm_entry)
+
+        add_button = Gtk.Button(label="Add user")
+        add_button.set_halign(Gtk.Align.START)
+
+        def _add_user(_: Gtk.Widget) -> None:
+            for key in ("full_name", "username", "password"):
+                if not self._user_collection_entries.get(key):
+                    raise ValueError("User inputs are not ready")
+            full_name = self._user_collection_entries["full_name"].get_text().strip()
+            username = self._user_collection_entries["username"].get_text().strip()
+            password = self._user_collection_entries["password"].get_text()
+            confirm = self._user_collection_entries["confirm_password"].get_text()
+            if not full_name:
+                self.display_error(ValueError("Full name is required"))
+                return
+            if not username:
+                self.display_error(ValueError("Username is required"))
+                return
+            if not password:
+                self.display_error(ValueError("Password is required"))
+                return
+            if password != confirm:
+                self.display_error(ValueError("Passwords must match"))
+                return
+            entry = SetupUserEntry(username=username, full_name=full_name, password=password)
+            self.controller.add_user_entry(entry)
+            for key, widget in self._user_collection_entries.items():
+                if isinstance(widget, Gtk.Entry):
+                    widget.set_text("")
+            self._refresh_user_list()
+            self._refresh_admin_candidates()
+
+        add_button.connect("clicked", _add_user)
+        grid.attach(add_button, 0, row, 2, 1)
+        row += 1
+
+        list_heading = Gtk.Label(label="Staged users")
+        list_heading.set_xalign(0.0)
+        list_heading.set_wrap(True)
+        box.append(grid)
+        box.append(list_heading)
+
+        list_box = Gtk.ListBox()
+        list_box.set_selection_mode(Gtk.SelectionMode.NONE)
+        list_box.set_hexpand(True)
+        list_box.set_vexpand(True)
+        self._user_list_box = list_box
+        box.append(list_box)
+        self._refresh_user_list()
+
+        self._register_required_text(self._user_collection_entries["username"], "Username")
+        self._register_required_text(self._user_collection_entries["full_name"], "Full name")
+        self._register_required_text(password_entry, "Temporary password", strip=False)
+
+        self._register_instructions(
+            box,
+            "Capture the launch roster so you can pick an initial administrator on the next step.",
+        )
+        return box
+
+    def _refresh_user_list(self) -> None:
+        if self._user_list_box is None:
+            return
+        list_box = self._user_list_box
+        try:
+            child = list_box.get_first_child()
+            children: list[Gtk.Widget] = []
+            while child is not None:
+                children.append(child)
+                child = child.get_next_sibling()
+        except AttributeError:  # pragma: no cover - GTK3 fallback
+            try:
+                children = list(list_box.get_children())
+            except Exception:
+                children = []
+        for child in children:
+            list_box.remove(child)
+
+        for entry in self.controller.state.users.entries:
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+            row.set_hexpand(True)
+            label = Gtk.Label(label=f"{entry.full_name} ({entry.username})")
+            label.set_xalign(0.0)
+            label.set_wrap(True)
+            remove_button = Gtk.Button(label="Remove")
+
+            def _remove_user(_: Gtk.Widget, username: str = entry.username) -> None:
+                self.controller.remove_user(username)
+                self._refresh_user_list()
+                self._refresh_admin_candidates()
+
+            remove_button.connect("clicked", _remove_user)
+            row.append(label)
+            row.append(remove_button)
+            list_box.append(row)
+
+    def _refresh_admin_candidates(self) -> None:
+        combo = self._admin_user_combo
+        if combo is None:
+            return
+        try:
+            combo.remove_all()
+        except Exception:
+            pass
+        users = self.controller.state.users.entries
+        selected = self.controller.state.users.initial_admin_username
+        for entry in users:
+            display = f"{entry.full_name} ({entry.username})" if entry.full_name else entry.username
+            combo.append(entry.username, display)
+        if not users:
+            combo.append("", "No users added yet")
+            combo.set_active(0)
+            return
+        if selected:
+            combo.set_active_id(selected)
+        if combo.get_active_id() is None:
+            combo.set_active(0)
+        self._apply_admin_selection_to_form()
+
+    def _apply_admin_selection_to_form(self) -> None:
+        if self._admin_user_combo is None:
+            return
+        username = self._admin_user_combo.get_active_id()
+        if not username:
+            return
+        self.controller.set_users(self.controller.state.users.entries, initial_admin=username)
+        entry = next((user for user in self.controller.state.users.entries if user.username == username), None)
+        if entry is None:
+            return
+        if "username" in self._user_entries:
+            self._user_entries["username"].set_text(entry.username)
+        if "full_name" in self._user_entries:
+            self._user_entries["full_name"].set_text(entry.full_name)
+        for key in ("password", "confirm_password"):
+            widget = self._user_entries.get(key)
+            if isinstance(widget, Gtk.Entry):
+                widget.set_text(entry.password)
+
     def _build_database_intro_page(self) -> Gtk.Widget:
         return self._create_intro_page(
             "About the Database",
@@ -3189,6 +3388,15 @@ class SetupWizardWindow(AtlasWindow):
         grid.set_vexpand(True)
 
         row = 0
+        admin_label = Gtk.Label(label="Initial admin")
+        admin_label.set_xalign(0.0)
+        grid.attach(admin_label, 0, row, 1, 1)
+        admin_combo = Gtk.ComboBoxText()
+        admin_combo.set_hexpand(False)
+        self._admin_user_combo = admin_combo
+        admin_combo.connect("changed", lambda *_: self._apply_admin_selection_to_form())
+        grid.attach(admin_combo, 1, row, 1, 1)
+        row += 1
         cap_hint = Gtk.Label(
             label=(
                 "Personal mode supports up to 5 local profiles. Upgrade to Enterprise to add "
@@ -3296,6 +3504,34 @@ class SetupWizardWindow(AtlasWindow):
         if isinstance(confirm_sudo_label, Gtk.Widget):
             self._user_advanced_widgets["sudo_confirm_label"] = confirm_sudo_label
         self._user_advanced_widgets["sudo_confirm_entry"] = confirm_sudo_entry
+        row += 1
+
+        db_label = Gtk.Label(label="Database privileged credentials")
+        db_label.set_xalign(0.0)
+        if hasattr(db_label, "add_css_class"):
+            db_label.add_css_class("heading")
+        grid.attach(db_label, 0, row, 2, 1)
+        row += 1
+
+        self._user_entries["db_username"] = self._create_labeled_entry(
+            grid, row, "DB username", self.controller.state.user.privileged_db_username
+        )
+        row += 1
+        self._user_entries["db_password"] = self._create_labeled_entry(
+            grid,
+            row,
+            "DB password",
+            self.controller.state.user.privileged_db_password,
+            visibility=False,
+        )
+        row += 1
+        self._user_entries["db_confirm_password"] = self._create_labeled_entry(
+            grid,
+            row,
+            "Confirm DB password",
+            self.controller.state.user.privileged_db_password,
+            visibility=False,
+        )
 
         def _sudo_validator() -> tuple[bool, str | None]:
             sudo_password = sudo_password_entry.get_text()
@@ -3320,8 +3556,13 @@ class SetupWizardWindow(AtlasWindow):
         )
         username_entry = self._user_entries["username"]
         self._register_required_text(username_entry, "Username")
+        self._register_required_text(self._user_entries["sudo_username"], "Sudo username")
+        self._register_required_text(self._user_entries["sudo_password"], "Sudo password", strip=False)
+        self._register_required_text(self._user_entries["db_username"], "DB username")
+        self._register_required_text(self._user_entries["db_password"], "DB password", strip=False)
         self._sync_user_entries_from_state()
         self._update_user_field_visibility()
+        self._refresh_admin_candidates()
         return form
 
     def _sync_user_entries_from_state(self) -> None:
@@ -3338,6 +3579,9 @@ class SetupWizardWindow(AtlasWindow):
             "sudo_username": privileged_state.sudo_username,
             "sudo_password": privileged_state.sudo_password,
             "confirm_sudo_password": privileged_state.sudo_password,
+            "db_username": state.privileged_db_username,
+            "db_password": state.privileged_db_password,
+            "db_confirm_password": state.privileged_db_password,
         }
         for key, value in mapping.items():
             entry = self._user_entries.get(key)
@@ -4360,7 +4604,11 @@ class SetupWizardWindow(AtlasWindow):
         return message
 
     def _apply_users_overview(self) -> str:
-        return "User overview acknowledged."
+        if not self.controller.state.users.entries:
+            raise ValueError("Add at least one user before selecting an administrator.")
+        self.controller.set_users(self.controller.state.users.entries)
+        self._refresh_admin_candidates()
+        return "User roster saved."
 
     def _apply_user(self) -> str:
         username = self._user_entries["username"].get_text().strip()
@@ -4373,6 +4621,12 @@ class SetupWizardWindow(AtlasWindow):
         sudo_username = self._user_entries["sudo_username"].get_text().strip()
         sudo_password = self._user_entries["sudo_password"].get_text()
         confirm_sudo = self._user_entries["confirm_sudo_password"].get_text()
+        db_username = self._user_entries["db_username"].get_text().strip()
+        db_password = self._user_entries["db_password"].get_text()
+        confirm_db_password = self._user_entries["db_confirm_password"].get_text()
+
+        if not self.controller.state.users.entries:
+            raise ValueError("Add at least one user before selecting an administrator.")
 
         if not username:
             raise ValueError("Username is required")
@@ -4380,8 +4634,18 @@ class SetupWizardWindow(AtlasWindow):
             raise ValueError("Password is required")
         if password != confirm:
             raise ValueError("Passwords do not match")
+        if not sudo_username:
+            raise ValueError("Sudo username is required")
+        if not sudo_password:
+            raise ValueError("Sudo password is required")
         if sudo_password != confirm_sudo:
             raise ValueError("Sudo passwords do not match")
+        if not db_username:
+            raise ValueError("Database privileged username is required")
+        if not db_password:
+            raise ValueError("Database privileged password is required")
+        if db_password != confirm_db_password:
+            raise ValueError("Database privileged passwords do not match")
 
         normalized_domain = domain_entry.strip()
         if normalized_domain.startswith("@"):
@@ -4398,7 +4662,9 @@ class SetupWizardWindow(AtlasWindow):
 
         display_name = full_name or username
 
-        privileged_username, privileged_password = (self._privileged_credentials or (None, None))
+        privileged_username, privileged_password = (db_username, db_password)
+        self._privileged_credentials = (privileged_username, privileged_password)
+        self.controller.set_privileged_credentials(self._privileged_credentials)
 
         profile = AdminProfile(
             username=username,
@@ -4415,6 +4681,7 @@ class SetupWizardWindow(AtlasWindow):
         )
 
         self.controller.set_user_profile(profile)
+        self.controller.set_users(self.controller.state.users.entries, initial_admin=username)
         self._privileged_credentials = self.controller.get_privileged_credentials()
         self._sync_user_entries_from_state()
         self._refresh_downstream_defaults()
