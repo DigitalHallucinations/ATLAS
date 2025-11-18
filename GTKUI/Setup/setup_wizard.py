@@ -2253,7 +2253,51 @@ class SetupWizardWindow(AtlasWindow):
             row.append(remove_button)
             list_box.append(row)
 
+    def _seed_personal_admin_user(self) -> None:
+        mode = getattr(self.controller.state.setup_type, "mode", "")
+        if (mode or "").strip().lower() != "personal":
+            return
+
+        username_entry = self._user_entries.get("username")
+        password_entry = self._user_entries.get("password")
+        full_name_entry = self._user_entries.get("full_name")
+
+        if not isinstance(username_entry, Gtk.Entry) or not isinstance(password_entry, Gtk.Entry):
+            return
+
+        username = username_entry.get_text().strip()
+        password = password_entry.get_text()
+        if not username or not password:
+            return
+
+        full_name = ""
+        if isinstance(full_name_entry, Gtk.Entry):
+            full_name = full_name_entry.get_text().strip()
+
+        staged_users: list[SetupUserEntry] = []
+        found = False
+        for entry in self.controller.state.users.entries:
+            if entry.username == username:
+                found = True
+                staged_users.append(
+                    SetupUserEntry(
+                        username=username,
+                        full_name=full_name or username,
+                        password=password,
+                    )
+                )
+                continue
+            staged_users.append(entry)
+
+        if not found:
+            staged_users.append(
+                SetupUserEntry(username=username, full_name=full_name or username, password=password)
+            )
+
+        self.controller.set_users(staged_users, initial_admin=username)
+
     def _refresh_admin_candidates(self) -> None:
+        self._seed_personal_admin_user()
         combo = self._admin_user_combo
         if combo is None:
             return
@@ -3560,6 +3604,10 @@ class SetupWizardWindow(AtlasWindow):
         self._register_required_text(self._user_entries["sudo_password"], "Sudo password", strip=False)
         self._register_required_text(self._user_entries["db_username"], "DB username")
         self._register_required_text(self._user_entries["db_password"], "DB password", strip=False)
+        for key in ("full_name", "username", "password"):
+            widget = self._user_entries.get(key)
+            if hasattr(widget, "connect"):
+                widget.connect("changed", lambda *_: (self._seed_personal_admin_user(), self._refresh_admin_candidates()))
         self._sync_user_entries_from_state()
         self._update_user_field_visibility()
         self._refresh_admin_candidates()
@@ -4625,6 +4673,7 @@ class SetupWizardWindow(AtlasWindow):
         db_password = self._user_entries["db_password"].get_text()
         confirm_db_password = self._user_entries["db_confirm_password"].get_text()
 
+        self._seed_personal_admin_user()
         if not self.controller.state.users.entries:
             raise ValueError("Add at least one user before selecting an administrator.")
 
