@@ -2821,7 +2821,7 @@ class PersonaManagement:
         self._analytics_latency_chart = latency_chart
 
         self._ensure_theme_monitoring()
-            self._apply_chart_theme()
+        self._apply_chart_theme()
 
     def _load_persona_metadata(self, persona_names: List[str]) -> None:
         manager = getattr(self.ATLAS, "persona_manager", None)
