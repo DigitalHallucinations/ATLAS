@@ -932,16 +932,14 @@ class SetupWizardWindow(AtlasWindow):
         optional_intro = self._build_optional_intro_page()
         optional_form = self._build_optional_page()
 
-        self._identity_step_index = 2
+        mode = getattr(self.controller.state.setup_type, "mode", "").strip().lower()
+
+        self._identity_step_index = None
         self._identity_pages_by_mode = {
             "personal": [administrator_intro, administrator_form],
-            "enterprise": [optional_intro, optional_form, administrator_form],
+            "enterprise": [administrator_form],
         }
-        identity_pages: list[Gtk.Widget] = []
-        for pages in self._identity_pages_by_mode.values():
-            for page in pages:
-                if page not in identity_pages:
-                    identity_pages.append(page)
+        admin_pages = self._get_identity_pages()
 
         provider_intro = self._build_provider_intro_page()
         provider_pages = [provider_intro, *provider_pages]
@@ -959,49 +957,75 @@ class SetupWizardWindow(AtlasWindow):
                 subpages=[setup_type_page],
                 apply=self._apply_setup_type,
             ),
+        ]
+
+        if mode == "enterprise":
+            self._steps.append(
+                WizardStep(
+                    name="Company",
+                    widget=optional_intro,
+                    subpages=[optional_intro, optional_form],
+                    apply=self._apply_optional,
+                )
+            )
+            self._steps.append(
+                WizardStep(
+                    name="Users",
+                    widget=administrator_intro,
+                    subpages=[administrator_intro],
+                    apply=self._apply_users_overview,
+                )
+            )
+
+        self._identity_step_index = len(self._steps)
+        self._steps.append(
             WizardStep(
                 name=self._get_identity_step_name(),
-                widget=identity_pages[0],
-                subpages=identity_pages,
-                apply=self._apply_identity,
-            ),
-            WizardStep(
-                name="Database",
-                widget=database_intro,
-                subpages=[database_intro, database_form],
-                apply=self._apply_database,
-            ),
-            WizardStep(
-                name="Job Scheduling",
-                widget=job_scheduling_intro,
-                subpages=[job_scheduling_intro, job_scheduling_form],
-                apply=self._apply_job_scheduling,
-            ),
-            WizardStep(
-                name="Message Bus",
-                widget=message_bus_intro,
-                subpages=[message_bus_intro, message_bus_form],
-                apply=self._apply_message_bus,
-            ),
-            WizardStep(
-                name="Key-Value Store",
-                widget=kv_intro,
-                subpages=[kv_intro, kv_form],
-                apply=self._apply_kv_store,
-            ),
-            WizardStep(
-                name="Providers",
-                widget=provider_pages[0],
-                subpages=provider_pages,
-                apply=self._apply_providers,
-            ),
-            WizardStep(
-                name="Speech",
-                widget=speech_intro,
-                subpages=[speech_intro, speech_form],
-                apply=self._apply_speech,
-            ),
-        ]
+                widget=admin_pages[0],
+                subpages=admin_pages,
+                apply=self._apply_user,
+            )
+        )
+        self._steps.extend(
+            [
+                WizardStep(
+                    name="Database",
+                    widget=database_intro,
+                    subpages=[database_intro, database_form],
+                    apply=self._apply_database,
+                ),
+                WizardStep(
+                    name="Job Scheduling",
+                    widget=job_scheduling_intro,
+                    subpages=[job_scheduling_intro, job_scheduling_form],
+                    apply=self._apply_job_scheduling,
+                ),
+                WizardStep(
+                    name="Message Bus",
+                    widget=message_bus_intro,
+                    subpages=[message_bus_intro, message_bus_form],
+                    apply=self._apply_message_bus,
+                ),
+                WizardStep(
+                    name="Key-Value Store",
+                    widget=kv_intro,
+                    subpages=[kv_intro, kv_form],
+                    apply=self._apply_kv_store,
+                ),
+                WizardStep(
+                    name="Providers",
+                    widget=provider_pages[0],
+                    subpages=provider_pages,
+                    apply=self._apply_providers,
+                ),
+                WizardStep(
+                    name="Speech",
+                    widget=speech_intro,
+                    subpages=[speech_intro, speech_form],
+                    apply=self._apply_speech,
+                ),
+            ]
+        )
 
         for index, step in enumerate(self._steps):
             container, inner_stack = self._create_step_container(index, step)
@@ -1753,7 +1777,10 @@ class SetupWizardWindow(AtlasWindow):
             self._refresh_setup_type_defaults()
 
         self._sync_setup_type_selection()
-        self._update_setup_type_dependent_widgets()
+        if changed:
+            self._rebuild_steps_after_config_change()
+        else:
+            self._update_setup_type_dependent_widgets()
 
         if after_applied:
             if changed:
@@ -1965,9 +1992,6 @@ class SetupWizardWindow(AtlasWindow):
                 pass
 
     def _get_identity_step_name(self) -> str:
-        mode = getattr(self.controller.state.setup_type, "mode", "").strip().lower()
-        if mode == "enterprise":
-            return "Company"
         return "Admin"
 
     def _get_identity_pages(self) -> list[Gtk.Widget]:
@@ -4335,13 +4359,8 @@ class SetupWizardWindow(AtlasWindow):
         message, _ = self._apply_setup_type_selection(None, update_status=True)
         return message
 
-    def _apply_identity(self) -> str:
-        mode = getattr(self.controller.state.setup_type, "mode", "").strip().lower()
-        if mode == "enterprise":
-            org_message = self._apply_optional()
-            admin_message = self._apply_user()
-            return f"{org_message} {admin_message}".strip()
-        return self._apply_user()
+    def _apply_users_overview(self) -> str:
+        return "User overview acknowledged."
 
     def _apply_user(self) -> str:
         username = self._user_entries["username"].get_text().strip()
