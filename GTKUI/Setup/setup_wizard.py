@@ -973,6 +973,8 @@ class SetupWizardWindow(AtlasWindow):
                     apply=self._apply_optional,
                 )
             )
+
+        if mode in {"enterprise", "personal"}:
             self._steps.append(
                 WizardStep(
                     name="Users",
