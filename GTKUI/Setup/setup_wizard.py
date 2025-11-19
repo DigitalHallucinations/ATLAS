@@ -444,17 +444,8 @@ class SetupWizardWindow(AtlasWindow):
         self._instructions_label.set_visible(False)
         guidance_column.append(self._instructions_label)
 
-        self._stack = Gtk.Stack()
-        self._stack.set_transition_type(Gtk.StackTransitionType.SLIDE_LEFT_RIGHT)
-        if hasattr(self._stack, "set_hhomogeneous"):
-            self._stack.set_hhomogeneous(True)
-        if hasattr(self._stack, "set_vhomogeneous"):
-            self._stack.set_vhomogeneous(True)
-        self._stack.set_hexpand(True)
-        self._stack.set_vexpand(True)
+        self._stack = self._create_main_stack()
         self._form_column.append(self._stack)
-
-        self._stack.connect("notify::visible-child", self._on_stack_visible_child_changed)
 
         # NOTE: removed the old single-line step indicator bar (sidebar replaces it)
 
@@ -900,15 +891,7 @@ class SetupWizardWindow(AtlasWindow):
 
     def _build_steps(self) -> None:
         self._instructions_by_widget.clear()
-        try:
-            children = list(self._stack.get_children())
-        except AttributeError:  # pragma: no cover - GTK3 fallback
-            children = []
-        for child in children:
-            try:
-                self._stack.remove(child)
-            except Exception:  # pragma: no cover - defensive
-                pass
+        self._reset_main_stack()
 
         self._step_containers = []
         self._step_page_stacks.clear()
@@ -1045,6 +1028,58 @@ class SetupWizardWindow(AtlasWindow):
                 self._step_page_stacks[index] = inner_stack
 
         self._update_setup_type_dependent_widgets()
+
+    def _reset_main_stack(self) -> None:
+        """Replace the main stack to ensure a clean slate for step pages."""
+
+        old_stack = getattr(self, "_stack", None)
+        try:
+            parent = old_stack.get_parent() if old_stack else None
+        except Exception:  # pragma: no cover - defensive fallback
+            parent = None
+
+        new_stack = self._create_main_stack()
+
+        if parent is not None and old_stack is not None:
+            try:
+                parent.remove(old_stack)
+            except Exception:  # pragma: no cover - defensive
+                try:
+                    if hasattr(old_stack, "remove_all"):
+                        old_stack.remove_all()
+                except Exception:
+                    pass
+
+            try:
+                parent.append(new_stack)
+            except Exception:  # pragma: no cover - GTK3 fallback
+                try:
+                    parent.pack_start(new_stack, True, True, 0)
+                except Exception:
+                    parent.add(new_stack)
+
+        elif getattr(self, "_form_column", None) is not None:
+            try:
+                self._form_column.append(new_stack)
+            except Exception:  # pragma: no cover - GTK3 fallback
+                try:
+                    self._form_column.pack_start(new_stack, True, True, 0)
+                except Exception:
+                    self._form_column.add(new_stack)
+
+        self._stack = new_stack
+
+    def _create_main_stack(self) -> Gtk.Stack:
+        stack = Gtk.Stack()
+        stack.set_transition_type(Gtk.StackTransitionType.SLIDE_LEFT_RIGHT)
+        if hasattr(stack, "set_hhomogeneous"):
+            stack.set_hhomogeneous(True)
+        if hasattr(stack, "set_vhomogeneous"):
+            stack.set_vhomogeneous(True)
+        stack.set_hexpand(True)
+        stack.set_vexpand(True)
+        stack.connect("notify::visible-child", self._on_stack_visible_child_changed)
+        return stack
 
     def _create_step_container(
         self, index: int, step: WizardStep
