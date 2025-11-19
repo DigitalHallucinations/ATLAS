@@ -137,6 +137,7 @@ class SetupWizardWindow(AtlasWindow):
     _ADDITIONAL_LOGGER_NAMES: tuple[str, ...] = (
         "ATLAS.setup",
         "ATLAS.setup.cli",
+        "GTKUI.Setup.setup_wizard",
         "modules.conversation_store.bootstrap",
     )
     _DEBUG_ICON_FILENAME = "debug.png"
