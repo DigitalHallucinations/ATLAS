@@ -149,6 +149,7 @@ class SetupUserEntry:
     username: str
     full_name: str
     password: str
+    email: str = ""
     requires_password_reset: bool = True
 
 
@@ -1002,11 +1003,13 @@ class SetupWizardController:
                 continue
             usernames.add(username)
             requires_password_reset = getattr(entry, "requires_password_reset", True)
+            email = getattr(entry, "email", "")
             unique_users.append(
                 SetupUserEntry(
                     username=username,
                     full_name=entry.full_name.strip(),
                     password=entry.password,
+                    email=email.strip(),
                     requires_password_reset=bool(requires_password_reset),
                 )
             )
