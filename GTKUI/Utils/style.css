@@ -302,8 +302,10 @@ headerbar.setup-wizard-header button.setup-wizard-debug-button image {
 
 .setup-wizard-step-mark {
     font-weight: 700;
-    align-self: center;
+    margin-top: auto;
+    margin-bottom: auto;
     min-width: 16px;
+    text-align: center;
 }
 
 .setup-wizard-step-mark.setup-wizard-step-complete {
