@@ -2134,7 +2134,7 @@ class SetupWizardWindow(AtlasWindow):
             "About the Administrator",
             [
                 "Create the first administrator so there's a trusted owner from day one.",
-                "We'll reuse their contact and domain details to prefill later steps.",
+                "We'll reuse their contact details to prefill later steps.",
             ],
             "Grab a strong password and the administrator's contact info, then continue when you're set.",
         )
@@ -2171,6 +2171,10 @@ class SetupWizardWindow(AtlasWindow):
         row += 1
         self._user_collection_entries["username"] = self._create_labeled_entry(
             grid, row, "Username", ""
+        )
+        row += 1
+        self._user_collection_entries["email"] = self._create_labeled_entry(
+            grid, row, "Email", ""
         )
         row += 1
         has_existing_user = bool(self.controller.state.users.entries)
@@ -2219,6 +2223,8 @@ class SetupWizardWindow(AtlasWindow):
                     raise ValueError("User inputs are not ready")
             full_name = self._user_collection_entries["full_name"].get_text().strip()
             username = self._user_collection_entries["username"].get_text().strip()
+            email = self._user_collection_entries.get("email")
+            email_value = email.get_text().strip() if isinstance(email, Gtk.Entry) else ""
             password = self._user_collection_entries["password"].get_text()
             confirm = self._user_collection_entries["confirm_password"].get_text()
             if not full_name:
@@ -2240,6 +2246,7 @@ class SetupWizardWindow(AtlasWindow):
             entry = SetupUserEntry(
                 username=username,
                 full_name=full_name,
+                email=email_value,
                 password=password,
                 requires_password_reset=requires_reset,
             )
@@ -2424,10 +2431,6 @@ class SetupWizardWindow(AtlasWindow):
         entry = next((user for user in self.controller.state.users.entries if user.username == username), None)
         if entry is None:
             return
-        if "username" in self._user_entries:
-            self._user_entries["username"].set_text(entry.username)
-        if "full_name" in self._user_entries:
-            self._user_entries["full_name"].set_text(entry.full_name)
         for key in ("password", "confirm_password"):
             widget = self._user_entries.get(key)
             if isinstance(widget, Gtk.Entry):
@@ -3547,46 +3550,6 @@ class SetupWizardWindow(AtlasWindow):
         grid.attach(cap_hint, 0, row, 2, 1)
         self._personal_cap_hint = cap_hint
         row += 1
-        self._user_entries["full_name"] = self._create_labeled_entry(
-            grid, row, "Full name", state.full_name
-        )
-        row += 1
-        self._user_entries["username"] = self._create_labeled_entry(grid, row, "Username", state.username)
-        row += 1
-        self._user_entries["email"] = self._create_labeled_entry(grid, row, "Email", state.email)
-        row += 1
-        self._user_entries["domain"] = self._create_labeled_entry(
-            grid,
-            row,
-            "Domain",
-            state.domain,
-            placeholder="example.com",
-        )
-        domain_label = grid.get_child_at(0, row)
-        if isinstance(domain_label, Gtk.Widget):
-            self._user_advanced_widgets["domain_label"] = domain_label
-        self._user_advanced_widgets["domain_entry"] = self._user_entries["domain"]
-        row += 1
-        dob_entry = self._create_labeled_entry(
-            grid,
-            row,
-            "Date of birth",
-            state.date_of_birth,
-            placeholder="YYYY-MM-DD",
-        )
-        # ``Gtk.InputPurpose.DATE`` was added in GTK 4. Fall back to a broadly
-        # compatible purpose so the widget still works under GTK 3 where the
-        # enum value may not exist.
-        if hasattr(Gtk.InputPurpose, "DATE"):
-            dob_entry.set_input_purpose(Gtk.InputPurpose.DATE)
-        elif hasattr(Gtk.InputPurpose, "FREE_FORM"):
-            dob_entry.set_input_purpose(Gtk.InputPurpose.FREE_FORM)
-        self._user_entries["date_of_birth"] = dob_entry
-        dob_label = grid.get_child_at(0, row)
-        if isinstance(dob_label, Gtk.Widget):
-            self._user_advanced_widgets["dob_label"] = dob_label
-        self._user_advanced_widgets["dob_entry"] = dob_entry
-        row += 1
         self._user_entries["password"] = self._create_labeled_entry(
             grid, row, "Password", state.password, visibility=False
         )
@@ -3686,22 +3649,16 @@ class SetupWizardWindow(AtlasWindow):
         self._register_linked_validation_trigger(sudo_password_entry, confirm_sudo_entry)
 
         instructions = (
-            "Share the administrator's contact details, optional domain, and any privileged credentials so we can stage them for later steps."
+            "Collect the administrator password and privileged credentials so we can stage them for later steps."
         )
 
         form = self._wrap_with_instructions(
             grid, instructions, "Configure Administrator"
         )
-        username_entry = self._user_entries["username"]
-        self._register_required_text(username_entry, "Username")
         self._register_required_text(self._user_entries["sudo_username"], "Sudo username")
         self._register_required_text(self._user_entries["sudo_password"], "Sudo password", strip=False)
         self._register_required_text(self._user_entries["db_username"], "DB username")
         self._register_required_text(self._user_entries["db_password"], "DB password", strip=False)
-        for key in ("full_name", "username", "password"):
-            widget = self._user_entries.get(key)
-            if hasattr(widget, "connect"):
-                widget.connect("changed", lambda *_: (self._seed_personal_admin_user(), self._refresh_admin_candidates()))
         self._sync_user_entries_from_state()
         self._update_user_field_visibility()
         self._refresh_admin_candidates()
@@ -3711,11 +3668,6 @@ class SetupWizardWindow(AtlasWindow):
         state = self.controller.state.user
         privileged_state = state.privileged_credentials
         mapping = {
-            "full_name": state.full_name,
-            "username": state.username,
-            "email": state.email,
-            "domain": state.domain,
-            "date_of_birth": state.date_of_birth,
             "password": state.password,
             "confirm_password": state.password,
             "sudo_username": privileged_state.sudo_username,
@@ -4753,11 +4705,15 @@ class SetupWizardWindow(AtlasWindow):
         return "User roster saved."
 
     def _apply_user(self) -> str:
-        username = self._user_entries["username"].get_text().strip()
-        email = self._user_entries["email"].get_text().strip()
-        full_name = self._user_entries["full_name"].get_text().strip()
-        domain_entry = self._user_entries["domain"].get_text().strip()
-        date_of_birth_text = self._user_entries["date_of_birth"].get_text().strip()
+        admin_username = self.controller.state.users.initial_admin_username.strip()
+        admin_entry = next(
+            (
+                entry
+                for entry in self.controller.state.users.entries
+                if entry.username.strip() == admin_username
+            ),
+            None,
+        )
         password = self._user_entries["password"].get_text()
         confirm = self._user_entries["confirm_password"].get_text()
         sudo_username = self._user_entries["sudo_username"].get_text().strip()
@@ -4771,8 +4727,8 @@ class SetupWizardWindow(AtlasWindow):
         if not self.controller.state.users.entries:
             raise ValueError("Add at least one user before selecting an administrator.")
 
-        if not username:
-            raise ValueError("Username is required")
+        if admin_entry is None:
+            raise ValueError("Select an administrator before saving their credentials.")
         if not password:
             raise ValueError("Password is required")
         if password != confirm:
@@ -4790,33 +4746,28 @@ class SetupWizardWindow(AtlasWindow):
         if db_password != confirm_db_password:
             raise ValueError("Database privileged passwords do not match")
 
-        normalized_domain = domain_entry.strip()
+        normalized_domain = (
+            (self.controller.state.optional.tenant_id or self.controller.state.user.domain)
+            or ""
+        ).strip()
         if normalized_domain.startswith("@"):
             normalized_domain = normalized_domain[1:]
         normalized_domain = normalized_domain.lower()
 
-        dob_value = date_of_birth_text
-        if date_of_birth_text:
-            try:
-                parsed = datetime.strptime(date_of_birth_text, "%Y-%m-%d")
-            except ValueError as exc:
-                raise ValueError("Date of birth must use YYYY-MM-DD format") from exc
-            dob_value = parsed.strftime("%Y-%m-%d")
-
-        display_name = full_name or username
+        display_name = admin_entry.full_name or admin_entry.username
 
         privileged_username, privileged_password = (db_username, db_password)
         self._privileged_credentials = (privileged_username, privileged_password)
         self.controller.set_privileged_credentials(self._privileged_credentials)
 
         profile = AdminProfile(
-            username=username,
-            email=email,
+            username=admin_entry.username,
+            email=getattr(admin_entry, "email", "").strip(),
             password=password,
             display_name=display_name,
-            full_name=full_name,
+            full_name=admin_entry.full_name.strip(),
             domain=normalized_domain,
-            date_of_birth=dob_value,
+            date_of_birth=self.controller.state.user.date_of_birth,
             sudo_username=sudo_username,
             sudo_password=sudo_password,
             privileged_db_username=privileged_username or "",
@@ -4824,7 +4775,9 @@ class SetupWizardWindow(AtlasWindow):
         )
 
         self.controller.set_user_profile(profile)
-        self.controller.set_users(self.controller.state.users.entries, initial_admin=username)
+        self.controller.set_users(
+            self.controller.state.users.entries, initial_admin=admin_entry.username
+        )
         self._privileged_credentials = self.controller.get_privileged_credentials()
         self._sync_user_entries_from_state()
         self._refresh_downstream_defaults()
