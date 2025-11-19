@@ -149,6 +149,7 @@ class SetupUserEntry:
     username: str
     full_name: str
     password: str
+    requires_password_reset: bool = True
 
 
 @dataclass
@@ -1000,13 +1001,17 @@ class SetupWizardController:
             if username in usernames:
                 continue
             usernames.add(username)
+            requires_password_reset = getattr(entry, "requires_password_reset", True)
             unique_users.append(
                 SetupUserEntry(
                     username=username,
                     full_name=entry.full_name.strip(),
                     password=entry.password,
+                    requires_password_reset=bool(requires_password_reset),
                 )
             )
+        if unique_users:
+            unique_users[0] = dataclasses.replace(unique_users[0], requires_password_reset=False)
         admin_username = (initial_admin or self.state.users.initial_admin_username).strip()
         if admin_username and admin_username not in usernames:
             admin_username = ""
@@ -1102,6 +1107,9 @@ class SetupWizardController:
                         "username": entry.username,
                         "full_name": entry.full_name,
                         "has_password": bool(entry.password),
+                        "requires_password_reset": bool(
+                            getattr(entry, "requires_password_reset", False)
+                        ),
                     }
                     for entry in self.state.users.entries
                 ],

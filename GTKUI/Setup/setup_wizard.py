@@ -541,6 +541,7 @@ class SetupWizardWindow(AtlasWindow):
         self._provider_show_toggle: Gtk.CheckButton | None = None
         self._local_only_toggle: Gtk.CheckButton | None = None
         self._user_collection_entries: Dict[str, Gtk.Entry] = {}
+        self._user_collection_labels: Dict[str, Gtk.Label] = {}
         self._user_list_box: Gtk.ListBox | None = None
         self._user_entries: Dict[str, Gtk.Entry] = {}
         self._user_advanced_widgets: Dict[str, Gtk.Widget] = {}
@@ -2117,7 +2118,7 @@ class SetupWizardWindow(AtlasWindow):
 
         subtitle = Gtk.Label(
             label=(
-                "Add one or more accounts with a temporary password. We'll let you pick the first administrator next."
+                "Start with the first user's password, then add any additional accounts with temporary passwords that need a reset."
             )
         )
         subtitle.set_wrap(True)
@@ -2137,26 +2138,38 @@ class SetupWizardWindow(AtlasWindow):
             grid, row, "Username", ""
         )
         row += 1
+        has_existing_user = bool(self.controller.state.users.entries)
+        password_label = "Temporary password" if has_existing_user else "Password"
+        confirm_label = "Confirm temporary password" if has_existing_user else "Confirm password"
         password_entry = self._create_labeled_entry(
-            grid, row, "Temporary password", "", visibility=False
+            grid, row, password_label, "", visibility=False
         )
         self._user_collection_entries["password"] = password_entry
+        password_label_widget = grid.get_child_at(0, row)
+        if isinstance(password_label_widget, Gtk.Label):
+            self._user_collection_labels["password"] = password_label_widget
         row += 1
         confirm_entry = self._create_labeled_entry(
-            grid, row, "Confirm password", "", visibility=False
+            grid, row, confirm_label, "", visibility=False
         )
         self._user_collection_entries["confirm_password"] = confirm_entry
+        confirm_label_widget = grid.get_child_at(0, row)
+        if isinstance(confirm_label_widget, Gtk.Label):
+            self._user_collection_labels["confirm_password"] = confirm_label_widget
         row += 1
 
         def _password_validator() -> tuple[bool, str | None]:
+            has_starter = bool(self.controller.state.users.entries)
+            field_label = "Temporary password" if has_starter else "Password"
             password = password_entry.get_text()
             confirm = confirm_entry.get_text()
             if not password:
-                return False, "Password is required"
+                return False, f"{field_label} is required"
             if password != confirm:
                 return False, "Passwords must match"
             return True, None
 
+        self._register_validation(password_entry, _password_validator)
         self._register_validation(confirm_entry, _password_validator)
         self._register_linked_validation_trigger(password_entry, confirm_entry)
 
@@ -2177,13 +2190,20 @@ class SetupWizardWindow(AtlasWindow):
             if not username:
                 self.display_error(ValueError("Username is required"))
                 return
+            field_label = "Temporary password" if self.controller.state.users.entries else "Password"
             if not password:
-                self.display_error(ValueError("Password is required"))
+                self.display_error(ValueError(f"{field_label} is required"))
                 return
             if password != confirm:
                 self.display_error(ValueError("Passwords must match"))
                 return
-            entry = SetupUserEntry(username=username, full_name=full_name, password=password)
+            requires_reset = bool(self.controller.state.users.entries)
+            entry = SetupUserEntry(
+                username=username,
+                full_name=full_name,
+                password=password,
+                requires_password_reset=requires_reset,
+            )
             self.controller.add_user_entry(entry)
             for key, widget in self._user_collection_entries.items():
                 if isinstance(widget, Gtk.Entry):
@@ -2211,7 +2231,6 @@ class SetupWizardWindow(AtlasWindow):
 
         self._register_required_text(self._user_collection_entries["username"], "Username")
         self._register_required_text(self._user_collection_entries["full_name"], "Full name")
-        self._register_required_text(password_entry, "Temporary password", strip=False)
 
         self._register_instructions(
             box,
@@ -2240,7 +2259,7 @@ class SetupWizardWindow(AtlasWindow):
         for entry in self.controller.state.users.entries:
             row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
             row.set_hexpand(True)
-            label = Gtk.Label(label=f"{entry.full_name} ({entry.username})")
+            label = Gtk.Label(label=self._format_user_display(entry))
             label.set_xalign(0.0)
             label.set_wrap(True)
             remove_button = Gtk.Button(label="Remove")
@@ -2254,6 +2273,27 @@ class SetupWizardWindow(AtlasWindow):
             row.append(label)
             row.append(remove_button)
             list_box.append(row)
+
+        self._update_user_password_labels()
+
+    def _update_user_password_labels(self) -> None:
+        has_existing_user = bool(self.controller.state.users.entries)
+        label_map = {
+            "password": "Temporary password" if has_existing_user else "Password",
+            "confirm_password": "Confirm temporary password"
+            if has_existing_user
+            else "Confirm password",
+        }
+        for key, text in label_map.items():
+            widget = self._user_collection_labels.get(key)
+            if isinstance(widget, Gtk.Label):
+                widget.set_text(text)
+
+    def _format_user_display(self, entry: SetupUserEntry) -> str:
+        base = f"{entry.full_name} ({entry.username})" if entry.full_name else entry.username
+        if getattr(entry, "requires_password_reset", False):
+            return f"{base} — temporary password (reset required)"
+        return f"{base} — permanent password"
 
     def _seed_personal_admin_user(self) -> None:
         mode = getattr(self.controller.state.setup_type, "mode", "")
@@ -2286,6 +2326,7 @@ class SetupWizardWindow(AtlasWindow):
                         username=username,
                         full_name=full_name or username,
                         password=password,
+                        requires_password_reset=getattr(entry, "requires_password_reset", False),
                     )
                 )
                 continue
@@ -2293,7 +2334,12 @@ class SetupWizardWindow(AtlasWindow):
 
         if not found:
             staged_users.append(
-                SetupUserEntry(username=username, full_name=full_name or username, password=password)
+                SetupUserEntry(
+                    username=username,
+                    full_name=full_name or username,
+                    password=password,
+                    requires_password_reset=False,
+                )
             )
 
         self.controller.set_users(staged_users, initial_admin=username)
@@ -2310,7 +2356,7 @@ class SetupWizardWindow(AtlasWindow):
         users = self.controller.state.users.entries
         selected = self.controller.state.users.initial_admin_username
         for entry in users:
-            display = f"{entry.full_name} ({entry.username})" if entry.full_name else entry.username
+            display = self._format_user_display(entry)
             combo.append(entry.username, display)
         if not users:
             combo.append("", "No users added yet")
