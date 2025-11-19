@@ -2195,6 +2195,8 @@ class SetupWizardWindow(AtlasWindow):
 
         def _password_validator() -> tuple[bool, str | None]:
             has_starter = bool(self.controller.state.users.entries)
+            if not password_entry.get_sensitive():
+                return True, None
             field_label = "Temporary password" if has_starter else "Password"
             password = password_entry.get_text()
             confirm = confirm_entry.get_text()
@@ -2225,11 +2227,13 @@ class SetupWizardWindow(AtlasWindow):
             if not username:
                 self.display_error(ValueError("Username is required"))
                 return
-            field_label = "Temporary password" if self.controller.state.users.entries else "Password"
-            if not password:
+            has_starter = bool(self.controller.state.users.entries)
+            field_label = "Temporary password" if has_starter else "Password"
+            password_required = has_starter and password_entry.get_sensitive()
+            if password_required and not password:
                 self.display_error(ValueError(f"{field_label} is required"))
                 return
-            if password != confirm:
+            if password_required and password != confirm:
                 self.display_error(ValueError("Passwords must match"))
                 return
             requires_reset = bool(self.controller.state.users.entries)
@@ -2313,12 +2317,19 @@ class SetupWizardWindow(AtlasWindow):
 
     def _update_user_password_labels(self) -> None:
         has_existing_user = bool(self.controller.state.users.entries)
+        allow_passwords = has_existing_user
         label_map = {
             "password": "Temporary password" if has_existing_user else "Password",
             "confirm_password": "Confirm temporary password"
             if has_existing_user
             else "Confirm password",
         }
+        for key in ("password", "confirm_password"):
+            widget = self._user_collection_entries.get(key)
+            if isinstance(widget, Gtk.Entry):
+                widget.set_sensitive(allow_passwords)
+                if not allow_passwords:
+                    widget.set_text("")
         for key, text in label_map.items():
             widget = self._user_collection_labels.get(key)
             if isinstance(widget, Gtk.Label):
