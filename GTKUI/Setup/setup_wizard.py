@@ -522,6 +522,7 @@ class SetupWizardWindow(AtlasWindow):
         self._current_page_indices: Dict[int, int] = {}
 
         self._setup_type_buttons: Dict[str, Gtk.CheckButton] = {}
+        self._setup_type_headers: Dict[str, Gtk.Label] = {}
         self._setup_type_syncing = False
         self._database_entries: Dict[str, Gtk.Entry] = {}
         self._database_backend_combo: Gtk.ComboBoxText | None = None
@@ -902,6 +903,7 @@ class SetupWizardWindow(AtlasWindow):
         self._preflight_results.clear()
 
         self._setup_type_buttons.clear()
+        self._setup_type_headers.clear()
         provider_pages = self._build_provider_pages()
 
         overview_page = self._build_overview_page()
@@ -1670,6 +1672,10 @@ class SetupWizardWindow(AtlasWindow):
             if hasattr(label, "add_css_class"):
                 label.add_css_class("heading")
             table.attach(label, col, 0, 1, 1)
+            if col == 1:
+                self._setup_type_headers["personal"] = label
+            elif col == 2:
+                self._setup_type_headers["enterprise"] = label
 
         rows = [
             (
@@ -1753,8 +1759,24 @@ class SetupWizardWindow(AtlasWindow):
             if isinstance(local_toggle, Gtk.CheckButton):
                 local_toggle.set_sensitive(normalized == "personal")
                 local_toggle.set_active(bool(state.local_only) if state else False)
+            self._update_setup_type_header_styles(normalized)
         finally:
             self._setup_type_syncing = False
+
+    def _update_setup_type_header_styles(self, selected: str) -> None:
+        for key, label in self._setup_type_headers.items():
+            if not isinstance(label, Gtk.Label):
+                continue
+            remover = getattr(label, "remove_css_class", None)
+            if callable(remover):
+                remover("accent")
+                remover("primary")
+            if key != selected:
+                continue
+            adder = getattr(label, "add_css_class", None)
+            if callable(adder):
+                adder("accent")
+                adder("primary")
 
     def _get_selected_setup_type(self) -> str | None:
         for key, button in self._setup_type_buttons.items():
