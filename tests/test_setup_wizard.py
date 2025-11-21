@@ -398,6 +398,43 @@ def test_stack_switcher_updates_current_index():
     assert window._current_index == 6
 
 
+def test_setup_type_headers_highlight_active_mode():
+    application = Gtk.Application()
+    controller = FakeController()
+    window = SetupWizardWindow(
+        application=application,
+        atlas=None,
+        on_success=lambda: None,
+        on_error=lambda exc: None,
+        controller=controller,
+    )
+
+    personal_label = window._setup_type_headers.get("personal")
+    enterprise_label = window._setup_type_headers.get("enterprise")
+
+    assert isinstance(personal_label, Gtk.Label)
+    assert isinstance(enterprise_label, Gtk.Label)
+
+    if not hasattr(personal_label, "get_css_classes"):
+        window.close()
+        pytest.skip("GTK labels do not expose CSS classes")
+
+    def _is_highlighted(label: Gtk.Label) -> bool:
+        return any(cls in {"accent", "primary"} for cls in label.get_css_classes())
+
+    assert _is_highlighted(personal_label)
+    assert not _is_highlighted(enterprise_label)
+
+    enterprise_button = window._setup_type_buttons.get("enterprise")
+    assert isinstance(enterprise_button, Gtk.CheckButton)
+    enterprise_button.set_active(True)
+
+    assert _is_highlighted(enterprise_label)
+    assert not _is_highlighted(personal_label)
+
+    window.close()
+
+
 class _CallbackRecorder:
     def __init__(self):
         self.calls = []
