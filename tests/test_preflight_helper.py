@@ -6,6 +6,7 @@ from GTKUI.Setup.preflight import (
     PreflightCheckDefinition,
     PreflightHelper,
 )
+from ATLAS.setup import MessageBusState
 
 
 class _FakeProcess:
@@ -157,3 +158,26 @@ def test_preflight_helper_handles_spawn_errors():
     assert len(completed) == 1
     assert completed[0].passed is False
     assert "Unable to execute" in completed[0].message
+
+
+def test_preflight_helper_honors_redis_url():
+    factory = _ProcessFactory()
+    helper = PreflightHelper(
+        request_password=lambda: None,
+        subprocess_factory=factory,
+    )
+
+    helper.configure_message_bus_target(
+        MessageBusState(backend="redis", redis_url="redis://cache:6379/1")
+    )
+
+    definitions = list(helper._default_checks())
+    for definition in definitions:
+        factory.enqueue(definition.command, _FakeProcess(exit_status=0))
+
+    completed: list = []
+    helper.run_checks(on_complete=lambda results: completed.extend(results))
+
+    redis_commands = [call for call, _flags in factory.calls if "redis-cli" in call]
+    assert any("-u" in command and "redis://cache:6379/1" in command for command in redis_commands)
+    assert len(completed) == len(definitions)

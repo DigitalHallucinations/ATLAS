@@ -12,7 +12,7 @@ gi.require_version("Gio", "2.0")
 gi.require_version("GLib", "2.0")
 from gi.repository import Gio, GLib
 
-from ATLAS.setup.controller import DatabaseState, _compose_dsn
+from ATLAS.setup.controller import DatabaseState, MessageBusState, _compose_dsn
 
 
 PasswordProvider = Callable[[], str | None]
@@ -59,6 +59,7 @@ class PreflightHelper:
     ) -> None:
         self._request_password = request_password
         self._database_state: DatabaseState = DatabaseState()
+        self._redis_url: str | None = None
         self._checks: list[PreflightCheckDefinition] = list(checks or self._default_checks())
         self._subprocess_factory = subprocess_factory or self._spawn_subprocess
 
@@ -78,6 +79,20 @@ class PreflightHelper:
             self._database_state = DatabaseState()
         else:
             self._database_state = dataclasses.replace(state)
+
+    def configure_message_bus_target(self, state: MessageBusState | None) -> None:
+        """Adjust the Redis check to match *state* for the next run."""
+
+        if state is None:
+            self._redis_url = None
+            return
+
+        if (state.backend or "").strip().lower() != "redis":
+            self._redis_url = None
+            return
+
+        url = (state.redis_url or "").strip() or None
+        self._redis_url = url
 
     def run_checks(
         self,
@@ -408,10 +423,14 @@ class PreflightHelper:
             "Redis did not respond to ping. Verify the redis-server service is installed"
             " and running."
         )
+        command: list[str] = ["/usr/bin/env", "redis-cli"]
+        if self._redis_url:
+            command.extend(["-u", self._redis_url])
+        command.append("ping")
         return PreflightCheckDefinition(
             identifier="redis",
             label="Redis",
-            command=["/usr/bin/env", "redis-cli", "ping"],
+            command=command,
             success_message="Redis responded to ping.",
             failure_hint=redis_hint,
             fix_command=[
