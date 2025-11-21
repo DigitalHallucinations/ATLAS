@@ -877,19 +877,31 @@ class SetupWizardWindow(AtlasWindow):
             self.show_error_toast("Failed to import configuration.")
             return
 
-        self._rebuild_steps_after_config_change()
+        current_step_index = getattr(self, "_current_index", 0)
+        self._rebuild_steps_after_config_change(
+            target_step_index=current_step_index
+        )
         self._set_status(f"Configuration imported from {imported}.")
         self.show_success_toast(f"Imported configuration from {Path(imported).name}")
 
-    def _rebuild_steps_after_config_change(self) -> None:
+    def _rebuild_steps_after_config_change(
+        self, *, target_step_index: int | None = None
+    ) -> None:
         """Recreate wizard pages so widgets reflect the controller state."""
+
+        previous_step_index = (
+            self._current_index if target_step_index is None else target_step_index
+        )
 
         self._instructions_by_widget.clear()
         self._completed_steps.clear()
         self._build_steps()
         self._build_steps_sidebar()
         self._refresh_validation_states()
-        self._go_to_step(0)
+
+        if self._steps:
+            clamped_index = max(0, min(previous_step_index, len(self._steps) - 1))
+            self._go_to_step(clamped_index)
 
     def _build_steps(self) -> None:
         self._instructions_by_widget.clear()
@@ -1839,12 +1851,15 @@ class SetupWizardWindow(AtlasWindow):
         after_applied = new_state.applied
         changed = (before_mode != after_mode) or (before_applied != after_applied)
 
+        current_step_index = getattr(self, "_current_index", 0)
         if changed:
             self._refresh_setup_type_defaults()
 
         self._sync_setup_type_selection()
         if changed:
-            self._rebuild_steps_after_config_change()
+            self._rebuild_steps_after_config_change(
+                target_step_index=current_step_index
+            )
         else:
             self._update_setup_type_dependent_widgets()
 
