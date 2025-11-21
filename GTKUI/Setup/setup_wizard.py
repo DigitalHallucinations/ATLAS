@@ -431,11 +431,23 @@ class SetupWizardWindow(AtlasWindow):
         header.set_hexpand(True)
         guidance_column.append(header)
 
+        status_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        status_row.set_hexpand(True)
+        guidance_column.append(status_row)
+
         self._status_label = Gtk.Label()
         self._status_label.set_wrap(True)
         self._status_label.set_xalign(0.0)
         self._status_label.set_hexpand(True)
-        guidance_column.append(self._status_label)
+        status_row.append(self._status_label)
+
+        rerun_button = Gtk.Button(label="Re-run checks")
+        rerun_button.set_halign(Gtk.Align.END)
+        rerun_button.set_valign(Gtk.Align.CENTER)
+        rerun_button.set_sensitive(False)
+        rerun_button.connect("clicked", self._on_preflight_rerun_clicked)
+        status_row.append(rerun_button)
+        self._preflight_rerun_button = rerun_button
 
         self._instructions_label = Gtk.Label()
         self._instructions_label.set_wrap(True)
@@ -567,10 +579,12 @@ class SetupWizardWindow(AtlasWindow):
         self._preflight_helper = PreflightHelper(
             request_password=self._request_sudo_password
         )
-        self._preflight_button: Gtk.Button | None = None
+        self._preflight_rerun_button: Gtk.Button | None = None
         self._preflight_dialog: Gtk.Dialog | None = None
         self._preflight_rows: dict[str, PreflightRowWidgets] = {}
         self._preflight_results: dict[str, PreflightCheckResult] = {}
+        self._preflight_running: bool = False
+        self._preflight_run_pending: bool = False
 
         if hasattr(debug_button, "connect"):
             try:
@@ -623,6 +637,8 @@ class SetupWizardWindow(AtlasWindow):
                     self.connect("destroy", self._on_wizard_destroy)
                 except Exception:  # pragma: no cover - GTK stubs
                     pass
+
+        self._request_preflight_checks(trigger=self._preflight_rerun_button)
 
     def _request_sudo_password(self) -> str | None:
         privileged_state = self.controller.state.user.privileged_credentials
@@ -910,7 +926,6 @@ class SetupWizardWindow(AtlasWindow):
         self._step_containers = []
         self._step_page_stacks.clear()
         self._current_page_indices.clear()
-        self._preflight_button = None
         self._preflight_rows.clear()
         self._preflight_results.clear()
 
@@ -1353,20 +1368,15 @@ class SetupWizardWindow(AtlasWindow):
         preflight_box.set_hexpand(False)
         preflight_label = Gtk.Label(
             label=(
-                "Want to double-check your environment first? Run the preflight scan to test"
-                " your database backend, Redis, and the project virtualenv."
+                "We run a quick preflight scan as soon as setup opens to verify your database"
+                " backend, Redis, and the project virtualenv. Re-run the checks any time to"
+                " refresh the results after making changes."
             )
         )
         preflight_label.set_wrap(True)
         preflight_label.set_xalign(0.0)
         preflight_box.append(preflight_label)
-
-        preflight_button = Gtk.Button(label="Run preflight checks")
-        preflight_button.set_halign(Gtk.Align.START)
-        preflight_button.connect("clicked", self._on_preflight_button_clicked)
-        preflight_box.append(preflight_button)
         box.append(preflight_box)
-        self._preflight_button = preflight_button
 
         cli_label = Gtk.Label(
             label=(
@@ -1395,11 +1405,8 @@ class SetupWizardWindow(AtlasWindow):
         )
         self._register_instructions(
             preflight_label,
-            "Use the scan if you're unsure whether supporting services are available before starting the forms.",
-        )
-        self._register_instructions(
-            preflight_button,
-            "Run the automated checks any time. You can trigger fixes directly from the results dialog.",
+            "Checks run automatically when setup opens and after key changes."
+            " Use the Re-run control near the status text to refresh results manually.",
         )
         self._register_instructions(
             cli_label,
@@ -1407,12 +1414,28 @@ class SetupWizardWindow(AtlasWindow):
         )
         return box
 
-    def _on_preflight_button_clicked(self, button: Gtk.Button) -> None:
-        self._start_preflight_checks(button)
+    def _request_preflight_checks(self, *, trigger: Gtk.Widget | None = None) -> None:
+        if self._preflight_running:
+            self._preflight_run_pending = True
+            return
 
-    def _start_preflight_checks(self, button: Gtk.Button | None) -> None:
-        if button is not None:
-            button.set_sensitive(False)
+        self._start_preflight_checks(trigger)
+
+    def _on_preflight_rerun_clicked(self, button: Gtk.Button) -> None:
+        self._request_preflight_checks(trigger=button)
+
+    def _start_preflight_checks(self, trigger: Gtk.Widget | None) -> None:
+        if self._preflight_running:
+            self._preflight_run_pending = True
+            return
+
+        self._preflight_run_pending = False
+        if trigger is None:
+            trigger = self._preflight_rerun_button
+        if trigger is not None:
+            trigger.set_sensitive(False)
+        if self._preflight_rerun_button is not None and trigger is not self._preflight_rerun_button:
+            self._preflight_rerun_button.set_sensitive(False)
         if self._preflight_dialog is not None:
             try:
                 self._preflight_dialog.destroy()
@@ -1421,9 +1444,12 @@ class SetupWizardWindow(AtlasWindow):
             self._preflight_dialog = None
         self._preflight_rows.clear()
         self._preflight_results.clear()
+        self._preflight_running = True
         self._set_status("Running preflight checks…")
         database_state = self._collect_database_state(strict=False)
+        message_bus_state = self._collect_message_bus_state(strict=False)
         self._preflight_helper.configure_database_target(database_state)
+        self._preflight_helper.configure_message_bus_target(message_bus_state)
         try:
             self._preflight_helper.run_checks(
                 on_update=self._on_preflight_update,
@@ -1431,8 +1457,12 @@ class SetupWizardWindow(AtlasWindow):
             )
         except RuntimeError as exc:
             self._set_status(str(exc))
-            if button is not None:
-                button.set_sensitive(True)
+            self._preflight_running = False
+            self._preflight_run_pending = False
+            if trigger is not None:
+                trigger.set_sensitive(True)
+            if self._preflight_rerun_button is not None and trigger is not self._preflight_rerun_button:
+                self._preflight_rerun_button.set_sensitive(True)
 
     def _on_preflight_update(self, result: PreflightCheckResult) -> None:
         self._preflight_results[result.identifier] = result
@@ -1444,8 +1474,14 @@ class SetupWizardWindow(AtlasWindow):
         self._set_status(summary)
 
     def _on_preflight_complete(self, results: list[PreflightCheckResult]) -> None:
-        if self._preflight_button is not None:
-            self._preflight_button.set_sensitive(True)
+        self._preflight_running = False
+        pending_request = self._preflight_run_pending
+        self._preflight_run_pending = False
+        if self._preflight_rerun_button is not None:
+            self._preflight_rerun_button.set_sensitive(True)
+        if pending_request:
+            self._start_preflight_checks(self._preflight_rerun_button)
+            return
         if not results:
             self._set_status("Preflight checks completed.")
             return
@@ -1456,6 +1492,15 @@ class SetupWizardWindow(AtlasWindow):
         else:
             self._set_status("All preflight checks passed.")
         self._present_preflight_dialog(results)
+
+    def _on_preflight_relevant_field_changed(self, *_args: object) -> None:
+        self._request_preflight_checks(trigger=self._preflight_rerun_button)
+
+    def _register_preflight_trigger(self, widget: Gtk.Widget | None) -> None:
+        if isinstance(widget, Gtk.Entry):
+            widget.connect("changed", self._on_preflight_relevant_field_changed)
+        elif isinstance(widget, Gtk.ComboBoxText):
+            widget.connect("changed", self._on_preflight_relevant_field_changed)
 
     def _present_preflight_dialog(self, results: list[PreflightCheckResult]) -> None:
         if self._preflight_dialog is not None:
@@ -1884,6 +1929,7 @@ class SetupWizardWindow(AtlasWindow):
         self._sync_message_widgets_from_state()
         self._sync_kv_widgets_from_state()
         self._sync_optional_widgets_from_state()
+        self._request_preflight_checks(trigger=self._preflight_rerun_button)
 
     def _sync_job_widgets_from_state(self) -> None:
         state = self.controller.state.job_scheduling
@@ -2788,6 +2834,10 @@ class SetupWizardWindow(AtlasWindow):
         self._populate_database_form(state)
         self._database_user_suggestion = self._get_database_entry_text("postgresql.user")
 
+        self._register_preflight_trigger(backend_combo)
+        for entry in self._database_entries.values():
+            self._register_preflight_trigger(entry)
+
         instructions = (
             "Pick the backend you want to run and share its connection details."
             " PostgreSQL suits production clusters, SQLite is handy for local demos,"
@@ -2949,6 +2999,43 @@ class SetupWizardWindow(AtlasWindow):
             password=password,
             dsn="",
             options="",
+        )
+
+    def _collect_message_bus_state(self, *, strict: bool = False) -> MessageBusState:
+        current = getattr(self.controller, "state", None)
+        default_state = getattr(current, "message_bus", None)
+        base_state = default_state if isinstance(default_state, MessageBusState) else MessageBusState()
+
+        backend_widget = self._message_widgets.get("backend")
+        redis_entry = self._message_widgets.get("redis_url")
+        stream_entry = self._message_widgets.get("stream_prefix")
+
+        if not isinstance(backend_widget, Gtk.ComboBoxText) or not isinstance(
+            redis_entry, Gtk.Entry
+        ) or not isinstance(stream_entry, Gtk.Entry):
+            if strict:
+                raise RuntimeError("Message bus widgets are not configured correctly")
+            return base_state
+
+        backend = backend_widget.get_active_id() or base_state.backend or "in_memory"
+        backend = backend.strip().lower() or "in_memory"
+        if backend not in {"in_memory", "redis"}:
+            if strict:
+                raise ValueError("Backend must be 'in_memory' or 'redis'")
+            backend = "in_memory"
+
+        redis_url = redis_entry.get_text().strip() or None
+        stream_prefix = stream_entry.get_text().strip() or None
+
+        if backend != "redis":
+            backend = "in_memory"
+            redis_url = None
+            stream_prefix = None
+
+        return MessageBusState(
+            backend=backend,
+            redis_url=redis_url,
+            stream_prefix=stream_prefix,
         )
 
     def _build_provider_pages(self) -> list[Gtk.Widget]:
@@ -3205,6 +3292,9 @@ class SetupWizardWindow(AtlasWindow):
         self._message_widgets["stream_prefix"] = self._create_labeled_entry(
             grid, 2, "Stream prefix", state.stream_prefix or ""
         )
+
+        self._register_preflight_trigger(backend_combo)
+        self._register_preflight_trigger(self._message_widgets["redis_url"])
 
         instructions = (
             "Choose the message bus backend. Redis keeps multiple workers in sync, while in-memory suits single instances."
@@ -4539,34 +4629,7 @@ class SetupWizardWindow(AtlasWindow):
         return "Job scheduling settings saved."
 
     def _apply_message_bus(self) -> str:
-        backend_widget = self._message_widgets.get("backend")
-        redis_entry = self._message_widgets.get("redis_url")
-        stream_entry = self._message_widgets.get("stream_prefix")
-
-        if not isinstance(backend_widget, Gtk.ComboBoxText) or not isinstance(
-            redis_entry, Gtk.Entry
-        ) or not isinstance(stream_entry, Gtk.Entry):
-            raise RuntimeError("Message bus widgets are not configured correctly")
-
-        backend = backend_widget.get_active_id() or ""
-        backend = backend.strip().lower()
-        if backend not in {"in_memory", "redis"}:
-            raise ValueError("Backend must be 'in_memory' or 'redis'")
-
-        redis_url = redis_entry.get_text().strip() or None
-        stream_prefix = stream_entry.get_text().strip() or None
-
-        if backend != "redis":
-            backend = "in_memory"
-            redis_url = None
-            stream_prefix = None
-
-        state = MessageBusState(
-            backend=backend,
-            redis_url=redis_url,
-            stream_prefix=stream_prefix,
-        )
-
+        state = self._collect_message_bus_state(strict=True)
         self.controller.apply_message_bus(state)
         return "Message bus settings saved."
 

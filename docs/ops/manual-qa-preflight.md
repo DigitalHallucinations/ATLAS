@@ -12,13 +12,13 @@ These manual checks confirm the new GTK setup wizard preflight workflow on Debia
 ## Test steps
 
 1. Start PostgreSQL and Redis (`sudo systemctl start postgresql redis-server`) and ensure `.venv` exists.
-2. Launch the GTK setup wizard (`python3 main.py`) and open the **Run preflight checks** button on the Introduction screen.
-3. Trigger the scan while services are running. All rows should report success and the dialog should close normally.
+2. Launch the GTK setup wizard (`python3 main.py`). The preflight scan should start automatically on the introduction screen and present results without needing a button click.
+3. While services are running, confirm all rows report success and the dialog closes normally.
 4. Stop PostgreSQL and Redis (`sudo systemctl stop postgresql redis-server`) and temporarily move `.venv` aside (`mv .venv .venv.bak`).
-5. Run the preflight scan again. Each missing dependency should render a failure row with actionable guidance and a Fix button for PostgreSQL and Redis.
+5. Edit the database host/port fields or the Redis URL so the wizard refreshes its targets, then use the Re-run control near the status text to trigger another scan. Each missing dependency should render a failure row with actionable guidance and a Fix button for PostgreSQL and Redis.
 6. Click the Fix button for PostgreSQL, supply the sudo password prompt, and verify the row re-checks to success. Repeat for Redis.
 7. Restore the virtual environment (`mv .venv.bak .venv`) and re-run the scan to confirm the Project virtualenv row returns to success without needing a fix.
-8. Observe that the wizard status text updates throughout (running, failures found, all passed) without crashing.
+8. Observe that the wizard status text updates throughout (automatic launch, failures found, all passed) without crashing or presenting duplicate result dialogs.
 
 ## Cleanup
 
