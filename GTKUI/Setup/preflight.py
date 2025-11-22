@@ -266,6 +266,7 @@ class PreflightHelper:
     ) -> None:
         self._request_password = request_password
         self._database_state: DatabaseState = DatabaseState()
+        self._message_bus_backend: str | None = None
         self._redis_url: str | None = None
         self._provided_checks = list(checks) if checks is not None else None
         self._checks: list[PreflightCheckDefinition] = (
@@ -296,10 +297,13 @@ class PreflightHelper:
         """Adjust the Redis check to match *state* for the next run."""
 
         if state is None:
+            self._message_bus_backend = None
             self._redis_url = None
             return
 
-        if (state.backend or "").strip().lower() != "redis":
+        backend = (state.backend or "").strip().lower() or None
+        self._message_bus_backend = backend
+        if backend != "redis":
             self._redis_url = None
             return
 
@@ -667,7 +671,9 @@ class PreflightHelper:
         database_check = self._build_database_check()
         if database_check is not None:
             checks.append(database_check)
-        checks.append(self._build_redis_check())
+        redis_check = self._build_redis_check()
+        if redis_check is not None:
+            checks.append(redis_check)
         checks.append(self._build_hardware_check())
         return checks
 
@@ -778,7 +784,10 @@ class PreflightHelper:
             process_output=_parse_postgres,
         )
 
-    def _build_redis_check(self) -> PreflightCheckDefinition:
+    def _build_redis_check(self) -> PreflightCheckDefinition | None:
+        if self._message_bus_backend != "redis":
+            return None
+
         redis_hint = (
             "Redis did not respond to ping. Verify the redis-server service is installed"
             " and running."
