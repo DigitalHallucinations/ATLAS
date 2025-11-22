@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import os
+import shutil
 import textwrap
 from dataclasses import dataclass
 from typing import Callable, Iterable, Sequence
@@ -20,6 +22,22 @@ from ATLAS.setup.controller import DatabaseState, MessageBusState, _compose_dsn
 PasswordProvider = Callable[[], str | None]
 ResultCallback = Callable[["PreflightCheckResult"], None]
 CompleteCallback = Callable[[list["PreflightCheckResult"]], None]
+
+DATABASE_LOCAL_TIP = (
+    "SQLite keeps data on this device and avoids service management on low-resource hosts."
+)
+DATABASE_LOCAL_PG_TIP = (
+    "Local PostgreSQL stays fastest when you have CPU/RAM to spare and want everything on-box."
+)
+DATABASE_MANAGED_TIP = (
+    "Managed Postgres or Atlas works well when collaborators join and cloud latency is acceptable."
+)
+VECTOR_HOSTING_TIP = (
+    "Keep vector DBs local for trusted, offline work; lean on managed options when scaling ingestion."
+)
+MODEL_HOSTING_TIP = (
+    "Run models locally for offline or low-latency paths when hardware allows; otherwise use hosted inference."
+)
 
 
 @dataclass(frozen=True)
@@ -47,6 +65,73 @@ class PreflightCheckResult:
     message: str
     fix_label: str | None
     recommendation: str | None = None
+
+
+def _read_mem_total() -> float | None:
+    try:
+        import psutil  # type: ignore
+
+        return float(psutil.virtual_memory().total)
+    except Exception:
+        pass
+
+    try:
+        with open("/proc/meminfo", "r", encoding="utf-8") as fh:
+            for line in fh:
+                if line.startswith("MemTotal:"):
+                    parts = line.split()
+                    return float(parts[1]) * 1024
+    except Exception:
+        return None
+    return None
+
+
+def _host_profile() -> dict[str, float | int | None]:
+    cpu_count = os.cpu_count() or 0
+    ram_bytes = _read_mem_total()
+    disk_bytes: float | None
+    try:
+        disk_bytes = float(shutil.disk_usage(".").free)
+    except Exception:
+        disk_bytes = None
+
+    to_gb = lambda value: None if value is None else value / (1024 ** 3)
+    return {
+        "cpu_count": cpu_count,
+        "ram_gb": to_gb(ram_bytes),
+        "disk_gb": to_gb(disk_bytes),
+    }
+
+
+def database_recommendation_for_state(
+    state: DatabaseState | None, host_profile: dict[str, float | int | None] | None = None
+) -> str:
+    profile = host_profile or _host_profile()
+    ram_gb = profile.get("ram_gb")
+    disk_gb = profile.get("disk_gb")
+    low_resources = bool(
+        (ram_gb is not None and ram_gb < 8)
+        or (disk_gb is not None and disk_gb < 40)
+    )
+
+    backend = (state.backend if state else "postgresql") or "postgresql"
+    normalized = backend.strip().lower() or "postgresql"
+    host = (state.host if state else "") or ""
+    local_host = not host or host in {"localhost", "127.0.0.1"}
+
+    if normalized == "sqlite":
+        return DATABASE_LOCAL_TIP
+
+    if normalized == "mongodb":
+        if local_host and low_resources:
+            return f"{DATABASE_LOCAL_TIP} {DATABASE_MANAGED_TIP}"
+        return DATABASE_MANAGED_TIP
+
+    if local_host and low_resources:
+        return f"{DATABASE_LOCAL_TIP} {DATABASE_MANAGED_TIP}"
+    if local_host:
+        return DATABASE_LOCAL_PG_TIP
+    return DATABASE_MANAGED_TIP
 
 
 class PreflightHelper:
@@ -370,6 +455,7 @@ class PreflightHelper:
 
     def _build_database_check(self) -> PreflightCheckDefinition | None:
         backend = (self._database_state.backend or "postgresql").strip().lower() or "postgresql"
+        host_profile = _host_profile()
         if backend == "sqlite":
             return None
         if backend == "mongodb":
@@ -379,6 +465,9 @@ class PreflightHelper:
             mongo_hint = (
                 "MongoDB is unreachable. Verify the URI, credentials, and network access,"
                 " including Atlas SRV records."
+            )
+            recommendation = database_recommendation_for_state(
+                self._database_state, host_profile=host_profile
             )
             script = (
                 "import sys\n"
@@ -397,12 +486,24 @@ class PreflightHelper:
                 "finally:\n"
                 "    client.close()\n"
             )
+
+            def _parse_mongodb(
+                passed: bool, stdout: str, stderr: str, exit_status: int
+            ) -> tuple[str, str | None]:
+                message = (
+                    "MongoDB connection succeeded."
+                    if passed
+                    else self._format_failure_message(mongo_hint, exit_status, stdout, stderr)
+                )
+                return message, recommendation
+
             return PreflightCheckDefinition(
                 identifier="mongodb",
                 label="MongoDB",
                 command=["/usr/bin/env", "python3", "-c", script, uri],
                 success_message="MongoDB connection succeeded.",
                 failure_hint=mongo_hint,
+                process_output=_parse_mongodb,
             )
 
         pg_hint = (
@@ -412,6 +513,9 @@ class PreflightHelper:
         host = (self._database_state.host or "").strip()
         port = int(self._database_state.port or 0)
         database = (self._database_state.database or "").strip()
+        recommendation = database_recommendation_for_state(
+            self._database_state, host_profile=host_profile
+        )
         command: list[str] = ["/usr/bin/env", "pg_isready", "-q"]
         if host:
             command.extend(["-h", host])
@@ -419,6 +523,17 @@ class PreflightHelper:
             command.extend(["-p", str(port)])
         if database:
             command.extend(["-d", database])
+
+        def _parse_postgres(
+            passed: bool, stdout: str, stderr: str, exit_status: int
+        ) -> tuple[str, str | None]:
+            message = (
+                "PostgreSQL is accepting connections."
+                if passed
+                else self._format_failure_message(pg_hint, exit_status, stdout, stderr)
+            )
+            return message, recommendation
+
         return PreflightCheckDefinition(
             identifier="postgresql",
             label="PostgreSQL",
@@ -435,6 +550,7 @@ class PreflightHelper:
             ],
             fix_label="Start PostgreSQL service",
             requires_sudo=True,
+            process_output=_parse_postgres,
         )
 
     def _build_redis_check(self) -> PreflightCheckDefinition:
@@ -592,4 +708,10 @@ __all__ = [
     "PreflightCheckDefinition",
     "PreflightCheckResult",
     "PreflightHelper",
+    "DATABASE_LOCAL_PG_TIP",
+    "DATABASE_LOCAL_TIP",
+    "DATABASE_MANAGED_TIP",
+    "VECTOR_HOSTING_TIP",
+    "MODEL_HOSTING_TIP",
+    "database_recommendation_for_state",
 ]

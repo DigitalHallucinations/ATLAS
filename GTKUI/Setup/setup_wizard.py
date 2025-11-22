@@ -34,7 +34,16 @@ from GTKUI.Utils.logging import GTKUILogHandler
 from GTKUI.Utils.styled_window import AtlasWindow
 from modules.logging.audit_templates import get_audit_template, get_audit_templates
 from modules.conversation_store.bootstrap import BootstrapError
-from GTKUI.Setup.preflight import PreflightHelper, PreflightCheckResult
+from GTKUI.Setup.preflight import (
+    DATABASE_LOCAL_PG_TIP,
+    DATABASE_LOCAL_TIP,
+    DATABASE_MANAGED_TIP,
+    MODEL_HOSTING_TIP,
+    VECTOR_HOSTING_TIP,
+    PreflightHelper,
+    PreflightCheckResult,
+    database_recommendation_for_state,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1376,6 +1385,20 @@ class SetupWizardWindow(AtlasWindow):
         preflight_label.set_wrap(True)
         preflight_label.set_xalign(0.0)
         preflight_box.append(preflight_label)
+
+        hosting_summary = " ".join(
+            [
+                database_recommendation_for_state(getattr(self.controller.state, "database", None)),
+                VECTOR_HOSTING_TIP,
+                MODEL_HOSTING_TIP,
+            ]
+        )
+        hosting_hint = Gtk.Label(label=hosting_summary)
+        hosting_hint.set_wrap(True)
+        hosting_hint.set_xalign(0.0)
+        if hasattr(hosting_hint, "set_tooltip_text"):
+            hosting_hint.set_tooltip_text(hosting_summary)
+        preflight_box.append(hosting_hint)
         box.append(preflight_box)
 
         cli_label = Gtk.Label(
@@ -1408,6 +1431,7 @@ class SetupWizardWindow(AtlasWindow):
             "Checks run automatically when setup opens and after key changes."
             " Use the Re-run control near the status text to refresh results manually.",
         )
+        self._register_instructions(hosting_hint, hosting_summary)
         self._register_instructions(
             cli_label,
             "You can swap to the terminal helper at any point—the wizard keeps your progress in sync.",
@@ -2698,6 +2722,7 @@ class SetupWizardWindow(AtlasWindow):
             [
                 "Choose the default providers and models new conversations should start with.",
                 "You'll tune provider-specific settings on the following pages when more than one is enabled.",
+                MODEL_HOSTING_TIP,
             ],
             "Decide which providers you'll enable so the next forms go quickly.",
         )
@@ -2746,6 +2771,9 @@ class SetupWizardWindow(AtlasWindow):
         backend_combo.set_hexpand(False)
         backend_combo.set_halign(Gtk.Align.START)
         backend_combo.set_size_request(self._get_entry_pixel_width(), -1)
+        backend_tooltip = database_recommendation_for_state(self.controller.state.database)
+        if hasattr(backend_combo, "set_tooltip_text"):
+            backend_combo.set_tooltip_text(backend_tooltip)
         backend_grid.attach(backend_combo, 1, 0, 1, 1)
         container.append(backend_grid)
 
@@ -2847,6 +2875,7 @@ class SetupWizardWindow(AtlasWindow):
             "Pick the backend you want to run and share its connection details."
             " PostgreSQL suits production clusters, SQLite is handy for local demos,"
             " and MongoDB/Atlas works with managed or SRV-based deployments."
+            f" {DATABASE_LOCAL_TIP} {DATABASE_MANAGED_TIP}"
         )
 
         return self._wrap_with_instructions(container, instructions, "Configure Database")
