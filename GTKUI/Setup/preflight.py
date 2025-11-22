@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import dataclasses
+import json
+import textwrap
 from dataclasses import dataclass
 from typing import Callable, Iterable, Sequence
 
@@ -32,6 +34,7 @@ class PreflightCheckDefinition:
     fix_command: Sequence[str] | None = None
     fix_label: str | None = None
     requires_sudo: bool = False
+    process_output: Callable[[bool, str, str, int], tuple[str, str | None]] | None = None
 
 
 @dataclass
@@ -43,6 +46,7 @@ class PreflightCheckResult:
     passed: bool
     message: str
     fix_label: str | None
+    recommendation: str | None = None
 
 
 class PreflightHelper:
@@ -129,6 +133,7 @@ class PreflightHelper:
                     passed=False,
                     message="No automated fix is available for this check.",
                     fix_label=None,
+                    recommendation=None,
                 )
             GLib.idle_add(lambda: callback(result))
             return
@@ -144,6 +149,7 @@ class PreflightHelper:
                     passed=False,
                     message=message,
                     fix_label=definition.fix_label,
+                    recommendation=None,
                 )
                 GLib.idle_add(lambda: callback(result))
                 return
@@ -212,6 +218,7 @@ class PreflightHelper:
             passed=False,
             message=message,
             fix_label=definition.fix_label,
+            recommendation=None,
         )
         self._store_and_emit(result)
         self._advance()
@@ -236,6 +243,7 @@ class PreflightHelper:
                     passed=False,
                     message=message,
                     fix_label=definition.fix_label,
+                    recommendation=None,
                 )
             ),
         )
@@ -253,6 +261,7 @@ class PreflightHelper:
                 passed=False,
                 message=message,
                 fix_label=definition.fix_label,
+                recommendation=None,
             )
         )
 
@@ -291,12 +300,22 @@ class PreflightHelper:
                 if passed
                 else self._format_failure_message(failure_hint, exit_status, stdout, stderr)
             )
+            recommendation: str | None = None
+            if definition.process_output is not None:
+                try:
+                    message, recommendation = definition.process_output(
+                        passed, stdout or "", stderr or "", exit_status
+                    )
+                except Exception:
+                    pass
+
             result = PreflightCheckResult(
                 identifier=definition.identifier,
                 label=definition.label,
                 passed=passed,
                 message=message,
                 fix_label=definition.fix_label,
+                recommendation=recommendation,
             )
             if store_result:
                 self._store_and_emit(result)
@@ -346,7 +365,7 @@ class PreflightHelper:
         if database_check is not None:
             checks.append(database_check)
         checks.append(self._build_redis_check())
-        checks.append(self._build_virtualenv_check())
+        checks.append(self._build_hardware_check())
         return checks
 
     def _build_database_check(self) -> PreflightCheckDefinition | None:
@@ -445,25 +464,127 @@ class PreflightHelper:
             requires_sudo=True,
         )
 
-    def _build_virtualenv_check(self) -> PreflightCheckDefinition:
-        venv_hint = (
-            "No project virtual environment detected. Create .venv before launching ATLAS."
+    def _build_hardware_check(self) -> PreflightCheckDefinition:
+        probe_script = textwrap.dedent(
+            """
+            import json, os, shutil, subprocess, sys
+
+            def _read_mem_total():
+                try:
+                    import psutil
+
+                    return float(psutil.virtual_memory().total)
+                except Exception:
+                    pass
+                try:
+                    with open('/proc/meminfo', 'r', encoding='utf-8') as fh:
+                        for line in fh:
+                            if line.startswith('MemTotal:'):
+                                parts = line.split()
+                                return float(parts[1]) * 1024
+                except Exception:
+                    return None
+
+            def _read_disk_free():
+                try:
+                    return float(shutil.disk_usage('.').free)
+                except Exception:
+                    return None
+
+            def _probe_gpus():
+                names = []
+                nvidia = shutil.which('nvidia-smi')
+                if not nvidia:
+                    return names
+                try:
+                    output = subprocess.check_output(
+                        [nvidia, '--query-gpu=name', '--format=csv,noheader'], text=True
+                    )
+                    names = [line.strip() for line in output.splitlines() if line.strip()]
+                except Exception:
+                    names = ['GPU detected but details unavailable']
+                return names
+
+            cpu_count = os.cpu_count() or 0
+            ram_bytes = _read_mem_total()
+            disk_bytes = _read_disk_free()
+            gpus = _probe_gpus()
+
+            def _format_gb(value):
+                if value is None:
+                    return 'unknown'
+                return f'{value / (1024 ** 3):.1f} GB'
+
+            ram_gb = (ram_bytes or 0) / (1024 ** 3)
+            disk_gb = (disk_bytes or 0) / (1024 ** 3)
+            gpu_summary = ', '.join(gpus) if gpus else 'none detected'
+
+            recommendations = []
+            if cpu_count and cpu_count < 4:
+                recommendations.append('Favor cloud-hosted services; limited CPU cores detected.')
+            if ram_gb and ram_gb < 8:
+                recommendations.append(
+                    f'Consider cloud PostgreSQL/vector DB; only {ram_gb:.1f} GB RAM available.'
+                )
+            elif ram_gb and ram_gb < 16:
+                recommendations.append(
+                    'Plan smaller local models or use hosted inference for heavier workloads.'
+                )
+            if disk_gb and disk_gb < 40:
+                recommendations.append(
+                    f'Low free disk ({disk_gb:.1f} GB); prefer cloud data stores and models.'
+                )
+            if not gpus:
+                recommendations.append('No GPU detected; hosted model inference recommended for speed.')
+
+            summary = (
+                f"{cpu_count or 'Unknown'} CPU cores, "
+                f"{_format_gb(ram_bytes)} RAM, "
+                f"{_format_gb(disk_bytes)} free disk. GPU: {gpu_summary}."
+            )
+            payload = {
+                'message': f'Hardware review completed: {summary}',
+                'recommendation': '\n'.join(recommendations)
+                if recommendations
+                else 'Local hosting looks sufficient for databases and moderate models.',
+            }
+            print(json.dumps(payload))
+            """
         )
-        python_check = (
-            "import pathlib, sys; base = pathlib.Path('.venv');"
-            "suffix = 'Scripts' if sys.platform.startswith('win') else 'bin';"
-            "exe = base / suffix / ('python.exe' if sys.platform.startswith('win') else 'python');"
-            "sys.exit(0 if exe.exists() else 1)"
-        )
+
+        def _parse_probe(
+            passed: bool, stdout: str, stderr: str, exit_status: int
+        ) -> tuple[str, str | None]:
+            recommendation = None
+            message = (
+                "Hardware review completed."
+                if passed
+                else self._format_failure_message(
+                    "Hardware readiness check failed.", exit_status, stdout, stderr
+                )
+            )
+            if not stdout:
+                return message, recommendation
+
+            try:
+                payload = json.loads(stdout.splitlines()[-1])
+            except Exception:
+                return message, recommendation
+
+            message = payload.get("message", message)
+            recommendation = payload.get("recommendation")
+            return message, recommendation
+
         return PreflightCheckDefinition(
-            identifier="virtualenv",
-            label="Project virtualenv",
-            command=["/usr/bin/env", "python3", "-c", python_check],
-            success_message=".venv virtual environment is ready.",
-            failure_hint=venv_hint,
-            fix_command=["/usr/bin/env", "python3", "-m", "venv", ".venv"],
-            fix_label="Create .venv virtualenv",
+            identifier="hardware",
+            label="Hardware readiness",
+            command=["/usr/bin/env", "python3", "-c", probe_script],
+            success_message="Hardware review completed.",
+            failure_hint="Hardware readiness check failed.",
+            fix_command=None,
+            fix_label=None,
             requires_sudo=False,
+            process_output=_parse_probe,
         )
 
 

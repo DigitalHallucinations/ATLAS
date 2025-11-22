@@ -1368,9 +1368,9 @@ class SetupWizardWindow(AtlasWindow):
         preflight_box.set_hexpand(False)
         preflight_label = Gtk.Label(
             label=(
-                "We run a quick preflight scan as soon as setup opens to verify your database"
-                " backend, Redis, and the project virtualenv. Re-run the checks any time to"
-                " refresh the results after making changes."
+                "We run a quick readiness scan as soon as setup opens to gauge your hardware"
+                " and suggest when to host the database, vector store, and model inference"
+                " locally or in the cloud—while also confirming Redis connectivity."
             )
         )
         preflight_label.set_wrap(True)
@@ -1623,9 +1623,14 @@ class SetupWizardWindow(AtlasWindow):
             except Exception:
                 pass
 
-        widgets.message.set_text(result.message)
+        widgets.message.set_text(self._format_preflight_message(result))
         if widgets.button is not None:
             widgets.button.set_sensitive(not result.passed)
+
+    def _format_preflight_message(self, result: PreflightCheckResult) -> str:
+        if result.recommendation:
+            return f"{result.message}\nRecommendation: {result.recommendation}"
+        return result.message
 
     def _on_preflight_fix_clicked(self, button: Gtk.Button, identifier: str) -> None:
         widgets = self._preflight_rows.get(identifier)

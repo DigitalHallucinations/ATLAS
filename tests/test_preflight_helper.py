@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 gi = pytest.importorskip("gi")
@@ -181,3 +183,33 @@ def test_preflight_helper_honors_redis_url():
     redis_commands = [call for call, _flags in factory.calls if "redis-cli" in call]
     assert any("-u" in command and "redis://cache:6379/1" in command for command in redis_commands)
     assert len(completed) == len(definitions)
+
+
+def test_hardware_check_adds_recommendations_and_replaces_virtualenv():
+    factory = _ProcessFactory()
+    helper = PreflightHelper(
+        request_password=lambda: None,
+        subprocess_factory=factory,
+    )
+
+    definitions = list(helper._default_checks())
+    identifiers = [definition.identifier for definition in definitions]
+    assert "virtualenv" not in identifiers
+    assert "hardware" in identifiers
+
+    payload = {
+        "message": "Hardware review completed: 2 CPU cores, 2.0 GB RAM, 10.0 GB free disk.",
+        "recommendation": "Consider cloud PostgreSQL; only 2.0 GB RAM available.",
+    }
+
+    for definition in definitions:
+        stdout = json.dumps(payload) if definition.identifier == "hardware" else ""
+        factory.enqueue(definition.command, _FakeProcess(exit_status=0, stdout=stdout))
+
+    completed: list = []
+    helper.run_checks(on_complete=lambda results: completed.extend(results))
+
+    hardware_result = next(result for result in completed if result.identifier == "hardware")
+    assert hardware_result.passed is True
+    assert payload["message"] in hardware_result.message
+    assert hardware_result.recommendation == payload["recommendation"]
