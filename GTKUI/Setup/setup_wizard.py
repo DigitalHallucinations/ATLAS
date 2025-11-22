@@ -569,6 +569,7 @@ class SetupWizardWindow(AtlasWindow):
         self._optional_personal_hint: Gtk.Label | None = None
         self._optional_enterprise_badge: Gtk.Widget | None = None
         self._optional_upgrade_label: Gtk.Label | None = None
+        self._hosting_hint_label: Gtk.Label | None = None
         self._audit_template_intent_label: Gtk.Label | None = None
         self._personal_cap_hint: Gtk.Label | None = None
         self._setup_persisted = False
@@ -937,6 +938,7 @@ class SetupWizardWindow(AtlasWindow):
         self._current_page_indices.clear()
         self._preflight_rows.clear()
         self._preflight_results.clear()
+        self._hosting_hint_label = None
 
         self._setup_type_buttons.clear()
         self._setup_type_headers.clear()
@@ -1386,18 +1388,11 @@ class SetupWizardWindow(AtlasWindow):
         preflight_label.set_xalign(0.0)
         preflight_box.append(preflight_label)
 
-        hosting_summary = " ".join(
-            [
-                database_recommendation_for_state(getattr(self.controller.state, "database", None)),
-                VECTOR_HOSTING_TIP,
-                MODEL_HOSTING_TIP,
-            ]
-        )
-        hosting_hint = Gtk.Label(label=hosting_summary)
+        hosting_hint = Gtk.Label()
         hosting_hint.set_wrap(True)
         hosting_hint.set_xalign(0.0)
-        if hasattr(hosting_hint, "set_tooltip_text"):
-            hosting_hint.set_tooltip_text(hosting_summary)
+        self._hosting_hint_label = hosting_hint
+        self._refresh_hosting_summary()
         preflight_box.append(hosting_hint)
         box.append(preflight_box)
 
@@ -1431,12 +1426,38 @@ class SetupWizardWindow(AtlasWindow):
             "Checks run automatically when setup opens and after key changes."
             " Use the Re-run control near the status text to refresh results manually.",
         )
-        self._register_instructions(hosting_hint, hosting_summary)
+        if hosting_hint is not None:
+            summary = hosting_hint.get_text() or ""
+            self._register_instructions(hosting_hint, summary)
         self._register_instructions(
             cli_label,
             "You can swap to the terminal helper at any point—the wizard keeps your progress in sync.",
         )
         return box
+
+    def _compute_hosting_summary(self) -> str:
+        try:
+            database_state = self._collect_database_state(strict=False)
+        except Exception:
+            database_state = getattr(self.controller.state, "database", None)
+
+        summary_parts = [
+            database_recommendation_for_state(database_state),
+            VECTOR_HOSTING_TIP,
+            MODEL_HOSTING_TIP,
+        ]
+        return " ".join(summary_parts)
+
+    def _refresh_hosting_summary(self) -> None:
+        hosting_hint = self._hosting_hint_label
+        if hosting_hint is None:
+            return
+
+        hosting_summary = self._compute_hosting_summary()
+        hosting_hint.set_text(hosting_summary)
+        if hasattr(hosting_hint, "set_tooltip_text"):
+            hosting_hint.set_tooltip_text(hosting_summary)
+        self._register_instructions(hosting_hint, hosting_summary)
 
     def _request_preflight_checks(self, *, trigger: Gtk.Widget | None = None) -> None:
         if self._preflight_running:
@@ -1518,6 +1539,7 @@ class SetupWizardWindow(AtlasWindow):
         self._present_preflight_dialog(results)
 
     def _on_preflight_relevant_field_changed(self, *_args: object) -> None:
+        self._refresh_hosting_summary()
         self._request_preflight_checks(trigger=self._preflight_rerun_button)
 
     def _register_preflight_trigger(self, widget: Gtk.Widget | None) -> None:
@@ -1947,6 +1969,8 @@ class SetupWizardWindow(AtlasWindow):
 
         if after_mode == "personal" and getattr(new_state, "local_only", False):
             message = f"{message} On-device mode is keeping services local."
+
+        self._refresh_hosting_summary()
 
         if update_status:
             self._set_status(message)
