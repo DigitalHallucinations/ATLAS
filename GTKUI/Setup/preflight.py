@@ -6,6 +6,7 @@ import dataclasses
 import json
 import os
 import shutil
+import sys
 import textwrap
 from dataclasses import dataclass
 from typing import Callable, Iterable, Sequence
@@ -51,6 +52,8 @@ class PreflightCheckDefinition:
     failure_hint: str
     fix_command: Sequence[str] | None = None
     fix_label: str | None = None
+    fix_tooltip: str | None = None
+    fix_available: bool = True
     requires_sudo: bool = False
     process_output: Callable[[bool, str, str, int], tuple[str, str | None]] | None = None
 
@@ -64,6 +67,8 @@ class PreflightCheckResult:
     passed: bool
     message: str
     fix_label: str | None
+    fix_available: bool = True
+    fix_tooltip: str | None = None
     recommendation: str | None = None
 
 
@@ -209,7 +214,11 @@ class PreflightHelper:
             raise RuntimeError("Another preflight operation is already running")
 
         definition = self._definition_for(identifier)
-        if definition is None or definition.fix_command is None:
+        if (
+            definition is None
+            or definition.fix_command is None
+            or not definition.fix_available
+        ):
             result = self._results.get(identifier)
             if result is None:
                 result = PreflightCheckResult(
@@ -217,7 +226,9 @@ class PreflightHelper:
                     label=definition.label if definition else identifier,
                     passed=False,
                     message="No automated fix is available for this check.",
-                    fix_label=None,
+                    fix_label=definition.fix_label if definition else None,
+                    fix_available=False,
+                    fix_tooltip=definition.fix_tooltip if definition else None,
                     recommendation=None,
                 )
             GLib.idle_add(lambda: callback(result))
@@ -234,6 +245,8 @@ class PreflightHelper:
                     passed=False,
                     message=message,
                     fix_label=definition.fix_label,
+                    fix_available=definition.fix_available and definition.fix_command is not None,
+                    fix_tooltip=definition.fix_tooltip,
                     recommendation=None,
                 )
                 GLib.idle_add(lambda: callback(result))
@@ -303,6 +316,8 @@ class PreflightHelper:
             passed=False,
             message=message,
             fix_label=definition.fix_label,
+            fix_available=definition.fix_available and definition.fix_command is not None,
+            fix_tooltip=definition.fix_tooltip,
             recommendation=None,
         )
         self._store_and_emit(result)
@@ -328,6 +343,8 @@ class PreflightHelper:
                     passed=False,
                     message=message,
                     fix_label=definition.fix_label,
+                    fix_available=definition.fix_available and definition.fix_command is not None,
+                    fix_tooltip=definition.fix_tooltip,
                     recommendation=None,
                 )
             ),
@@ -346,6 +363,8 @@ class PreflightHelper:
                 passed=False,
                 message=message,
                 fix_label=definition.fix_label,
+                fix_available=definition.fix_available and definition.fix_command is not None,
+                fix_tooltip=definition.fix_tooltip,
                 recommendation=None,
             )
         )
@@ -400,6 +419,8 @@ class PreflightHelper:
                 passed=passed,
                 message=message,
                 fix_label=definition.fix_label,
+                fix_available=definition.fix_available and definition.fix_command is not None,
+                fix_tooltip=definition.fix_tooltip,
                 recommendation=recommendation,
             )
             if store_result:
@@ -441,6 +462,82 @@ class PreflightHelper:
 
     def _format_spawn_error(self, command: Sequence[str], exc: Exception) -> str:
         return f"Unable to execute {' '.join(command)}: {exc}"
+
+    # -- platform helpers -----------------------------------------------
+
+    def _detect_service_manager(self) -> tuple[str | None, str | None]:
+        """Identify the service manager for restart automation."""
+
+        if sys.platform == "darwin":
+            if shutil.which("brew"):
+                return "brew", None
+            return None, (
+                "Automatic restarts require Homebrew. Run `brew services start <service>` manually."
+            )
+
+        if sys.platform.startswith("linux"):
+            if shutil.which("systemctl") and os.path.isdir("/run/systemd/system"):
+                return "systemctl", None
+            if shutil.which("service"):
+                return "service", "Using 'service' because systemd is unavailable."
+            return None, "No supported init system detected; restart services manually."
+
+        return None, "Automatic service management is unavailable on this platform."
+
+    def _service_fix_details(
+        self,
+        *,
+        display_name: str,
+        base_hint: str,
+        system_service: str,
+        brew_service: str | None = None,
+    ) -> tuple[Sequence[str] | None, str | None, bool, str | None, str, bool]:
+        """Choose a service restart strategy for the host platform."""
+
+        manager, platform_hint = self._detect_service_manager()
+        requires_sudo = True
+        fix_tooltip = None
+
+        if manager == "systemctl":
+            fix_command = [
+                "/usr/bin/env",
+                "sudo",
+                "-S",
+                "systemctl",
+                "start",
+                system_service,
+            ]
+            fix_label = f"Start {display_name} service"
+        elif manager == "service":
+            fix_command = [
+                "/usr/bin/env",
+                "sudo",
+                "-S",
+                "service",
+                system_service,
+                "start",
+            ]
+            fix_label = f"Start {display_name} service"
+            fix_tooltip = platform_hint
+        elif manager == "brew":
+            fix_command = [
+                "/usr/bin/env",
+                "brew",
+                "services",
+                "start",
+                brew_service or system_service,
+            ]
+            fix_label = f"Start {display_name} with brew services"
+            requires_sudo = False
+            fix_tooltip = "Using Homebrew services for restart automation."
+        else:
+            fix_command = None
+            fix_label = f"Start {display_name} manually"
+            fix_tooltip = platform_hint
+            base_hint = f"{base_hint} {platform_hint}" if platform_hint else base_hint
+
+        fix_available = bool(fix_command)
+        return fix_command, fix_label, requires_sudo, fix_tooltip, base_hint, fix_available
 
     # -- check catalog --------------------------------------------------
 
@@ -510,6 +607,18 @@ class PreflightHelper:
             "PostgreSQL is unreachable. Ensure the server is installed and that pg_isready"
             " can connect to the configured instance."
         )
+        (
+            fix_command,
+            fix_label,
+            requires_sudo,
+            fix_tooltip,
+            pg_hint,
+            fix_available,
+        ) = self._service_fix_details(
+            display_name="PostgreSQL",
+            base_hint=pg_hint,
+            system_service="postgresql",
+        )
         host = (self._database_state.host or "").strip()
         port = int(self._database_state.port or 0)
         database = (self._database_state.database or "").strip()
@@ -540,16 +649,11 @@ class PreflightHelper:
             command=command,
             success_message="PostgreSQL is accepting connections.",
             failure_hint=pg_hint,
-            fix_command=[
-                "/usr/bin/env",
-                "sudo",
-                "-S",
-                "systemctl",
-                "start",
-                "postgresql",
-            ],
-            fix_label="Start PostgreSQL service",
-            requires_sudo=True,
+            fix_command=fix_command,
+            fix_label=fix_label,
+            fix_tooltip=fix_tooltip,
+            fix_available=fix_available,
+            requires_sudo=requires_sudo,
             process_output=_parse_postgres,
         )
 
@@ -562,22 +666,30 @@ class PreflightHelper:
         if self._redis_url:
             command.extend(["-u", self._redis_url])
         command.append("ping")
+        (
+            fix_command,
+            fix_label,
+            requires_sudo,
+            fix_tooltip,
+            redis_hint,
+            fix_available,
+        ) = self._service_fix_details(
+            display_name="Redis",
+            base_hint=redis_hint,
+            system_service="redis-server",
+            brew_service="redis",
+        )
         return PreflightCheckDefinition(
             identifier="redis",
             label="Redis",
             command=command,
             success_message="Redis responded to ping.",
             failure_hint=redis_hint,
-            fix_command=[
-                "/usr/bin/env",
-                "sudo",
-                "-S",
-                "systemctl",
-                "start",
-                "redis-server",
-            ],
-            fix_label="Start Redis service",
-            requires_sudo=True,
+            fix_command=fix_command,
+            fix_label=fix_label,
+            fix_tooltip=fix_tooltip,
+            fix_available=fix_available,
+            requires_sudo=requires_sudo,
         )
 
     def _build_hardware_check(self) -> PreflightCheckDefinition:

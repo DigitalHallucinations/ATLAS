@@ -213,3 +213,19 @@ def test_hardware_check_adds_recommendations_and_replaces_virtualenv():
     assert hardware_result.passed is True
     assert payload["message"] in hardware_result.message
     assert hardware_result.recommendation == payload["recommendation"]
+
+
+def test_service_fixes_adjust_to_platform(monkeypatch):
+    helper = PreflightHelper(request_password=lambda: None)
+
+    monkeypatch.setattr(
+        helper, "_detect_service_manager", lambda: (None, "Manual restart only.")
+    )
+    definitions = list(helper._default_checks())
+    redis_definition = next(defn for defn in definitions if defn.identifier == "redis")
+
+    assert redis_definition.fix_command is None
+    assert redis_definition.fix_label is not None
+    assert redis_definition.fix_tooltip == "Manual restart only."
+    assert "Manual restart only." in redis_definition.failure_hint
+    assert redis_definition.fix_available is False
