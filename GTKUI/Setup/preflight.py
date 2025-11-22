@@ -267,7 +267,12 @@ class PreflightHelper:
         self._request_password = request_password
         self._database_state: DatabaseState = DatabaseState()
         self._redis_url: str | None = None
-        self._checks: list[PreflightCheckDefinition] = list(checks or self._default_checks())
+        self._provided_checks = list(checks) if checks is not None else None
+        self._checks: list[PreflightCheckDefinition] = (
+            list(self._provided_checks)
+            if self._provided_checks is not None
+            else list(self._default_checks())
+        )
         self._subprocess_factory = subprocess_factory or self._spawn_subprocess
 
         self._pending: list[PreflightCheckDefinition] = []
@@ -315,7 +320,10 @@ class PreflightHelper:
         self._on_update = on_update
         self._on_complete = on_complete
         self._results.clear()
-        self._checks = list(self._default_checks())
+        if self._provided_checks is not None:
+            self._checks = list(self._provided_checks)
+        else:
+            self._checks = list(self._default_checks())
         self._pending = list(self._checks)
         self._running = True
         self._advance()
