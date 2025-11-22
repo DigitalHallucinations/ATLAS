@@ -7,7 +7,11 @@ gi = pytest.importorskip("gi")
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gdk, Gtk
 
-from GTKUI.Setup.preflight import DATABASE_LOCAL_TIP, PreflightCheckResult
+from GTKUI.Setup.preflight import (
+    DATABASE_LOCAL_TIP,
+    SQLITE_PATH_REMEDIATION,
+    PreflightCheckResult,
+)
 from GTKUI.Setup.setup_wizard import SetupWizardWindow
 from ATLAS.setup import (
     DatabaseState,
@@ -495,6 +499,36 @@ def test_preflight_recommendations_render_in_rows(stub_preflight_runs):
 
     assert "Recommendation" in widgets.message.get_text()
     assert DATABASE_LOCAL_TIP in widgets.message.get_text()
+
+    window.close()
+
+
+def test_sqlite_preflight_recommendation_is_actionable(stub_preflight_runs):
+    application = Gtk.Application()
+    controller = FakeController()
+
+    window = SetupWizardWindow(
+        application=application,
+        atlas=None,
+        on_success=lambda: None,
+        on_error=lambda exc: None,
+        controller=controller,
+    )
+
+    result = PreflightCheckResult(
+        identifier="sqlite",
+        label="SQLite",
+        passed=False,
+        message="Parent directory /missing does not exist.",
+        fix_label=None,
+        recommendation=SQLITE_PATH_REMEDIATION,
+    )
+
+    window._on_preflight_complete([result])
+    widgets = window._preflight_rows.get("sqlite")
+
+    assert widgets is not None
+    assert SQLITE_PATH_REMEDIATION in widgets.message.get_text()
 
     window.close()
 

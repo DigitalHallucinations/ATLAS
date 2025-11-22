@@ -4,11 +4,14 @@ import pytest
 
 gi = pytest.importorskip("gi")
 
+import subprocess
+
 from GTKUI.Setup.preflight import (
     PreflightCheckDefinition,
     PreflightHelper,
+    SQLITE_PATH_REMEDIATION,
 )
-from ATLAS.setup import MessageBusState
+from ATLAS.setup import DatabaseState, MessageBusState
 
 
 class _FakeProcess:
@@ -336,3 +339,41 @@ def test_configure_message_bus_target_disables_redis_for_other_backends():
     helper.configure_message_bus_target(MessageBusState(backend="in_memory"))
     identifiers = [definition.identifier for definition in helper._default_checks()]
     assert "redis" not in identifiers
+
+
+def _run_sqlite_probe(helper: PreflightHelper, expected_path: str) -> tuple[bool, str, str | None]:
+    definition = helper._build_database_check()
+    assert definition is not None
+    assert definition.identifier == "sqlite"
+
+    completed = subprocess.run(definition.command, capture_output=True, text=True)
+    passed = completed.returncode == 0
+    message, recommendation = definition.process_output(
+        passed, completed.stdout, completed.stderr, completed.returncode
+    )
+    assert expected_path in " ".join(definition.command)
+    return passed, message, recommendation
+
+
+def test_sqlite_preflight_reports_missing_parent(tmp_path):
+    helper = PreflightHelper(request_password=lambda: None)
+    missing_parent = tmp_path / "nope" / "atlas.sqlite3"
+    helper.configure_database_target(DatabaseState(backend="sqlite", database=str(missing_parent)))
+
+    passed, message, recommendation = _run_sqlite_probe(helper, str(missing_parent))
+
+    assert passed is False
+    assert "Parent directory" in message
+    assert recommendation == SQLITE_PATH_REMEDIATION
+
+
+def test_sqlite_preflight_passes_when_writable(tmp_path):
+    helper = PreflightHelper(request_password=lambda: None)
+    sqlite_path = tmp_path / "atlas.sqlite3"
+    helper.configure_database_target(DatabaseState(backend="sqlite", database=str(sqlite_path)))
+
+    passed, message, recommendation = _run_sqlite_probe(helper, str(sqlite_path))
+
+    assert passed is True
+    assert "SQLite path ready" in message
+    assert recommendation is None
