@@ -1633,7 +1633,9 @@ class SetupWizardWindow(AtlasWindow):
         fix_button: Gtk.Button | None = None
         if result.fix_label:
             fix_button = Gtk.Button(label=result.fix_label)
-            fix_button.set_sensitive(not result.passed)
+            fix_button.set_sensitive(not result.passed and result.fix_available)
+            if result.fix_tooltip:
+                fix_button.set_tooltip_text(result.fix_tooltip)
             fix_button.connect("clicked", self._on_preflight_fix_clicked, result.identifier)
             header.append(fix_button)
 
@@ -1671,7 +1673,11 @@ class SetupWizardWindow(AtlasWindow):
 
         widgets.message.set_text(self._format_preflight_message(result))
         if widgets.button is not None:
-            widgets.button.set_sensitive(not result.passed)
+            widgets.button.set_sensitive(not result.passed and result.fix_available)
+            if result.fix_tooltip:
+                widgets.button.set_tooltip_text(result.fix_tooltip)
+            else:
+                widgets.button.set_tooltip_text(None)
 
     def _format_preflight_message(self, result: PreflightCheckResult) -> str:
         if result.recommendation:
