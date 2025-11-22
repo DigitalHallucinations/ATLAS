@@ -39,6 +39,7 @@ DATABASE_LOCAL_PG_TIP = (
 DATABASE_MANAGED_TIP = (
     "Managed Postgres or Atlas works well when collaborators join and cloud latency is acceptable."
 )
+SQLITE_PATH_REMEDIATION = "Update the SQLite path or choose PostgreSQL."
 VECTOR_HOSTING_TIP = (
     "Keep vector DBs local for trusted, offline work; lean on managed options when scaling ingestion."
 )
@@ -682,7 +683,74 @@ class PreflightHelper:
         backend = (self._database_state.backend or "postgresql").strip().lower() or "postgresql"
         host_profile = _host_profile()
         if backend == "sqlite":
-            return None
+            path = self._sqlite_target_path()
+
+            probe = textwrap.dedent(
+                """
+                import json
+                import os
+                import sys
+                from pathlib import Path
+
+                path = Path(sys.argv[1])
+                recommendation = sys.argv[2]
+
+                def emit(ok: bool, message: str, recommendation: str | None = None) -> None:
+                    print(json.dumps({"ok": ok, "message": message, "recommendation": recommendation}))
+                    sys.exit(0 if ok else 1)
+
+                parent = path.parent
+                if not parent.exists():
+                    emit(False, f"Parent directory {parent} does not exist.", recommendation)
+                if parent.is_file():
+                    emit(False, f"Parent path {parent} is a file.", recommendation)
+                if path.exists() and path.is_dir():
+                    emit(False, f"SQLite path {path} is a directory.", recommendation)
+
+                probe_target = path if path.exists() else parent
+                if not os.access(probe_target, os.W_OK):
+                    emit(False, f"{probe_target} is not writable.", recommendation)
+
+                emit(True, f"SQLite path ready at {path}.")
+                """
+            )
+
+            def _parse_sqlite_probe(
+                passed: bool, stdout: str, stderr: str, exit_status: int
+            ) -> tuple[str, str | None]:
+                recommendation = SQLITE_PATH_REMEDIATION if not passed else None
+                hint = "SQLite path is missing or not writable."
+                if stdout:
+                    try:
+                        payload = json.loads(stdout.splitlines()[-1])
+                        message = payload.get("message", "SQLite path check completed.")
+                        recommendation = payload.get("recommendation", recommendation)
+                        return message, recommendation
+                    except Exception:
+                        pass
+
+                return (
+                    self._format_failure_message(hint, exit_status, stdout, stderr),
+                    recommendation,
+                )
+
+            return PreflightCheckDefinition(
+                identifier="sqlite",
+                label="SQLite storage",
+                command=[
+                    "/usr/bin/env",
+                    "python3",
+                    "-c",
+                    probe,
+                    str(path),
+                    SQLITE_PATH_REMEDIATION,
+                ],
+                success_message="SQLite path ready.",
+                failure_hint="SQLite path is missing or not writable.",
+                fix_command=None,
+                fix_label=None,
+                process_output=_parse_sqlite_probe,
+            )
         if backend == "mongodb":
             uri = _compose_dsn(self._database_state).strip()
             if not uri:
@@ -974,6 +1042,33 @@ class PreflightHelper:
             process_output=_parse_probe,
         )
 
+    def _sqlite_target_path(self) -> Path:
+        database = self._database_state.database or self._database_state.dsn or "atlas.sqlite3"
+        if isinstance(database, str):
+            candidate = database.strip()
+        else:
+            candidate = str(database)
+
+        if candidate.startswith("sqlite:"):
+            try:
+                from urllib.parse import urlparse
+
+                parsed = urlparse(candidate)
+                if parsed.path and parsed.path != "/":
+                    candidate = parsed.path.lstrip("/")
+                elif parsed.netloc:
+                    candidate = parsed.netloc
+            except Exception:
+                candidate = "atlas.sqlite3"
+
+        path = Path(candidate).expanduser()
+        if not path.is_absolute():
+            path = (Path.cwd() / path).resolve(strict=False)
+        else:
+            path = path.resolve(strict=False)
+
+        return path
+
 
 __all__ = [
     "PreflightCheckDefinition",
@@ -982,6 +1077,7 @@ __all__ = [
     "DATABASE_LOCAL_PG_TIP",
     "DATABASE_LOCAL_TIP",
     "DATABASE_MANAGED_TIP",
+    "SQLITE_PATH_REMEDIATION",
     "VECTOR_HOSTING_TIP",
     "MODEL_HOSTING_TIP",
     "database_recommendation_for_state",
