@@ -175,6 +175,50 @@ def test_preflight_helper_fix_rechecks_after_success():
     assert fix_results[0].message == "Database ready"
 
 
+def test_failed_fix_releases_lock_for_followup_operations():
+    definition = PreflightCheckDefinition(
+        identifier="db",
+        label="Database",
+        command=["check-db"],
+        success_message="Database ready",
+        failure_hint="Database is unavailable",
+        fix_command=["fix-db"],
+        fix_label="Start database",
+    )
+
+    factory = _ProcessFactory()
+    factory.enqueue(["fix-db"], _FakeProcess(exit_status=1, stderr="still broken"))
+
+    helper = PreflightHelper(
+        request_password=lambda: None,
+        checks=[definition],
+        subprocess_factory=factory,
+    )
+
+    failed_fix_results: list = []
+    helper.run_fix("db", failed_fix_results.append)
+
+    assert failed_fix_results
+    assert failed_fix_results[-1].passed is False
+    assert helper._fix_in_progress is None
+
+    followup_checks: list = []
+    factory.enqueue(["check-db"], _FakeProcess(exit_status=0, stdout="ok"))
+    helper.run_checks(on_complete=lambda results: followup_checks.extend(results))
+
+    assert followup_checks
+    assert all(result.passed for result in followup_checks)
+
+    factory.enqueue(["fix-db"], _FakeProcess(exit_status=0, stdout="recovered"))
+    factory.enqueue(["check-db"], _FakeProcess(exit_status=0, stdout="ready"))
+
+    successful_fix_results: list = []
+    helper.run_fix("db", successful_fix_results.append)
+
+    assert successful_fix_results
+    assert successful_fix_results[-1].passed is True
+
+
 def test_preflight_helper_handles_spawn_errors():
     definition = PreflightCheckDefinition(
         identifier="redis",
