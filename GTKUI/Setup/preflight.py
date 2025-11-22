@@ -481,6 +481,7 @@ class PreflightHelper:
         message: str,
         callback: Callable[[PreflightCheckResult], None],
     ) -> None:
+        self._fix_in_progress = None
         callback(
             PreflightCheckResult(
                 identifier=definition.identifier,
