@@ -208,6 +208,9 @@ def test_preflight_helper_honors_redis_url():
         subprocess_factory=factory,
     )
 
+    definitions = list(helper._default_checks())
+    assert all(definition.identifier != "redis" for definition in definitions)
+
     helper.configure_message_bus_target(
         MessageBusState(backend="redis", redis_url="redis://cache:6379/1")
     )
@@ -260,6 +263,8 @@ def test_hardware_check_adds_recommendations_and_replaces_virtualenv():
 def test_service_fixes_adjust_to_platform(monkeypatch):
     helper = PreflightHelper(request_password=lambda: None)
 
+    helper.configure_message_bus_target(MessageBusState(backend="redis"))
+
     monkeypatch.setattr(
         helper, "_detect_service_manager", lambda: (None, "Manual restart only.")
     )
@@ -271,3 +276,19 @@ def test_service_fixes_adjust_to_platform(monkeypatch):
     assert redis_definition.fix_tooltip == "Manual restart only."
     assert "Manual restart only." in redis_definition.failure_hint
     assert redis_definition.fix_available is False
+
+
+def test_configure_message_bus_target_disables_redis_for_other_backends():
+    helper = PreflightHelper(request_password=lambda: None)
+
+    helper.configure_message_bus_target(MessageBusState(backend="redis"))
+    redis_definitions = [
+        definition
+        for definition in helper._default_checks()
+        if definition.identifier == "redis"
+    ]
+    assert redis_definitions
+
+    helper.configure_message_bus_target(MessageBusState(backend="in_memory"))
+    identifiers = [definition.identifier for definition in helper._default_checks()]
+    assert "redis" not in identifiers
