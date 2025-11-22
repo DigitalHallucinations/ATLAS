@@ -96,6 +96,45 @@ def test_preflight_helper_runs_checks_and_reports_failures():
     assert "Exit status" in redis_result.message
 
 
+def test_preflight_helper_runs_only_custom_checks(monkeypatch):
+    checks = [
+        PreflightCheckDefinition(
+            identifier="custom-1",
+            label="Custom One",
+            command=["custom-one"],
+            success_message="Custom one passed",
+            failure_hint="Custom one failed",
+        ),
+        PreflightCheckDefinition(
+            identifier="custom-2",
+            label="Custom Two",
+            command=["custom-two"],
+            success_message="Custom two passed",
+            failure_hint="Custom two failed",
+        ),
+    ]
+
+    factory = _ProcessFactory()
+    for definition in checks:
+        factory.enqueue(definition.command, _FakeProcess(exit_status=0))
+
+    helper = PreflightHelper(
+        request_password=lambda: None,
+        checks=checks,
+        subprocess_factory=factory,
+    )
+
+    monkeypatch.setattr(
+        helper, "_default_checks", lambda: (_ for _ in ()).throw(AssertionError("default checks used"))
+    )
+
+    completed: list = []
+    helper.run_checks(on_complete=lambda results: completed.extend(results))
+
+    assert [result.identifier for result in completed] == [definition.identifier for definition in checks]
+    assert all(result.passed for result in completed)
+
+
 def test_preflight_helper_fix_rechecks_after_success():
     definition = PreflightCheckDefinition(
         identifier="db",
