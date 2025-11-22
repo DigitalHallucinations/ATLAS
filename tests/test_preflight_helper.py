@@ -198,7 +198,10 @@ def test_hardware_check_adds_recommendations_and_replaces_virtualenv():
     assert "hardware" in identifiers
 
     payload = {
-        "message": "Hardware review completed: 2 CPU cores, 2.0 GB RAM, 10.0 GB free disk.",
+        "message": (
+            "Hardware review completed: 2 CPU cores, 2.0 GB RAM, "
+            "10.0 GB free disk at /var/lib/atlas."
+        ),
         "recommendation": "Consider cloud PostgreSQL; only 2.0 GB RAM available.",
     }
 

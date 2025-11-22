@@ -9,7 +9,8 @@ import shutil
 import sys
 import textwrap
 from dataclasses import dataclass
-from typing import Callable, Iterable, Sequence
+from pathlib import Path
+from typing import Callable, Iterable, Mapping, Sequence
 
 import gi
 
@@ -17,7 +18,12 @@ gi.require_version("Gio", "2.0")
 gi.require_version("GLib", "2.0")
 from gi.repository import Gio, GLib
 
-from ATLAS.setup.controller import DatabaseState, MessageBusState, _compose_dsn
+from ATLAS.setup.controller import (
+    ConfigManager,
+    DatabaseState,
+    MessageBusState,
+    _compose_dsn,
+)
 
 
 PasswordProvider = Callable[[], str | None]
@@ -91,20 +97,127 @@ def _read_mem_total() -> float | None:
     return None
 
 
+def _resolve_path(value: str, *, app_root: Path) -> Path:
+    candidate = Path(value).expanduser()
+    if not candidate.is_absolute():
+        candidate = (app_root / candidate).resolve(strict=False)
+    else:
+        candidate = candidate.resolve(strict=False)
+    return candidate
+
+
+def _storage_paths_from_config() -> dict[str, str]:
+    try:
+        manager = ConfigManager()
+    except Exception:
+        return {}
+
+    app_root = manager.get_config("APP_ROOT", ".")
+    app_root_path = Path(app_root).expanduser()
+    if not app_root_path.is_absolute():
+        app_root_path = (Path.cwd() / app_root_path).resolve(strict=False)
+
+    storage_paths: dict[str, str] = {}
+
+    try:
+        conversation_config = manager.get_conversation_database_config()
+    except Exception:
+        conversation_config = {}
+    backend = (conversation_config.get("backend") or "").strip().lower()
+    url = str(conversation_config.get("url") or "").strip()
+    if backend == "sqlite" or url.startswith("sqlite"):
+        db_path: str | None = None
+        try:  # pragma: no cover - sqlalchemy import may fail on minimal installs
+            from sqlalchemy.engine.url import make_url
+
+            parsed = make_url(url)
+            db_path = parsed.database
+        except Exception:
+            pass
+
+        if not db_path and url.startswith("sqlite:///"):
+            db_path = url.split("sqlite:///")[-1]
+
+        if db_path:
+            storage_paths["conversation_database"] = str(
+                _resolve_path(db_path, app_root=app_root_path)
+            )
+
+    vector_settings = manager.get_vector_store_settings()
+    adapter = (vector_settings.get("default_adapter") or "").strip().lower()
+    adapters_block = vector_settings.get("adapters")
+    adapter_config: Mapping[str, object] | None = None
+    if isinstance(adapters_block, Mapping):
+        candidate = adapters_block.get(adapter)
+        if isinstance(candidate, Mapping):
+            adapter_config = candidate
+
+    vector_path = None
+    if adapter_config is not None:
+        if adapter == "chroma":
+            vector_path = adapter_config.get("persist_directory")
+        elif adapter == "faiss":
+            vector_path = adapter_config.get("index_path")
+
+    if vector_path:
+        storage_paths["vector_store"] = str(
+            _resolve_path(str(vector_path), app_root=app_root_path)
+        )
+
+    model_cache_dir = manager.get_config("MODEL_CACHE_DIR")
+    if model_cache_dir:
+        storage_paths["model_cache"] = str(
+            _resolve_path(str(model_cache_dir), app_root=app_root_path)
+        )
+
+    return storage_paths
+
+
+def _preferred_disk_free(paths: Mapping[str, str]) -> tuple[float | None, str | None]:
+    lowest_free: float | None = None
+    chosen_path: str | None = None
+
+    for path in paths.values():
+        expanded = Path(path).expanduser()
+        free_bytes: float | None = None
+        for candidate in (expanded, expanded.resolve(strict=False).parent):
+            try:
+                free_bytes = float(shutil.disk_usage(candidate).free)
+                break
+            except Exception:
+                continue
+
+        if free_bytes is None:
+            continue
+
+        resolved = str(expanded.resolve(strict=False))
+        if lowest_free is None or free_bytes < lowest_free:
+            lowest_free = free_bytes
+            chosen_path = resolved
+
+    return lowest_free, chosen_path
+
+
 def _host_profile() -> dict[str, float | int | None]:
     cpu_count = os.cpu_count() or 0
     ram_bytes = _read_mem_total()
-    disk_bytes: float | None
-    try:
-        disk_bytes = float(shutil.disk_usage(".").free)
-    except Exception:
-        disk_bytes = None
+    storage_paths = _storage_paths_from_config()
+    disk_bytes, disk_path = _preferred_disk_free(storage_paths)
+
+    if disk_bytes is None:
+        try:
+            disk_bytes = float(shutil.disk_usage(".").free)
+            disk_path = str(Path.cwd())
+        except Exception:
+            disk_bytes = None
+            disk_path = None
 
     to_gb = lambda value: None if value is None else value / (1024 ** 3)
     return {
         "cpu_count": cpu_count,
         "ram_gb": to_gb(ram_bytes),
         "disk_gb": to_gb(disk_bytes),
+        "disk_path": disk_path,
     }
 
 
@@ -693,6 +806,8 @@ class PreflightHelper:
         )
 
     def _build_hardware_check(self) -> PreflightCheckDefinition:
+        storage_paths = _storage_paths_from_config()
+        storage_paths_json = json.dumps(storage_paths)
         probe_script = textwrap.dedent(
             """
             import json, os, shutil, subprocess, sys
@@ -713,11 +828,32 @@ class PreflightHelper:
                 except Exception:
                     return None
 
+            STORAGE_PATHS = json.loads(%r)
+
             def _read_disk_free():
-                try:
-                    return float(shutil.disk_usage('.').free)
-                except Exception:
-                    return None
+                lowest = None
+                resolved_path = None
+                for path in STORAGE_PATHS.values():
+                    expanded = os.path.expanduser(path)
+                    for candidate in (expanded, os.path.dirname(expanded)):
+                        try:
+                            free_bytes = float(shutil.disk_usage(candidate).free)
+                        except Exception:
+                            continue
+                        location = os.path.realpath(expanded)
+                        if lowest is None or free_bytes < lowest:
+                            lowest = free_bytes
+                            resolved_path = location
+                        break
+
+                if lowest is None:
+                    try:
+                        lowest = float(shutil.disk_usage('.').free)
+                        resolved_path = os.path.realpath('.')
+                    except Exception:
+                        return None, None
+
+                return lowest, resolved_path
 
             def _probe_gpus():
                 names = []
@@ -735,7 +871,7 @@ class PreflightHelper:
 
             cpu_count = os.cpu_count() or 0
             ram_bytes = _read_mem_total()
-            disk_bytes = _read_disk_free()
+            disk_bytes, disk_path = _read_disk_free()
             gpus = _probe_gpus()
 
             def _format_gb(value):
@@ -746,6 +882,8 @@ class PreflightHelper:
             ram_gb = (ram_bytes or 0) / (1024 ** 3)
             disk_gb = (disk_bytes or 0) / (1024 ** 3)
             gpu_summary = ', '.join(gpus) if gpus else 'none detected'
+
+            disk_location = disk_path or 'unknown path'
 
             recommendations = []
             if cpu_count and cpu_count < 4:
@@ -760,7 +898,8 @@ class PreflightHelper:
                 )
             if disk_gb and disk_gb < 40:
                 recommendations.append(
-                    f'Low free disk ({disk_gb:.1f} GB); prefer cloud data stores and models.'
+                    f'Low free disk ({disk_gb:.1f} GB) at {disk_location}; '
+                    'prefer cloud data stores and models.'
                 )
             if not gpus:
                 recommendations.append('No GPU detected; hosted model inference recommended for speed.')
@@ -768,17 +907,19 @@ class PreflightHelper:
             summary = (
                 f"{cpu_count or 'Unknown'} CPU cores, "
                 f"{_format_gb(ram_bytes)} RAM, "
-                f"{_format_gb(disk_bytes)} free disk. GPU: {gpu_summary}."
+                f"{_format_gb(disk_bytes)} free disk at {disk_location}. "
+                f"GPU: {gpu_summary}."
             )
             payload = {
                 'message': f'Hardware review completed: {summary}',
+                'disk_path': disk_path,
                 'recommendation': '\n'.join(recommendations)
                 if recommendations
                 else 'Local hosting looks sufficient for databases and moderate models.',
             }
             print(json.dumps(payload))
             """
-        )
+        ) % storage_paths_json
 
         def _parse_probe(
             passed: bool, stdout: str, stderr: str, exit_status: int
