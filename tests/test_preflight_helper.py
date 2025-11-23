@@ -258,6 +258,90 @@ def test_preflight_helper_honors_redis_url():
     definitions = list(helper._default_checks())
     assert all(definition.identifier != "redis" for definition in definitions)
 
+
+def test_preflight_helper_builds_redis_check_when_configured():
+    factory = _ProcessFactory()
+    helper = PreflightHelper(
+        request_password=lambda: None,
+        subprocess_factory=factory,
+    )
+    helper.configure_message_bus_target(
+        MessageBusState(backend="redis", redis_url="redis://localhost:6379/0")
+    )
+
+    definitions = list(helper._default_checks())
+    redis_definition = next(
+        (definition for definition in definitions if definition.identifier == "redis"), None
+    )
+    assert redis_definition is not None
+    assert "redis://localhost:6379/0" in redis_definition.command
+
+    completed: list = []
+    for definition in definitions:
+        if definition.identifier == "hardware":
+            payload = {
+                "message": "Hardware review completed: mock", 
+                "recommendation": "Local hosting looks sufficient for databases and moderate models.",
+            }
+            stdout = json.dumps(payload)
+        else:
+            stdout = "ok"
+        factory.enqueue(definition.command, _FakeProcess(exit_status=0, stdout=stdout))
+
+    helper.run_checks(on_complete=lambda results: completed.extend(results))
+
+    assert any(result.identifier == "redis" and result.passed for result in completed)
+
+
+def test_sqlite_check_surfaces_recommendation(tmp_path):
+    target = tmp_path / "data" / "atlas.sqlite3"
+    dsn = f"sqlite:///{target}"
+
+    helper = PreflightHelper(
+        request_password=lambda: None,
+        subprocess_factory=_ProcessFactory(),
+    )
+    helper.configure_database_target(DatabaseState(backend="sqlite", dsn=dsn))
+
+    definitions = list(helper._default_checks())
+    sqlite_definition = next(
+        definition for definition in definitions if definition.identifier == "sqlite"
+    )
+    hardware_definition = next(
+        definition for definition in definitions if definition.identifier == "hardware"
+    )
+
+    factory = _ProcessFactory()
+    payload = {
+        "ok": False,
+        "message": "Parent directory missing",
+        "recommendation": SQLITE_PATH_REMEDIATION,
+    }
+    factory.enqueue(sqlite_definition.command, _FakeProcess(exit_status=1, stdout=json.dumps(payload)))
+
+    hardware_payload = {
+        "message": "Hardware review completed: mock",
+        "recommendation": "Local hosting looks sufficient for databases and moderate models.",
+    }
+    factory.enqueue(
+        hardware_definition.command,
+        _FakeProcess(exit_status=0, stdout=json.dumps(hardware_payload)),
+    )
+
+    helper = PreflightHelper(
+        request_password=lambda: None,
+        checks=definitions,
+        subprocess_factory=factory,
+    )
+
+    completed: list = []
+    helper.run_checks(on_complete=lambda results: completed.extend(results))
+
+    sqlite_result = next(result for result in completed if result.identifier == "sqlite")
+    assert sqlite_result.passed is False
+    assert "Parent directory missing" in sqlite_result.message
+    assert sqlite_result.recommendation == SQLITE_PATH_REMEDIATION
+
     helper.configure_message_bus_target(
         MessageBusState(backend="redis", redis_url="redis://cache:6379/1")
     )
