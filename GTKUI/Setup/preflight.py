@@ -762,6 +762,12 @@ class PreflightHelper:
             recommendation = database_recommendation_for_state(
                 self._database_state, host_profile=host_profile
             )
+            python_executable = sys.executable or "python3"
+            pip_command = [python_executable, "-m", "pip", "install", "pymongo"]
+            if not sys.platform.startswith("win"):
+                pip_command.insert(0, "/usr/bin/env")
+            pip_command_display = " ".join(pip_command)
+            fix_tooltip = f"Install the MongoDB driver with: {pip_command_display}"
             script = (
                 "import sys\n"
                 "uri = sys.argv[1]\n"
@@ -783,6 +789,17 @@ class PreflightHelper:
             def _parse_mongodb(
                 passed: bool, stdout: str, stderr: str, exit_status: int
             ) -> tuple[str, str | None]:
+                combined = "\n".join(part for part in (stdout, stderr) if part)
+                lower_combined = combined.lower()
+                if not passed and (
+                    "pymongo import failed" in lower_combined
+                    or "no module named 'pymongo'" in lower_combined
+                ):
+                    message = (
+                        "MongoDB driver is missing. Install it with `pip install pymongo` and"
+                        " rerun the check."
+                    )
+                    return message, "Install the PyMongo package with `pip install pymongo`."
                 message = (
                     "MongoDB connection succeeded."
                     if passed
@@ -796,6 +813,11 @@ class PreflightHelper:
                 command=["/usr/bin/env", "python3", "-c", script, uri],
                 success_message="MongoDB connection succeeded.",
                 failure_hint=mongo_hint,
+                fix_command=pip_command,
+                fix_label="Install PyMongo driver",
+                fix_tooltip=fix_tooltip,
+                requires_sudo=False,
+                fix_available=True,
                 process_output=_parse_mongodb,
             )
 

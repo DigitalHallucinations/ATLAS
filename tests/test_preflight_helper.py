@@ -1,4 +1,5 @@
 import json
+import sys
 
 import pytest
 
@@ -339,6 +340,30 @@ def test_configure_message_bus_target_disables_redis_for_other_backends():
     helper.configure_message_bus_target(MessageBusState(backend="in_memory"))
     identifiers = [definition.identifier for definition in helper._default_checks()]
     assert "redis" not in identifiers
+
+
+def test_mongodb_preflight_reports_missing_driver():
+    helper = PreflightHelper(request_password=lambda: None)
+
+    helper.configure_database_target(DatabaseState(backend="mongodb"))
+    definition = helper._build_database_check()
+
+    assert definition is not None
+    assert definition.identifier == "mongodb"
+    message, recommendation = definition.process_output(
+        False,
+        "",
+        "pymongo import failed: No module named 'pymongo'",
+        1,
+    )
+
+    assert "pip install pymongo" in message
+    assert recommendation is not None and "pip install pymongo" in recommendation
+    assert definition.fix_label == "Install PyMongo driver"
+    assert definition.fix_tooltip is not None
+    assert definition.fix_available is True
+    assert definition.fix_command is not None
+    assert sys.executable in definition.fix_command
 
 
 def _run_sqlite_probe(helper: PreflightHelper, expected_path: str) -> tuple[bool, str, str | None]:
