@@ -299,6 +299,23 @@ def test_basic_auth_success_populates_context(http_client) -> None:
     assert metadata["source"] == "test"
 
 
+def test_roles_header_is_ignored(http_client) -> None:
+    client, service, _, server, _, http_gateway = http_client
+    service.add_user("mallory", "pw", roles=("user",))
+
+    headers = {
+        "Authorization": f"Basic {_encode_basic('mallory', 'pw')}",
+        http_gateway._HEADER_ROLES: "admin, auditor",
+    }
+
+    response = client.get("/conversations", headers=headers)
+
+    assert response.status_code == 200
+    context = server.calls[-1][1]
+    assert context.user_id == "mallory"
+    assert tuple(context.roles) == ("user",)
+
+
 def test_invalid_credentials_rejected(http_client) -> None:
     client, service, _, server, _, http_gateway = http_client
     service.add_user("bob", "builder")
