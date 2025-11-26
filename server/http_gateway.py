@@ -312,7 +312,12 @@ async def _build_request_context(request: Request, atlas: ATLAS) -> RequestConte
         raise HTTPException(status_code=403, detail="X-Atlas-Tenant does not match configured tenant")
 
     header_metadata = _parse_metadata(headers.get(_HEADER_METADATA))
-    header_roles = _parse_roles(headers.get(_HEADER_ROLES))
+
+    if headers.get(_HEADER_ROLES):
+        LOGGER.warning(
+            "Client-supplied %s header is ignored; roles are determined server-side",
+            _HEADER_ROLES,
+        )
 
     principal = await _authenticate_request(request, atlas, tenant_id)
 
@@ -321,7 +326,6 @@ async def _build_request_context(request: Request, atlas: ATLAS) -> RequestConte
         raise HTTPException(status_code=401, detail="Authenticated username mismatch")
 
     combined_roles: list[str] = list(principal.roles)
-    _merge_roles(combined_roles, header_roles)
 
     metadata_payload: Dict[str, Any] = dict(principal.metadata)
     if header_metadata:
