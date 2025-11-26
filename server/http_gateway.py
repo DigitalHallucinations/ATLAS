@@ -386,8 +386,20 @@ def _stream_events_response(iterator: AsyncIterator[Mapping[str, Any]]) -> Strea
             raise
         except Exception as exc:  # noqa: BLE001 - report in stream and log
             LOGGER.exception("Streaming route terminated due to error: %s", exc)
-            detail = json.dumps({"detail": str(exc)})
+            detail = json.dumps(
+                {"detail": "Streaming route encountered an internal error"}
+            )
             yield f"event: error\ndata: {detail}\n\n".encode("utf-8")
+        finally:
+            close_stream = getattr(iterator, "aclose", None)
+            if close_stream is not None:
+                try:
+                    await close_stream()
+                except Exception:  # pragma: no cover - best-effort cleanup
+                    LOGGER.debug(
+                        "Failed to close streaming iterator after termination",
+                        exc_info=True,
+                    )
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
