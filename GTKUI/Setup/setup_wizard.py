@@ -32,6 +32,7 @@ from ATLAS.setup import (
 from ATLAS.setup_marker import write_setup_marker
 from GTKUI.Utils.logging import GTKUILogHandler
 from GTKUI.Utils.styled_window import AtlasWindow
+from GTKUI.Utils.utils import apply_css
 from modules.logging.audit_templates import get_audit_template, get_audit_templates
 from modules.conversation_store.bootstrap import BootstrapError
 DATABASE_LOCAL_TIP = (
@@ -180,6 +181,8 @@ class SetupWizardWindow(AtlasWindow):
         preferred_width, preferred_height = 960, 720
         fallback_width, fallback_height = 800, 600
         margin = 64
+
+        apply_css()
 
         desired_width, desired_height = fallback_width, fallback_height
 
