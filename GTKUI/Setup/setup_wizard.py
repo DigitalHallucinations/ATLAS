@@ -954,6 +954,7 @@ class SetupWizardWindow(AtlasWindow):
         speech_intro = self._build_speech_intro_page()
         speech_form = self._build_speech_page()
         optional_intro = self._build_optional_intro_page()
+        company_form = self._build_company_page()
         optional_form = self._build_optional_page()
 
         mode = getattr(self.controller.state.setup_type, "mode", "").strip().lower()
@@ -988,7 +989,7 @@ class SetupWizardWindow(AtlasWindow):
                 WizardStep(
                     name="Company",
                     widget=optional_intro,
-                    subpages=[optional_intro, optional_form],
+                    subpages=[optional_intro, company_form, optional_form],
                     apply=self._apply_optional,
                 )
             )
@@ -1790,6 +1791,9 @@ class SetupWizardWindow(AtlasWindow):
         state = self.controller.state.optional
         mapping = {
             "tenant_id": state.tenant_id or "",
+            "company_name": state.company_name or "",
+            "company_domain": state.company_domain or "",
+            "primary_contact": state.primary_contact or "",
             "retention_days": self._optional_to_text(state.retention_days),
             "retention_history_limit": self._optional_to_text(
                 state.retention_history_limit
@@ -2374,6 +2378,63 @@ class SetupWizardWindow(AtlasWindow):
                 "We'll ask for provider choices, API keys, and preferred default voices next.",
             ],
             "Pick the providers you want to enable and have their credentials ready to drop in.",
+        )
+
+    def _build_company_page(self) -> Gtk.Widget:
+        state = self.controller.state.optional
+
+        grid = Gtk.Grid(column_spacing=12, row_spacing=6)
+        grid.set_hexpand(True)
+        grid.set_vexpand(True)
+
+        row = 0
+
+        heading = Gtk.Label(label="Company identity")
+        heading.set_wrap(True)
+        heading.set_xalign(0.0)
+        if hasattr(heading, "add_css_class"):
+            heading.add_css_class("heading")
+        grid.attach(heading, 0, row, 2, 1)
+        row += 1
+
+        self._optional_widgets["company_name"] = self._create_labeled_entry(
+            grid, row, "Company name", state.company_name or ""
+        )
+        self._register_required_text(
+            self._optional_widgets["company_name"], "Company name"
+        )
+        row += 1
+
+        self._optional_widgets["company_domain"] = self._create_labeled_entry(
+            grid, row, "Company domain", state.company_domain or ""
+        )
+        self._register_required_text(
+            self._optional_widgets["company_domain"], "Company domain"
+        )
+        row += 1
+
+        contact_hint = (
+            "List the primary compliance or security contact (name, email, or team alias)."
+        )
+        self._optional_widgets["primary_contact"] = self._create_labeled_entry(
+            grid, row, "Primary contact", state.primary_contact or ""
+        )
+        self._register_required_text(
+            self._optional_widgets["primary_contact"], "Primary contact"
+        )
+        contact_label = grid.get_child_at(0, row)
+        if isinstance(contact_label, Gtk.Widget):
+            contact_label.set_tooltip_text(contact_hint)
+        row += 1
+
+        instructions = (
+            "• Capture the organization details stakeholders expect to see on compliance records.\n"
+            "• Keep the domain aligned with tenant IDs and email addresses used elsewhere in ATLAS.\n"
+            "• Include a primary contact so future administrators know who to loop in."
+        )
+
+        return self._wrap_with_instructions(
+            grid, instructions, "Record Company Identity"
         )
 
     def _build_optional_intro_page(self) -> Gtk.Widget:
@@ -4507,6 +4568,9 @@ class SetupWizardWindow(AtlasWindow):
         return "Speech settings saved."
 
     def _apply_optional(self) -> str:
+        company_name_entry = self._optional_widgets.get("company_name")
+        company_domain_entry = self._optional_widgets.get("company_domain")
+        primary_contact_entry = self._optional_widgets.get("primary_contact")
         tenant_entry = self._optional_widgets.get("tenant_id")
         retention_days_entry = self._optional_widgets.get("retention_days")
         retention_history_entry = self._optional_widgets.get("retention_history_limit")
@@ -4520,6 +4584,9 @@ class SetupWizardWindow(AtlasWindow):
         if not all(
             isinstance(widget, Gtk.Entry)
             for widget in (
+                company_name_entry,
+                company_domain_entry,
+                primary_contact_entry,
                 tenant_entry,
                 retention_days_entry,
                 retention_history_entry,
@@ -4533,6 +4600,9 @@ class SetupWizardWindow(AtlasWindow):
         ):
             raise RuntimeError("Organization settings widgets are not configured correctly")
 
+        assert isinstance(company_name_entry, Gtk.Entry)
+        assert isinstance(company_domain_entry, Gtk.Entry)
+        assert isinstance(primary_contact_entry, Gtk.Entry)
         assert isinstance(tenant_entry, Gtk.Entry)
         assert isinstance(retention_days_entry, Gtk.Entry)
         assert isinstance(retention_history_entry, Gtk.Entry)
@@ -4542,6 +4612,18 @@ class SetupWizardWindow(AtlasWindow):
         assert isinstance(audit_combo, Gtk.ComboBoxText)
         assert isinstance(region_combo, Gtk.ComboBoxText)
         assert isinstance(residency_combo, Gtk.ComboBoxText)
+
+        company_name = company_name_entry.get_text().strip()
+        if not company_name:
+            raise ValueError("Company name is required for enterprise setups")
+
+        company_domain = company_domain_entry.get_text().strip()
+        if not company_domain:
+            raise ValueError("Company domain is required for enterprise setups")
+
+        primary_contact = primary_contact_entry.get_text().strip()
+        if not primary_contact:
+            raise ValueError("Primary contact is required for enterprise setups")
 
         tenant_id = tenant_entry.get_text().strip()
         if not tenant_id:
@@ -4567,6 +4649,9 @@ class SetupWizardWindow(AtlasWindow):
             audit_template=audit_combo.get_active_id() or None,
             data_region=region_combo.get_active_id() or None,
             residency_requirement=residency_combo.get_active_id() or None,
+            company_name=company_name,
+            company_domain=company_domain,
+            primary_contact=primary_contact,
         )
 
         self.controller.apply_optional_settings(state)

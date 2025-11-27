@@ -555,6 +555,54 @@ class ConfigManager(ProviderConfigMixin, PersistenceConfigMixin, ConfigCore):
         self._write_yaml_config()
         return normalized
 
+    def get_company_identity(self) -> Dict[str, Optional[str]]:
+        """Return persisted company identity fields."""
+
+        block = self.config.get("company")
+        if not isinstance(block, Mapping):
+            return {"name": None, "domain": None, "primary_contact": None}
+
+        name = str(block.get("name")).strip() if block.get("name") else None
+        domain = str(block.get("domain")).strip() if block.get("domain") else None
+        primary_contact = (
+            str(block.get("primary_contact")).strip()
+            if block.get("primary_contact")
+            else None
+        )
+        return {
+            "name": name or None,
+            "domain": domain or None,
+            "primary_contact": primary_contact or None,
+        }
+
+    def set_company_identity(
+        self,
+        *,
+        name: Optional[str] = None,
+        domain: Optional[str] = None,
+        primary_contact: Optional[str] = None,
+    ) -> Dict[str, Optional[str]]:
+        """Persist company identity fields for enterprise setups."""
+
+        cleaned = {
+            "name": name.strip() if isinstance(name, str) else None,
+            "domain": domain.strip() if isinstance(domain, str) else None,
+            "primary_contact": (
+                primary_contact.strip() if isinstance(primary_contact, str) else None
+            ),
+        }
+
+        if not any(cleaned.values()):
+            self.yaml_config.pop("company", None)
+            self.config.pop("company", None)
+            self._write_yaml_config()
+            return {"name": None, "domain": None, "primary_contact": None}
+
+        self.yaml_config["company"] = dict(cleaned)
+        self.config["company"] = dict(cleaned)
+        self._write_yaml_config()
+        return dict(cleaned)
+
     def set_http_server_autostart(self, enabled: bool) -> bool:
         """Persist whether the embedded HTTP server should start automatically."""
 

@@ -162,6 +162,9 @@ class SetupUsersState:
 @dataclass
 class OptionalState:
     tenant_id: Optional[str] = None
+    company_name: Optional[str] = None
+    company_domain: Optional[str] = None
+    primary_contact: Optional[str] = None
     retention_days: Optional[int] = None
     retention_history_limit: Optional[int] = None
     scheduler_timezone: Optional[str] = None
@@ -452,8 +455,12 @@ class SetupWizardController:
         retention = self.config_manager.get_conversation_retention_policies()
         http_block = self.config_manager.get_config("http_server") or {}
         residency = self.config_manager.get_data_residency_settings()
+        company_identity = self.config_manager.get_company_identity()
         self.state.optional = OptionalState(
             tenant_id=str(tenant_value).strip() if tenant_value else None,
+            company_name=company_identity.get("name"),
+            company_domain=company_identity.get("domain"),
+            primary_contact=company_identity.get("primary_contact"),
             retention_days=retention.get("days") or retention.get("max_days"),
             retention_history_limit=retention.get("history_message_limit"),
             scheduler_timezone=self.state.job_scheduling.timezone,
@@ -939,6 +946,11 @@ class SetupWizardController:
         self.config_manager.set_data_residency(
             region=state.data_region,
             residency_requirement=state.residency_requirement,
+        )
+        self.config_manager.set_company_identity(
+            name=state.company_name,
+            domain=state.company_domain,
+            primary_contact=state.primary_contact,
         )
         self.state.optional = dataclasses.replace(state)
         return self.state.optional
