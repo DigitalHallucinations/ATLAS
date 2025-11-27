@@ -321,6 +321,26 @@ headerbar.setup-wizard-header button.setup-wizard-debug-button image {
     padding-right: 12px;
 }
 
+.popover-listview,
+popover listview > row,
+popover listview > row:hover,
+popover listview > row:selected,
+popover listview > row:focus-visible {
+    background: transparent;
+}
+
+.popover-listview:hover,
+popover listview > row:hover,
+popover listview > row:hover *,
+.popover-listview:selected,
+popover listview > row:selected,
+popover listview > row:selected *,
+.popover-listview:focus-visible,
+popover listview > row:focus-visible,
+popover listview > row:focus-visible * {
+    color: #58a6ff;
+}
+
 .setup-wizard-main popover listview > row,
 .setup-wizard-main popover listview > row:hover,
 .setup-wizard-main popover listview > row:selected,
