@@ -34,16 +34,38 @@ from GTKUI.Utils.logging import GTKUILogHandler
 from GTKUI.Utils.styled_window import AtlasWindow
 from modules.logging.audit_templates import get_audit_template, get_audit_templates
 from modules.conversation_store.bootstrap import BootstrapError
-from GTKUI.Setup.preflight import (
-    DATABASE_LOCAL_PG_TIP,
-    DATABASE_LOCAL_TIP,
-    DATABASE_MANAGED_TIP,
-    MODEL_HOSTING_TIP,
-    VECTOR_HOSTING_TIP,
-    PreflightHelper,
-    PreflightCheckResult,
-    database_recommendation_for_state,
+DATABASE_LOCAL_TIP = (
+    "SQLite keeps data on this device and avoids service management on low-resource hosts."
 )
+DATABASE_LOCAL_PG_TIP = (
+    "Local PostgreSQL stays fastest when you have CPU/RAM to spare and want everything on-box."
+)
+DATABASE_MANAGED_TIP = (
+    "Managed Postgres or Atlas works well when collaborators join and cloud latency is acceptable."
+)
+VECTOR_HOSTING_TIP = (
+    "Keep vector DBs local for trusted, offline work; lean on managed options when scaling ingestion."
+)
+MODEL_HOSTING_TIP = (
+    "Run models locally for offline or low-latency paths when hardware allows; otherwise use hosted inference."
+)
+
+
+def database_recommendation_for_state(state: DatabaseState | None) -> str:
+    backend = (state.backend if state else "postgresql") or "postgresql"
+    normalized = backend.strip().lower() or "postgresql"
+    host = (state.host if state else "") or ""
+    local_host = not host or host in {"localhost", "127.0.0.1"}
+
+    if normalized == "sqlite":
+        return DATABASE_LOCAL_TIP
+
+    if normalized == "mongodb":
+        return DATABASE_MANAGED_TIP
+
+    if local_host:
+        return DATABASE_LOCAL_PG_TIP
+    return DATABASE_MANAGED_TIP
 
 logger = logging.getLogger(__name__)
 
@@ -65,13 +87,6 @@ class WizardStep:
             self.subpages.insert(0, self.widget)
         if self.subpages:
             self.widget = self.subpages[0]
-
-
-@dataclass
-class PreflightRowWidgets:
-    status: Gtk.Label
-    message: Gtk.Label
-    button: Gtk.Button | None
 
 
 class SetupWizardLogWindow(AtlasWindow):
@@ -450,14 +465,6 @@ class SetupWizardWindow(AtlasWindow):
         self._status_label.set_hexpand(True)
         status_row.append(self._status_label)
 
-        rerun_button = Gtk.Button(label="Re-run checks")
-        rerun_button.set_halign(Gtk.Align.END)
-        rerun_button.set_valign(Gtk.Align.CENTER)
-        rerun_button.set_sensitive(False)
-        rerun_button.connect("clicked", self._on_preflight_rerun_clicked)
-        status_row.append(rerun_button)
-        self._preflight_rerun_button = rerun_button
-
         self._instructions_label = Gtk.Label()
         self._instructions_label.set_wrap(True)
         self._instructions_label.set_xalign(0.0)
@@ -586,15 +593,6 @@ class SetupWizardWindow(AtlasWindow):
         self._validation_signal_ids: dict[Gtk.Widget, int] = {}
         self._validation_base_tooltips: dict[Gtk.Widget, str | None] = {}
         self._validation_base_descriptions: dict[Gtk.Widget, str | None] = {}
-        self._preflight_helper = PreflightHelper(
-            request_password=self._request_sudo_password
-        )
-        self._preflight_rerun_button: Gtk.Button | None = None
-        self._preflight_dialog: Gtk.Dialog | None = None
-        self._preflight_rows: dict[str, PreflightRowWidgets] = {}
-        self._preflight_results: dict[str, PreflightCheckResult] = {}
-        self._preflight_running: bool = False
-        self._preflight_run_pending: bool = False
 
         if hasattr(debug_button, "connect"):
             try:
@@ -647,8 +645,6 @@ class SetupWizardWindow(AtlasWindow):
                     self.connect("destroy", self._on_wizard_destroy)
                 except Exception:  # pragma: no cover - GTK stubs
                     pass
-
-        self._request_preflight_checks(trigger=self._preflight_rerun_button)
 
     def _request_sudo_password(self) -> str | None:
         privileged_state = self.controller.state.user.privileged_credentials
@@ -936,8 +932,6 @@ class SetupWizardWindow(AtlasWindow):
         self._step_containers = []
         self._step_page_stacks.clear()
         self._current_page_indices.clear()
-        self._preflight_rows.clear()
-        self._preflight_results.clear()
         self._hosting_hint_label = None
 
         self._setup_type_buttons.clear()
@@ -1375,26 +1369,26 @@ class SetupWizardWindow(AtlasWindow):
         )
         box.append(needs_callout)
 
-        preflight_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        preflight_box.set_hexpand(False)
-        preflight_label = Gtk.Label(
+        hosting_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        hosting_box.set_hexpand(False)
+        hosting_label = Gtk.Label(
             label=(
-                "We run a quick readiness scan as soon as setup opens to gauge your hardware"
-                " and suggest when to host the database, vector store, and model inference"
-                " locally or in the cloud—while also confirming Redis connectivity."
+                "Here are quick hosting tips for the database, vector store, and model"
+                " inference choices you make throughout setup. Update the forms to refresh"
+                " the suggestions based on your selections."
             )
         )
-        preflight_label.set_wrap(True)
-        preflight_label.set_xalign(0.0)
-        preflight_box.append(preflight_label)
+        hosting_label.set_wrap(True)
+        hosting_label.set_xalign(0.0)
+        hosting_box.append(hosting_label)
 
         hosting_hint = Gtk.Label()
         hosting_hint.set_wrap(True)
         hosting_hint.set_xalign(0.0)
         self._hosting_hint_label = hosting_hint
         self._refresh_hosting_summary()
-        preflight_box.append(hosting_hint)
-        box.append(preflight_box)
+        hosting_box.append(hosting_hint)
+        box.append(hosting_box)
 
         cli_label = Gtk.Label(
             label=(
@@ -1420,11 +1414,6 @@ class SetupWizardWindow(AtlasWindow):
         self._register_instructions(
             needs_callout,
             "Gather these items now so the next few forms go quickly.",
-        )
-        self._register_instructions(
-            preflight_label,
-            "Checks run automatically when setup opens and after key changes."
-            " Use the Re-run control near the status text to refresh results manually.",
         )
         if hosting_hint is not None:
             summary = hosting_hint.get_text() or ""
@@ -1459,257 +1448,14 @@ class SetupWizardWindow(AtlasWindow):
             hosting_hint.set_tooltip_text(hosting_summary)
         self._register_instructions(hosting_hint, hosting_summary)
 
-    def _request_preflight_checks(self, *, trigger: Gtk.Widget | None = None) -> None:
-        if self._preflight_running:
-            self._preflight_run_pending = True
-            return
-
-        self._start_preflight_checks(trigger)
-
-    def _on_preflight_rerun_clicked(self, button: Gtk.Button) -> None:
-        self._request_preflight_checks(trigger=button)
-
-    def _start_preflight_checks(self, trigger: Gtk.Widget | None) -> None:
-        if self._preflight_running:
-            self._preflight_run_pending = True
-            return
-
-        self._preflight_run_pending = False
-        if trigger is None:
-            trigger = self._preflight_rerun_button
-        if trigger is not None:
-            trigger.set_sensitive(False)
-        if self._preflight_rerun_button is not None and trigger is not self._preflight_rerun_button:
-            self._preflight_rerun_button.set_sensitive(False)
-        if self._preflight_dialog is not None:
-            try:
-                self._preflight_dialog.destroy()
-            except Exception:
-                pass
-            self._preflight_dialog = None
-        self._preflight_rows.clear()
-        self._preflight_results.clear()
-        self._preflight_running = True
-        self._set_status("Running preflight checks…")
-        database_state = self._collect_database_state(strict=False)
-        message_bus_state = self._collect_message_bus_state(strict=False)
-        self._preflight_helper.configure_database_target(database_state)
-        self._preflight_helper.configure_message_bus_target(message_bus_state)
-        try:
-            self._preflight_helper.run_checks(
-                on_update=self._on_preflight_update,
-                on_complete=self._on_preflight_complete,
-            )
-        except RuntimeError as exc:
-            self._set_status(str(exc))
-            self._preflight_running = False
-            self._preflight_run_pending = False
-            if trigger is not None:
-                trigger.set_sensitive(True)
-            if self._preflight_rerun_button is not None and trigger is not self._preflight_rerun_button:
-                self._preflight_rerun_button.set_sensitive(True)
-
-    def _on_preflight_update(self, result: PreflightCheckResult) -> None:
-        self._preflight_results[result.identifier] = result
-        summary = (
-            f"{result.label} looks good."
-            if result.passed
-            else f"{result.label} needs attention."
-        )
-        self._set_status(summary)
-
-    def _on_preflight_complete(self, results: list[PreflightCheckResult]) -> None:
-        self._preflight_running = False
-        pending_request = self._preflight_run_pending
-        self._preflight_run_pending = False
-        if self._preflight_rerun_button is not None:
-            self._preflight_rerun_button.set_sensitive(True)
-        if pending_request:
-            self._start_preflight_checks(self._preflight_rerun_button)
-            return
-        if not results:
-            self._set_status("Preflight checks completed.")
-            return
-
-        pending = [result for result in results if not result.passed]
-        if pending:
-            self._set_status("Preflight checks found items to review.")
-        else:
-            self._set_status("All preflight checks passed.")
-        self._present_preflight_dialog(results)
-
-    def _on_preflight_relevant_field_changed(self, *_args: object) -> None:
-        self._refresh_hosting_summary()
-        self._request_preflight_checks(trigger=self._preflight_rerun_button)
-
-    def _register_preflight_trigger(self, widget: Gtk.Widget | None) -> None:
+    def _register_hosting_summary_trigger(self, widget: Gtk.Widget | None) -> None:
         if isinstance(widget, Gtk.Entry):
-            widget.connect("changed", self._on_preflight_relevant_field_changed)
+            widget.connect("changed", self._on_hosting_relevant_field_changed)
         elif isinstance(widget, Gtk.ComboBoxText):
-            widget.connect("changed", self._on_preflight_relevant_field_changed)
+            widget.connect("changed", self._on_hosting_relevant_field_changed)
 
-    def _present_preflight_dialog(self, results: list[PreflightCheckResult]) -> None:
-        if self._preflight_dialog is not None:
-            try:
-                self._preflight_dialog.destroy()
-            except Exception:
-                pass
-        dialog = Gtk.Dialog(transient_for=self, modal=True)
-        if hasattr(dialog, "set_title"):
-            dialog.set_title("System preflight results")
-        dialog.add_button("Close", Gtk.ResponseType.CLOSE)
-        dialog.set_default_size(560, 420)
-
-        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        content.set_margin_top(12)
-        content.set_margin_bottom(12)
-        content.set_margin_start(12)
-        content.set_margin_end(12)
-        dialog.set_child(content)
-
-        intro = Gtk.Label(
-            label=(
-                "Here's what we found. Use the Fix buttons to attempt an automated remedy,"
-                " or follow the guidance in the details."
-            )
-        )
-        intro.set_wrap(True)
-        intro.set_xalign(0.0)
-        content.append(intro)
-
-        scroller = Gtk.ScrolledWindow()
-        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        scroller.set_hexpand(True)
-        scroller.set_vexpand(True)
-        content.append(scroller)
-
-        rows_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        rows_box.set_margin_top(6)
-        rows_box.set_margin_bottom(6)
-        rows_box.set_margin_start(6)
-        rows_box.set_margin_end(6)
-        scroller.set_child(rows_box)
-
-        self._preflight_rows.clear()
-        for result in results:
-            row = self._create_preflight_row(result)
-            rows_box.append(row)
-
-        dialog.connect("response", self._on_preflight_dialog_response)
-        dialog.present()
-        self._preflight_dialog = dialog
-
-    def _on_preflight_dialog_response(self, dialog: Gtk.Dialog, _response: int) -> None:
-        dialog.destroy()
-        if self._preflight_dialog is dialog:
-            self._preflight_dialog = None
-
-    def _create_preflight_row(self, result: PreflightCheckResult) -> Gtk.Widget:
-        frame = Gtk.Frame()
-        frame.set_hexpand(True)
-        frame.set_vexpand(False)
-
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        box.set_margin_top(6)
-        box.set_margin_bottom(6)
-        box.set_margin_start(6)
-        box.set_margin_end(6)
-        frame.set_child(box)
-
-        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        header.set_hexpand(True)
-        box.append(header)
-
-        name_label = Gtk.Label(label=result.label)
-        name_label.set_xalign(0.0)
-        name_label.set_hexpand(True)
-        header.append(name_label)
-
-        status_label = Gtk.Label()
-        status_label.set_xalign(0.0)
-        status_label.set_hexpand(True)
-        header.append(status_label)
-
-        fix_button: Gtk.Button | None = None
-        if result.fix_label:
-            fix_button = Gtk.Button(label=result.fix_label)
-            fix_button.set_sensitive(not result.passed and result.fix_available)
-            if result.fix_tooltip:
-                fix_button.set_tooltip_text(result.fix_tooltip)
-            fix_button.connect("clicked", self._on_preflight_fix_clicked, result.identifier)
-            header.append(fix_button)
-
-        message_label = Gtk.Label()
-        message_label.set_wrap(True)
-        message_label.set_xalign(0.0)
-        box.append(message_label)
-
-        self._preflight_rows[result.identifier] = PreflightRowWidgets(
-            status=status_label,
-            message=message_label,
-            button=fix_button,
-        )
-        self._update_preflight_row(result)
-        return frame
-
-    def _update_preflight_row(self, result: PreflightCheckResult) -> None:
-        widgets = self._preflight_rows.get(result.identifier)
-        if widgets is None:
-            return
-
-        status_text = "Ready" if result.passed else "Needs attention"
-        widgets.status.set_text(status_text)
-        if hasattr(widgets.status, "remove_css_class"):
-            try:
-                widgets.status.remove_css_class("error-text")
-                widgets.status.remove_css_class("success-text")
-            except Exception:
-                pass
-            target = "success-text" if result.passed else "error-text"
-            try:
-                widgets.status.add_css_class(target)
-            except Exception:
-                pass
-
-        widgets.message.set_text(self._format_preflight_message(result))
-        if widgets.button is not None:
-            widgets.button.set_sensitive(not result.passed and result.fix_available)
-            if result.fix_tooltip:
-                widgets.button.set_tooltip_text(result.fix_tooltip)
-            else:
-                widgets.button.set_tooltip_text(None)
-
-    def _format_preflight_message(self, result: PreflightCheckResult) -> str:
-        if result.recommendation:
-            return f"{result.message}\nRecommendation: {result.recommendation}"
-        return result.message
-
-    def _on_preflight_fix_clicked(self, button: Gtk.Button, identifier: str) -> None:
-        widgets = self._preflight_rows.get(identifier)
-        if widgets is None:
-            return
-
-        widgets.message.set_text("Attempting fix…")
-        button.set_sensitive(False)
-        result = self._preflight_results.get(identifier)
-        if result is not None:
-            self._set_status(f"Applying fix for {result.label}…")
-
-        def _handle_result(updated: PreflightCheckResult) -> None:
-            self._preflight_results[identifier] = updated
-            self._update_preflight_row(updated)
-            if updated.passed:
-                self._set_status(f"{updated.label} is ready after the fix.")
-            else:
-                self._set_status(f"{updated.label} still needs attention.")
-                if widgets.button is not None:
-                    widgets.button.set_sensitive(True)
-
-        try:
-            self._preflight_helper.run_fix(identifier, _handle_result)
-        except RuntimeError as exc:
-            widgets.message.set_text(str(exc))
-            button.set_sensitive(True)
+    def _on_hosting_relevant_field_changed(self, *_args: object) -> None:
+        self._refresh_hosting_summary()
 
     def _build_setup_type_page(self) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
@@ -1988,7 +1734,7 @@ class SetupWizardWindow(AtlasWindow):
         self._sync_message_widgets_from_state()
         self._sync_kv_widgets_from_state()
         self._sync_optional_widgets_from_state()
-        self._request_preflight_checks(trigger=self._preflight_rerun_button)
+        self._refresh_hosting_summary()
 
     def _sync_job_widgets_from_state(self) -> None:
         state = self.controller.state.job_scheduling
@@ -2897,9 +2643,9 @@ class SetupWizardWindow(AtlasWindow):
         self._populate_database_form(state)
         self._database_user_suggestion = self._get_database_entry_text("postgresql.user")
 
-        self._register_preflight_trigger(backend_combo)
+        self._register_hosting_summary_trigger(backend_combo)
         for entry in self._database_entries.values():
-            self._register_preflight_trigger(entry)
+            self._register_hosting_summary_trigger(entry)
 
         instructions = (
             "Pick the backend you want to run and share its connection details."
@@ -3357,8 +3103,8 @@ class SetupWizardWindow(AtlasWindow):
             grid, 2, "Stream prefix", state.stream_prefix or ""
         )
 
-        self._register_preflight_trigger(backend_combo)
-        self._register_preflight_trigger(self._message_widgets["redis_url"])
+        self._register_hosting_summary_trigger(backend_combo)
+        self._register_hosting_summary_trigger(self._message_widgets["redis_url"])
 
         instructions = (
             "Choose the message bus backend. Redis keeps multiple workers in sync, while in-memory suits single instances."
