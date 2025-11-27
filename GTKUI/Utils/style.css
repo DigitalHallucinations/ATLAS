@@ -367,6 +367,32 @@ popover listview > row:focus-visible * {
     padding-top: 12px;
 }
 
+/* Combobox popover/menu styling for text-only highlighting */
+combobox menu,
+combobox menu menuitem,
+combobox menuitem {
+    background: transparent;
+}
+
+combobox menu menuitem:hover,
+combobox menuitem:hover,
+combobox menu menuitem:selected,
+combobox menuitem:selected,
+combobox menu menuitem:focus,
+combobox menuitem:focus {
+    background: transparent;
+    color: #58a6ff;
+}
+
+combobox menu menuitem:hover *,
+combobox menuitem:hover *,
+combobox menu menuitem:selected *,
+combobox menuitem:selected *,
+combobox menu menuitem:focus *,
+combobox menuitem:focus * {
+    color: #58a6ff;
+}
+
 .setup-wizard-controls button.setup-wizard-nav {
     font-weight: 600;
     min-width: 120px;
