@@ -321,6 +321,22 @@ headerbar.setup-wizard-header button.setup-wizard-debug-button image {
     padding-right: 12px;
 }
 
+.setup-wizard-main popover listview > row,
+.setup-wizard-main popover listview > row:hover,
+.setup-wizard-main popover listview > row:selected,
+.setup-wizard-main popover listview > row:focus-visible {
+    background: transparent;
+}
+
+.setup-wizard-main popover listview > row:hover,
+.setup-wizard-main popover listview > row:hover *,
+.setup-wizard-main popover listview > row:selected,
+.setup-wizard-main popover listview > row:selected *,
+.setup-wizard-main popover listview > row:focus-visible,
+.setup-wizard-main popover listview > row:focus-visible * {
+    color: #58a6ff;
+}
+
 .setup-wizard-guidance {
     padding-left: 12px;
 }
