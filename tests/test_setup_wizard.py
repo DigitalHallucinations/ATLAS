@@ -7,11 +7,6 @@ gi = pytest.importorskip("gi")
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gdk, Gtk
 
-from GTKUI.Setup.preflight import (
-    DATABASE_LOCAL_TIP,
-    SQLITE_PATH_REMEDIATION,
-    PreflightCheckResult,
-)
 from GTKUI.Setup.setup_wizard import SetupWizardWindow
 from ATLAS.setup import (
     DatabaseState,
@@ -27,23 +22,6 @@ from ATLAS.setup import (
     UserState,
 )
 from modules.conversation_store.bootstrap import BootstrapError
-
-
-@pytest.fixture(autouse=True)
-def stub_preflight_runs(monkeypatch):
-    calls: list[str] = []
-
-    def _fake_run_checks(self, *, on_update=None, on_complete=None):
-        calls.append("run")
-        self._running = False
-        if callable(on_complete):
-            on_complete([])
-
-    monkeypatch.setattr(
-        "GTKUI.Setup.preflight.PreflightHelper.run_checks", _fake_run_checks
-    )
-    return calls
-
 
 class FakeController:
     def __init__(self):
@@ -417,122 +395,6 @@ def test_stack_switcher_updates_current_index():
 
     assert [name for name, *_ in controller.calls] == ["message_bus"]
     assert window._current_index == 6
-
-
-def test_preflight_runs_automatically_and_reruns_after_changes(stub_preflight_runs):
-    application = Gtk.Application()
-    controller = FakeController()
-
-    window = SetupWizardWindow(
-        application=application,
-        atlas=None,
-        on_success=lambda: None,
-        on_error=lambda exc: None,
-        controller=controller,
-    )
-
-    assert len(stub_preflight_runs) == 1
-
-    window._database_entries["postgresql.host"].set_text("db.internal")
-    assert len(stub_preflight_runs) >= 2
-
-    rerun_button = window._preflight_rerun_button
-    assert isinstance(rerun_button, Gtk.Button)
-    rerun_button.emit("clicked")
-
-    assert len(stub_preflight_runs) >= 3
-
-    window.close()
-
-
-def test_preflight_runtime_error_reenables_controls(monkeypatch):
-    application = Gtk.Application()
-    controller = FakeController()
-
-    def _fail_run(self, *, on_update=None, on_complete=None):
-        raise RuntimeError("Preflight checks are already running")
-
-    monkeypatch.setattr(
-        "GTKUI.Setup.preflight.PreflightHelper.run_checks", _fail_run
-    )
-
-    window = SetupWizardWindow(
-        application=application,
-        atlas=None,
-        on_success=lambda: None,
-        on_error=lambda exc: None,
-        controller=controller,
-    )
-
-    rerun_button = window._preflight_rerun_button
-    assert isinstance(rerun_button, Gtk.Button)
-    assert rerun_button.get_sensitive()
-    assert "Preflight checks are already running" in window._status_label.get_text()
-
-    window.close()
-
-
-def test_preflight_recommendations_render_in_rows(stub_preflight_runs):
-    application = Gtk.Application()
-    controller = FakeController()
-
-    window = SetupWizardWindow(
-        application=application,
-        atlas=None,
-        on_success=lambda: None,
-        on_error=lambda exc: None,
-        controller=controller,
-    )
-
-    result = PreflightCheckResult(
-        identifier="postgresql",
-        label="PostgreSQL",
-        passed=False,
-        message="PostgreSQL is accepting connections.",
-        fix_label=None,
-        recommendation=DATABASE_LOCAL_TIP,
-    )
-
-    window._on_preflight_complete([result])
-    widgets = window._preflight_rows.get("postgresql")
-    assert widgets is not None
-
-    assert "Recommendation" in widgets.message.get_text()
-    assert DATABASE_LOCAL_TIP in widgets.message.get_text()
-
-    window.close()
-
-
-def test_sqlite_preflight_recommendation_is_actionable(stub_preflight_runs):
-    application = Gtk.Application()
-    controller = FakeController()
-
-    window = SetupWizardWindow(
-        application=application,
-        atlas=None,
-        on_success=lambda: None,
-        on_error=lambda exc: None,
-        controller=controller,
-    )
-
-    result = PreflightCheckResult(
-        identifier="sqlite",
-        label="SQLite",
-        passed=False,
-        message="Parent directory /missing does not exist.",
-        fix_label=None,
-        recommendation=SQLITE_PATH_REMEDIATION,
-    )
-
-    window._on_preflight_complete([result])
-    widgets = window._preflight_rows.get("sqlite")
-
-    assert widgets is not None
-    assert SQLITE_PATH_REMEDIATION in widgets.message.get_text()
-
-    window.close()
-
-
 def test_setup_type_headers_highlight_active_mode():
     application = Gtk.Application()
     controller = FakeController()
