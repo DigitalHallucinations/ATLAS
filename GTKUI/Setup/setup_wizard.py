@@ -958,7 +958,7 @@ class SetupWizardWindow(AtlasWindow):
         speech_form = self._build_speech_page()
         optional_intro = self._build_optional_intro_page()
         company_form = self._build_company_page()
-        optional_form = self._build_optional_page()
+        policy_pages = self._build_policies_pages(optional_intro)
 
         mode = getattr(self.controller.state.setup_type, "mode", "").strip().lower()
 
@@ -991,8 +991,16 @@ class SetupWizardWindow(AtlasWindow):
             self._steps.append(
                 WizardStep(
                     name="Company",
-                    widget=optional_intro,
-                    subpages=[optional_intro, company_form, optional_form],
+                    widget=company_form,
+                    subpages=[company_form],
+                    apply=self._apply_optional,
+                )
+            )
+            self._steps.append(
+                WizardStep(
+                    name="Policies",
+                    widget=policy_pages[0],
+                    subpages=policy_pages,
                     apply=self._apply_optional,
                 )
             )
@@ -2448,7 +2456,7 @@ class SetupWizardWindow(AtlasWindow):
         heading_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         heading_row.set_hexpand(True)
 
-        heading = Gtk.Label(label="Company setup overview")
+        heading = Gtk.Label(label="Policies overview")
         heading.set_wrap(True)
         heading.set_xalign(0.0)
         if hasattr(heading, "add_css_class"):
@@ -2464,7 +2472,7 @@ class SetupWizardWindow(AtlasWindow):
         summary_bullets = [
             "Seed tenancy defaults, retention expectations, and scheduler notes so ATLAS mirrors your policies.",
             "Large teams often standardize retention workers, queue sizing, and namespaces before go-live.",
-            "Continue through this step to capture the first administrative account after saving company defaults.",
+            "Continue through these policy pages before finalizing the first administrative account.",
         ]
         for text in summary_bullets:
             bullet = Gtk.Label(label=f"• {text}")
@@ -2543,7 +2551,7 @@ class SetupWizardWindow(AtlasWindow):
 
         instructions = (
             "• Decide which organizational defaults matter most before moving on.\n"
-            "• Jot down any retention or scheduling nuances you want to capture on the next form.\n"
+            "• Jot down any retention or scheduling nuances you want to capture across the policy forms.\n"
             "• Loop in stakeholders if you need buy-in on safeguards before saving."
         )
 
@@ -3214,177 +3222,32 @@ class SetupWizardWindow(AtlasWindow):
 
         return self._wrap_with_instructions(grid, instructions, "Configure Speech Services")
 
-    def _build_optional_page(self) -> Gtk.Widget:
-        state = self.controller.state.optional
+    def _build_policies_pages(self, intro_page: Gtk.Widget) -> list[Gtk.Widget]:
         self._optional_multi_tenant_widgets.clear()
+        return [
+            intro_page,
+            self._build_policies_retention_page(),
+            self._build_policies_residency_page(),
+            self._build_policies_audit_page(),
+            self._build_policies_scheduler_page(),
+            self._build_policies_security_page(),
+        ]
+
+    def _build_policies_retention_page(self) -> Gtk.Widget:
+        state = self.controller.state.optional
         grid = Gtk.Grid(column_spacing=12, row_spacing=6)
         grid.set_hexpand(True)
         grid.set_vexpand(True)
 
-        row = 0
-
-        badge_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        badge_row.set_hexpand(True)
-        badge = self._create_enterprise_badge(
-            "Tenancy defaults, residency controls, and audit templates are Enterprise-only."
-        )
-        badge_row.append(badge)
-        upgrade_label = Gtk.Label(
-            label=(
-                "Enterprise tenants unlock shared tenancy, residency, and audit defaults "
-                "that apply across administrators."
-            )
-        )
-        upgrade_label.set_wrap(True)
-        upgrade_label.set_xalign(0.0)
-        upgrade_label.set_visible(False)
-        badge_row.append(upgrade_label)
-        grid.attach(badge_row, 0, row, 2, 1)
-
-        self._optional_enterprise_badge = badge
-        self._optional_upgrade_label = upgrade_label
-
-        row += 1
-
-        personal_hint = Gtk.Label(label="Most people can keep the defaults.")
-        personal_hint.set_wrap(True)
-        personal_hint.set_xalign(0.0)
-        personal_hint.set_visible(False)
-        grid.attach(personal_hint, 0, row, 2, 1)
-        self._optional_personal_hint = personal_hint
-
-        row += 1
-
-        self._optional_widgets["tenant_id"] = self._create_labeled_entry(
-            grid, row, "Tenant ID", state.tenant_id or ""
-        )
-        tenant_entry = self._optional_widgets["tenant_id"]
-        if isinstance(tenant_entry, Gtk.Entry):
-            self._tenant_id_suggestion = tenant_entry.get_text().strip()
-        tenant_label = grid.get_child_at(0, row)
-        if tenant_label is not None:
-            self._optional_multi_tenant_widgets.append(tenant_label)
-        self._optional_multi_tenant_widgets.append(tenant_entry)
-        row += 1
-
-        region_combo = Gtk.ComboBoxText()
-        region_combo.append("", "Select a primary region…")
-        region_combo.append("us", "United States")
-        region_combo.append("eu", "European Union")
-        region_combo.append("apac", "Asia-Pacific")
-        if state.data_region:
-            try:
-                region_combo.set_active_id(state.data_region)
-            except Exception:  # pragma: no cover - GTK fallback
-                region_combo.set_active(0)
-        if hasattr(region_combo, "set_halign"):
-            region_combo.set_halign(Gtk.Align.FILL)
-        region_label = Gtk.Label(label="Primary data region")
-        region_label.set_wrap(True)
-        region_label.set_xalign(0.0)
-        grid.attach(region_label, 0, row, 1, 1)
-        grid.attach(region_combo, 1, row, 1, 1)
-        self._optional_widgets["data_region"] = region_combo
-        self._optional_multi_tenant_widgets.extend([region_label, region_combo])
-        row += 1
-
-        residency_combo = Gtk.ComboBoxText()
-        residency_combo.append("", "Describe residency expectations…")
-        residency_combo.append("in-region", "Keep data in-region")
-        residency_combo.append("regional-primary", "Prefer region; allow overflow")
-        residency_combo.append("global", "Global handling permitted")
-        if state.residency_requirement:
-            try:
-                residency_combo.set_active_id(state.residency_requirement)
-            except Exception:  # pragma: no cover - GTK fallback
-                residency_combo.set_active(0)
-        if hasattr(residency_combo, "set_halign"):
-            residency_combo.set_halign(Gtk.Align.FILL)
-        residency_label = Gtk.Label(label="Data residency requirements")
-        residency_label.set_wrap(True)
-        residency_label.set_xalign(0.0)
-        grid.attach(residency_label, 0, row, 1, 1)
-        grid.attach(residency_combo, 1, row, 1, 1)
-        self._optional_widgets["residency_requirement"] = residency_combo
-        self._optional_multi_tenant_widgets.extend([residency_label, residency_combo])
-        row += 1
-        templates = list(get_audit_templates())
-        audit_combo = Gtk.ComboBoxText()
-        for template in templates:
-            audit_combo.append(template.key, template.label)
-        selected_template_key: str | None = state.audit_template
-        if selected_template_key is None and templates:
-            selected_template_key = templates[0].key
-        if selected_template_key:
-            try:
-                audit_combo.set_active_id(selected_template_key)
-            except Exception:  # pragma: no cover - GTK fallback
-                pass
-        audit_combo.connect("changed", self._on_audit_template_changed)
-        if hasattr(audit_combo, "set_halign"):
-            audit_combo.set_halign(Gtk.Align.FILL)
-        audit_label = Gtk.Label(label="Audit & retention template")
-        audit_label.set_wrap(True)
-        audit_label.set_xalign(0.0)
-        audit_label.set_valign(Gtk.Align.CENTER)
-        grid.attach(audit_label, 0, row, 1, 1)
-        grid.attach(audit_combo, 1, row, 1, 1)
-        self._optional_widgets["audit_template"] = audit_combo
-        self._optional_multi_tenant_widgets.extend([audit_label, audit_combo])
-        row += 1
-        intent_label = Gtk.Label()
-        intent_label.set_wrap(True)
-        intent_label.set_xalign(0.0)
-        intent_label.set_valign(Gtk.Align.START)
-        grid.attach(intent_label, 0, row, 2, 1)
-        self._audit_template_intent_label = intent_label
-        self._optional_multi_tenant_widgets.append(intent_label)
-        row += 1
         self._optional_widgets["retention_days"] = self._create_labeled_entry(
-            grid, row, "Conversation retention days", self._optional_to_text(state.retention_days)
+            grid, 0, "Conversation retention days", self._optional_to_text(state.retention_days)
         )
-        row += 1
         self._optional_widgets["retention_history_limit"] = self._create_labeled_entry(
             grid,
-            row,
+            1,
             "Conversation history limit",
             self._optional_to_text(state.retention_history_limit),
         )
-        row += 1
-        self._optional_widgets["scheduler_timezone"] = self._create_labeled_entry(
-            grid, row, "Scheduler timezone", state.scheduler_timezone or ""
-        )
-        timezone_label = grid.get_child_at(0, row)
-        if timezone_label is not None:
-            self._optional_multi_tenant_widgets.append(timezone_label)
-        self._optional_multi_tenant_widgets.append(self._optional_widgets["scheduler_timezone"])
-        row += 1
-        self._optional_widgets["scheduler_queue_size"] = self._create_labeled_entry(
-            grid,
-            row,
-            "Scheduler queue size",
-            self._optional_to_text(state.scheduler_queue_size),
-        )
-        queue_label = grid.get_child_at(0, row)
-        if queue_label is not None:
-            self._optional_multi_tenant_widgets.append(queue_label)
-        self._optional_multi_tenant_widgets.append(self._optional_widgets["scheduler_queue_size"])
-        row += 1
-
-        http_toggle = Gtk.CheckButton(label="Auto-start HTTP server")
-        http_toggle.set_active(state.http_auto_start)
-        self._optional_widgets["http_auto_start"] = http_toggle
-        grid.attach(http_toggle, 0, row, 2, 1)
-        row += 1
-
-        if selected_template_key:
-            self._apply_audit_template_to_form(
-                selected_template_key,
-                update_retention_fields=(
-                    state.retention_days is None
-                    or state.retention_history_limit is None
-                ),
-            )
 
         callout_frame = Gtk.Frame()
         callout_frame.set_hexpand(True)
@@ -3412,15 +3275,6 @@ class SetupWizardWindow(AtlasWindow):
             info_heading.add_css_class("heading")
         callout_box.append(info_heading)
 
-        tenancy_info = Gtk.Label(
-            label=(
-                "Tenant defaults start with the administrator domain—tweak them if teams need their own space."
-            )
-        )
-        tenancy_info.set_wrap(True)
-        tenancy_info.set_xalign(0.0)
-        callout_box.append(tenancy_info)
-
         retention_info = Gtk.Label(
             label=(
                 "Match retention windows with the cadence documented in docs/conversation_retention.md so purge jobs stay predictable."
@@ -3438,6 +3292,15 @@ class SetupWizardWindow(AtlasWindow):
         lifecycle_defaults.set_wrap(True)
         lifecycle_defaults.set_xalign(0.0)
         callout_box.append(lifecycle_defaults)
+
+        safeguards_info = Gtk.Label(
+            label=(
+                "Record shared safeguards like audit logging, residency requirements, export controls, and regular retention reviews."
+            )
+        )
+        safeguards_info.set_wrap(True)
+        safeguards_info.set_xalign(0.0)
+        callout_box.append(safeguards_info)
 
         if runbook_uri:
             link_widget: Gtk.Widget | None = None
@@ -3458,24 +3321,6 @@ class SetupWizardWindow(AtlasWindow):
                 fallback_label.set_wrap(True)
                 fallback_label.set_xalign(0.0)
                 callout_box.append(fallback_label)
-
-        scheduler_info = Gtk.Label(
-            label=(
-                "Note any scheduler overrides—queue sizes, time zones—so operators keep peak workloads in check."
-            )
-        )
-        scheduler_info.set_wrap(True)
-        scheduler_info.set_xalign(0.0)
-        callout_box.append(scheduler_info)
-
-        safeguards_info = Gtk.Label(
-            label=(
-                "Record shared safeguards like audit logging, residency requirements, export controls, and regular retention reviews."
-            )
-        )
-        safeguards_info.set_wrap(True)
-        safeguards_info.set_xalign(0.0)
-        callout_box.append(safeguards_info)
 
         if export_controls_uri:
             export_button_cls = getattr(Gtk, "LinkButton", None)
@@ -3502,27 +3347,230 @@ class SetupWizardWindow(AtlasWindow):
         else:  # pragma: no cover - GTK3 fallback
             callout_frame.add(callout_box)
 
-        grid.attach(callout_frame, 0, row, 2, 1)
+        grid.attach(callout_frame, 0, 2, 2, 1)
 
         instructions = (
-            "• Set tenant defaults and retention expectations that fit your rollout.\n"
-            "• Choose a primary data region and residency stance to anchor compliance reviews.\n"
-            "• Pick an audit template so SIEM/export sinks and retention match your compliance stance.\n"
             "• Default data lifecycle settings favor shorter retention for lower risk—adjust deliberately.\n"
-            "• Share scheduler tweaks so background jobs line up with your policies.\n"
-            "• Decide whether ATLAS should auto-start its HTTP server for you."
+            "• Align purge cadences with your documented retention runbooks before tightening windows.\n"
+            "• Note export controls or exceptions teams should remember when reviewing data handling."
         )
 
         form = self._wrap_with_instructions(
-            grid, instructions, "Configure Organization"
+            grid, instructions, "Policies — Retention"
         )
         self._register_instructions(
             callout_frame,
             (
-                "Capture any notes that will help future teammates understand your organizational defaults."
+                "Capture retention and export reminders that will help future teammates uphold your policies."
             ),
         )
         return form
+
+    def _build_policies_residency_page(self) -> Gtk.Widget:
+        state = self.controller.state.optional
+        grid = Gtk.Grid(column_spacing=12, row_spacing=6)
+        grid.set_hexpand(True)
+        grid.set_vexpand(True)
+
+        badge_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        badge_row.set_hexpand(True)
+        badge = self._create_enterprise_badge(
+            "Tenancy defaults, residency controls, and audit templates are Enterprise-only."
+        )
+        badge_row.append(badge)
+        upgrade_label = Gtk.Label(
+            label=(
+                "Enterprise tenants unlock shared tenancy, residency, and audit defaults "
+                "that apply across administrators."
+            )
+        )
+        upgrade_label.set_wrap(True)
+        upgrade_label.set_xalign(0.0)
+        upgrade_label.set_visible(False)
+        badge_row.append(upgrade_label)
+        grid.attach(badge_row, 0, 0, 2, 1)
+
+        self._optional_enterprise_badge = badge
+        self._optional_upgrade_label = upgrade_label
+
+        personal_hint = Gtk.Label(label="Most people can keep the defaults.")
+        personal_hint.set_wrap(True)
+        personal_hint.set_xalign(0.0)
+        personal_hint.set_visible(False)
+        grid.attach(personal_hint, 0, 1, 2, 1)
+        self._optional_personal_hint = personal_hint
+
+        self._optional_widgets["tenant_id"] = self._create_labeled_entry(
+            grid, 2, "Tenant ID", state.tenant_id or ""
+        )
+        tenant_entry = self._optional_widgets["tenant_id"]
+        if isinstance(tenant_entry, Gtk.Entry):
+            self._tenant_id_suggestion = tenant_entry.get_text().strip()
+        tenant_label = grid.get_child_at(0, 2)
+        if tenant_label is not None:
+            self._optional_multi_tenant_widgets.append(tenant_label)
+        self._optional_multi_tenant_widgets.append(tenant_entry)
+
+        region_combo = Gtk.ComboBoxText()
+        region_combo.append("", "Select a primary region…")
+        region_combo.append("us", "United States")
+        region_combo.append("eu", "European Union")
+        region_combo.append("apac", "Asia-Pacific")
+        if state.data_region:
+            try:
+                region_combo.set_active_id(state.data_region)
+            except Exception:  # pragma: no cover - GTK fallback
+                region_combo.set_active(0)
+        if hasattr(region_combo, "set_halign"):
+            region_combo.set_halign(Gtk.Align.FILL)
+        region_label = Gtk.Label(label="Primary data region")
+        region_label.set_wrap(True)
+        region_label.set_xalign(0.0)
+        grid.attach(region_label, 0, 3, 1, 1)
+        grid.attach(region_combo, 1, 3, 1, 1)
+        self._optional_widgets["data_region"] = region_combo
+        self._optional_multi_tenant_widgets.extend([region_label, region_combo])
+
+        residency_combo = Gtk.ComboBoxText()
+        residency_combo.append("", "Describe residency expectations…")
+        residency_combo.append("in-region", "Keep data in-region")
+        residency_combo.append("regional-primary", "Prefer region; allow overflow")
+        residency_combo.append("global", "Global handling permitted")
+        if state.residency_requirement:
+            try:
+                residency_combo.set_active_id(state.residency_requirement)
+            except Exception:  # pragma: no cover - GTK fallback
+                residency_combo.set_active(0)
+        if hasattr(residency_combo, "set_halign"):
+            residency_combo.set_halign(Gtk.Align.FILL)
+        residency_label = Gtk.Label(label="Data residency requirements")
+        residency_label.set_wrap(True)
+        residency_label.set_xalign(0.0)
+        grid.attach(residency_label, 0, 4, 1, 1)
+        grid.attach(residency_combo, 1, 4, 1, 1)
+        self._optional_widgets["residency_requirement"] = residency_combo
+        self._optional_multi_tenant_widgets.extend([residency_label, residency_combo])
+
+        instructions = (
+            "• Set tenant identifiers and regions that match how your organization splits environments.\n"
+            "• Align residency expectations with customer or regulatory commitments before continuing.\n"
+            "• Use these defaults to keep future administrators consistent across tenants."
+        )
+
+        return self._wrap_with_instructions(
+            grid, instructions, "Policies — Residency"
+        )
+
+    def _build_policies_audit_page(self) -> Gtk.Widget:
+        state = self.controller.state.optional
+        grid = Gtk.Grid(column_spacing=12, row_spacing=6)
+        grid.set_hexpand(True)
+        grid.set_vexpand(True)
+
+        templates = list(get_audit_templates())
+        audit_combo = Gtk.ComboBoxText()
+        for template in templates:
+            audit_combo.append(template.key, template.label)
+        selected_template_key: str | None = state.audit_template
+        if selected_template_key is None and templates:
+            selected_template_key = templates[0].key
+        if selected_template_key:
+            try:
+                audit_combo.set_active_id(selected_template_key)
+            except Exception:  # pragma: no cover - GTK fallback
+                pass
+        audit_combo.connect("changed", self._on_audit_template_changed)
+        if hasattr(audit_combo, "set_halign"):
+            audit_combo.set_halign(Gtk.Align.FILL)
+        audit_label = Gtk.Label(label="Audit & retention template")
+        audit_label.set_wrap(True)
+        audit_label.set_xalign(0.0)
+        audit_label.set_valign(Gtk.Align.CENTER)
+        grid.attach(audit_label, 0, 0, 1, 1)
+        grid.attach(audit_combo, 1, 0, 1, 1)
+        self._optional_widgets["audit_template"] = audit_combo
+        self._optional_multi_tenant_widgets.extend([audit_label, audit_combo])
+
+        intent_label = Gtk.Label()
+        intent_label.set_wrap(True)
+        intent_label.set_xalign(0.0)
+        intent_label.set_valign(Gtk.Align.START)
+        grid.attach(intent_label, 0, 1, 2, 1)
+        self._audit_template_intent_label = intent_label
+        self._optional_multi_tenant_widgets.append(intent_label)
+
+        if selected_template_key:
+            self._apply_audit_template_to_form(
+                selected_template_key,
+                update_retention_fields=(
+                    state.retention_days is None
+                    or state.retention_history_limit is None
+                ),
+            )
+
+        instructions = (
+            "• Choose the audit template that best matches your SIEM/export expectations.\n"
+            "• Review the template intent so downstream retention and alerting match your policies.\n"
+            "• Update templates later if your compliance stance changes."
+        )
+
+        return self._wrap_with_instructions(grid, instructions, "Policies — Audit")
+
+    def _build_policies_scheduler_page(self) -> Gtk.Widget:
+        state = self.controller.state.optional
+        grid = Gtk.Grid(column_spacing=12, row_spacing=6)
+        grid.set_hexpand(True)
+        grid.set_vexpand(True)
+
+        self._optional_widgets["scheduler_timezone"] = self._create_labeled_entry(
+            grid, 0, "Scheduler timezone", state.scheduler_timezone or ""
+        )
+        timezone_label = grid.get_child_at(0, 0)
+        if timezone_label is not None:
+            self._optional_multi_tenant_widgets.append(timezone_label)
+        self._optional_multi_tenant_widgets.append(self._optional_widgets["scheduler_timezone"])
+
+        self._optional_widgets["scheduler_queue_size"] = self._create_labeled_entry(
+            grid,
+            1,
+            "Scheduler queue size",
+            self._optional_to_text(state.scheduler_queue_size),
+        )
+        queue_label = grid.get_child_at(0, 1)
+        if queue_label is not None:
+            self._optional_multi_tenant_widgets.append(queue_label)
+        self._optional_multi_tenant_widgets.append(self._optional_widgets["scheduler_queue_size"])
+
+        instructions = (
+            "• Note scheduler time zones to align maintenance with your operating hours.\n"
+            "• Set queue sizing defaults that match your expected workload.\n"
+            "• Share overrides so operators keep peak workloads in check."
+        )
+
+        return self._wrap_with_instructions(
+            grid, instructions, "Policies — Scheduler"
+        )
+
+    def _build_policies_security_page(self) -> Gtk.Widget:
+        state = self.controller.state.optional
+        grid = Gtk.Grid(column_spacing=12, row_spacing=6)
+        grid.set_hexpand(True)
+        grid.set_vexpand(True)
+
+        http_toggle = Gtk.CheckButton(label="Auto-start HTTP server")
+        http_toggle.set_active(state.http_auto_start)
+        self._optional_widgets["http_auto_start"] = http_toggle
+        grid.attach(http_toggle, 0, 0, 2, 1)
+
+        instructions = (
+            "• Decide whether ATLAS should auto-start its HTTP server during orchestration.\n"
+            "• Disable automation when you prefer to gate exposure with your own process controls.\n"
+            "• Keep this aligned with the rest of your deployment hardening guidance."
+        )
+
+        return self._wrap_with_instructions(
+            grid, instructions, "Policies — Security"
+        )
 
     def _build_user_page(self) -> Gtk.Widget:
         state = self.controller.state.user
