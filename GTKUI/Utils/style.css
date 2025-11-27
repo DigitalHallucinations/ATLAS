@@ -370,8 +370,13 @@ popover listview > row:focus-visible * {
 /* Combobox popover/menu styling for text-only highlighting */
 combobox menu,
 combobox menu menuitem,
-combobox menuitem {
+combobox menuitem,
+combobox listview,
+combobox listview > row,
+combobox treeview.view,
+combobox treeview.view > row {
     background: transparent;
+    box-shadow: none;
 }
 
 combobox menu menuitem:hover,
@@ -379,9 +384,16 @@ combobox menuitem:hover,
 combobox menu menuitem:selected,
 combobox menuitem:selected,
 combobox menu menuitem:focus,
-combobox menuitem:focus {
+combobox menuitem:focus,
+combobox listview > row:hover,
+combobox listview > row:selected,
+combobox listview > row:focus-visible,
+combobox treeview.view > row:hover,
+combobox treeview.view > row:selected,
+combobox treeview.view > row:focus-visible {
     background: transparent;
     color: #58a6ff;
+    box-shadow: none;
 }
 
 combobox menu menuitem:hover *,
@@ -389,7 +401,13 @@ combobox menuitem:hover *,
 combobox menu menuitem:selected *,
 combobox menuitem:selected *,
 combobox menu menuitem:focus *,
-combobox menuitem:focus * {
+combobox menuitem:focus *,
+combobox listview > row:hover *,
+combobox listview > row:selected *,
+combobox listview > row:focus-visible *,
+combobox treeview.view > row:hover *,
+combobox treeview.view > row:selected *,
+combobox treeview.view > row:focus-visible * {
     color: #58a6ff;
 }
 
