@@ -509,6 +509,7 @@ class SetupWizardWindow(AtlasWindow):
         if hasattr(self._back_button, "set_can_default"):
             self._back_button.set_can_default(False)
         self._back_button.set_halign(Gtk.Align.START)
+        self._back_button.connect("clicked", self._on_back_clicked)
         left_controls.append(self._back_button)
 
         spacer = Gtk.Box()
