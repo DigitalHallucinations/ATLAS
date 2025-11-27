@@ -670,9 +670,6 @@ class PreflightHelper:
 
     def _default_checks(self) -> Iterable[PreflightCheckDefinition]:
         checks: list[PreflightCheckDefinition] = []
-        database_check = self._build_database_check()
-        if database_check is not None:
-            checks.append(database_check)
         redis_check = self._build_redis_check()
         if redis_check is not None:
             checks.append(redis_check)
@@ -680,7 +677,7 @@ class PreflightHelper:
         return checks
 
     def _build_database_check(self) -> PreflightCheckDefinition | None:
-        backend = (self._database_state.backend or "postgresql").strip().lower() or "postgresql"
+        backend = (self._database_state.backend or "").strip().lower() or "postgresql"
         host_profile = _host_profile()
         if backend == "sqlite":
             path = self._sqlite_target_path()
@@ -820,6 +817,9 @@ class PreflightHelper:
                 fix_available=True,
                 process_output=_parse_mongodb,
             )
+
+        if backend != "postgresql":
+            return None
 
         pg_hint = (
             "PostgreSQL is unreachable. Ensure the server is installed and that pg_isready"

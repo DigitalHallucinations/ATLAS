@@ -304,13 +304,9 @@ def test_sqlite_check_surfaces_recommendation(tmp_path):
     )
     helper.configure_database_target(DatabaseState(backend="sqlite", dsn=dsn))
 
-    definitions = list(helper._default_checks())
-    sqlite_definition = next(
-        definition for definition in definitions if definition.identifier == "sqlite"
-    )
-    hardware_definition = next(
-        definition for definition in definitions if definition.identifier == "hardware"
-    )
+    sqlite_definition = helper._build_database_check()
+    assert sqlite_definition is not None
+    hardware_definition = helper._build_hardware_check()
 
     factory = _ProcessFactory()
     payload = {
@@ -331,7 +327,7 @@ def test_sqlite_check_surfaces_recommendation(tmp_path):
 
     helper = PreflightHelper(
         request_password=lambda: None,
-        checks=definitions,
+        checks=[sqlite_definition, hardware_definition],
         subprocess_factory=factory,
     )
 
@@ -348,6 +344,11 @@ def test_sqlite_check_surfaces_recommendation(tmp_path):
     )
 
     definitions = list(helper._default_checks())
+    assert all(
+        definition.identifier not in {"sqlite", "postgresql", "mongodb"}
+        for definition in definitions
+    )
+
     for definition in definitions:
         factory.enqueue(definition.command, _FakeProcess(exit_status=0))
 
@@ -424,6 +425,24 @@ def test_configure_message_bus_target_disables_redis_for_other_backends():
     helper.configure_message_bus_target(MessageBusState(backend="in_memory"))
     identifiers = [definition.identifier for definition in helper._default_checks()]
     assert "redis" not in identifiers
+
+
+def test_default_checks_exclude_database_probes():
+    helper = PreflightHelper(request_password=lambda: None)
+
+    helper.configure_database_target(DatabaseState(backend="sqlite", database="/tmp/db"))
+    definitions_with_sqlite_target = list(helper._default_checks())
+    assert all(
+        definition.identifier not in {"sqlite", "postgresql", "mongodb"}
+        for definition in definitions_with_sqlite_target
+    )
+
+    helper.configure_database_target(DatabaseState(backend="mongodb"))
+    definitions_with_mongo_target = list(helper._default_checks())
+    assert all(
+        definition.identifier not in {"sqlite", "postgresql", "mongodb"}
+        for definition in definitions_with_mongo_target
+    )
 
 
 def test_mongodb_preflight_reports_missing_driver():
