@@ -379,6 +379,14 @@ combobox treeview.view > row {
     box-shadow: none;
 }
 
+/* GTK4 ComboBoxText popover rows (modelbutton/menuitem) */
+combobox popover modelbutton,
+combobox popover menuitem,
+.setup-wizard-main combobox popover modelbutton,
+.setup-wizard-main combobox popover menuitem {
+    background: transparent;
+}
+
 combobox menu menuitem:hover,
 combobox menuitem:hover,
 combobox menu menuitem:selected,
@@ -396,6 +404,26 @@ combobox treeview.view > row:focus-visible {
     box-shadow: none;
 }
 
+combobox popover modelbutton:hover,
+combobox popover modelbutton:checked,
+combobox popover modelbutton:selected,
+combobox popover modelbutton:focus-visible,
+combobox popover menuitem:hover,
+combobox popover menuitem:checked,
+combobox popover menuitem:selected,
+combobox popover menuitem:focus-visible,
+.setup-wizard-main combobox popover modelbutton:hover,
+.setup-wizard-main combobox popover modelbutton:checked,
+.setup-wizard-main combobox popover modelbutton:selected,
+.setup-wizard-main combobox popover modelbutton:focus-visible,
+.setup-wizard-main combobox popover menuitem:hover,
+.setup-wizard-main combobox popover menuitem:checked,
+.setup-wizard-main combobox popover menuitem:selected,
+.setup-wizard-main combobox popover menuitem:focus-visible {
+    background: transparent;
+    color: #58a6ff;
+}
+
 combobox menu menuitem:hover *,
 combobox menuitem:hover *,
 combobox menu menuitem:selected *,
@@ -408,6 +436,25 @@ combobox listview > row:focus-visible *,
 combobox treeview.view > row:hover *,
 combobox treeview.view > row:selected *,
 combobox treeview.view > row:focus-visible * {
+    color: #58a6ff;
+}
+
+combobox popover modelbutton:hover *,
+combobox popover modelbutton:checked *,
+combobox popover modelbutton:selected *,
+combobox popover modelbutton:focus-visible *,
+combobox popover menuitem:hover *,
+combobox popover menuitem:checked *,
+combobox popover menuitem:selected *,
+combobox popover menuitem:focus-visible *,
+.setup-wizard-main combobox popover modelbutton:hover *,
+.setup-wizard-main combobox popover modelbutton:checked *,
+.setup-wizard-main combobox popover modelbutton:selected *,
+.setup-wizard-main combobox popover modelbutton:focus-visible *,
+.setup-wizard-main combobox popover menuitem:hover *,
+.setup-wizard-main combobox popover menuitem:checked *,
+.setup-wizard-main combobox popover menuitem:selected *,
+.setup-wizard-main combobox popover menuitem:focus-visible * {
     color: #58a6ff;
 }
 
