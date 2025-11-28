@@ -107,6 +107,7 @@ class SetupUtility:
         self.controller.apply_message_bus(self.controller.state.message_bus)
         self.controller.apply_provider_settings(self.controller.state.providers)
         self.controller.apply_speech_settings(self.controller.state.speech)
+        self.controller.apply_company_identity(self.controller.state.optional)
         self.controller.apply_optional_settings(self.controller.state.optional)
 
         self.controller.register_user()
@@ -976,6 +977,7 @@ class SetupUtility:
             scheduler_queue_size=scheduler_queue_size,
             http_auto_start=http_auto_start,
         )
+        self.controller.apply_company_identity(new_state)
         return self.controller.apply_optional_settings(new_state)
 
     def finalize(self, summary: Mapping[str, object]) -> Path:

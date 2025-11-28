@@ -223,6 +223,10 @@ class DummyController:
         self.state.speech = dataclasses.replace(state)
         return self.state.speech
 
+    def apply_company_identity(self, state: OptionalState):  # pragma: no cover - not needed
+        self.state.optional = dataclasses.replace(self.state.optional, **dataclasses.asdict(state))
+        return self.state.optional
+
     def apply_optional_settings(self, state: OptionalState):  # pragma: no cover - not needed
         self.state.optional = dataclasses.replace(state)
         return self.state.optional

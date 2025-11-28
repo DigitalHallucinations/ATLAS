@@ -137,6 +137,11 @@ class FakeController:
         self.state.optional = state
         return state
 
+    def apply_company_identity(self, state):
+        self.calls.append(("company", state))
+        self.state.optional = state
+        return state
+
     def set_user_profile(self, profile):
         self.profile_calls.append(profile)
         self.state.user = UserState(
@@ -370,6 +375,27 @@ def _complete_setup_type_step(window, mode="personal"):
     assert isinstance(button, Gtk.CheckButton)
     button.set_active(True)
     window._on_next_clicked(None)
+
+
+def _populate_company_entries(window, **overrides):
+    defaults = {
+        "company_name": "Atlas",
+        "company_domain": "example.com",
+        "primary_contact": "Owner",
+        "contact_email": "owner@example.com",
+        "address_line1": "123 Example Street",
+        "address_line2": "Suite 100",
+        "city": "Gotham",
+        "state": "NY",
+        "postal_code": "10001",
+        "country": "USA",
+        "phone_number": "+1 (212) 555-1234",
+    }
+    defaults.update(overrides)
+    for key, value in defaults.items():
+        widget = window._optional_widgets.get(key)
+        if isinstance(widget, Gtk.Entry):
+            widget.set_text(value)
 
 
 def test_stack_switcher_updates_current_index():
@@ -950,6 +976,9 @@ def test_setup_wizard_optional_settings_validation():
 
     _complete_setup_type_step(window, mode="enterprise")
 
+    _populate_company_entries(window)
+    window._on_next_clicked(None)
+
     window._on_next_clicked(None)
 
     assert "Tenant ID is required" in window._status_label.get_text()
@@ -961,7 +990,7 @@ def test_setup_wizard_optional_settings_validation():
     _populate_user_entries(window)
     window._on_next_clicked(None)
 
-    assert window._current_index == 2
+    assert window._current_index == 3
     assert on_success.calls == []
     assert on_error.calls
     assert "Conversation retention days must be an integer" in window._status_label.get_text()

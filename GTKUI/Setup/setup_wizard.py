@@ -39,6 +39,7 @@ from GTKUI.Setup.wizard.validators import (
     parse_required_float,
     parse_required_int,
     parse_required_positive_int,
+    validate_company_identity,
     validate_enterprise_org,
 )
 from GTKUI.Setup.wizard.pages.overview import build_overview_page
@@ -930,20 +931,20 @@ class SetupWizardWindow(AtlasWindow):
         ]
 
         if mode == "enterprise":
-            self._steps.append(
-                WizardStep(
-                    name="Company",
-                    widget=company_form,
-                    subpages=[company_form],
-                    apply=self._apply_optional,
+                self._steps.append(
+                    WizardStep(
+                        name="Company",
+                        widget=company_form,
+                        subpages=[company_form],
+                        apply=self._apply_company,
+                    )
                 )
-            )
-            self._steps.append(
-                WizardStep(
-                    name="Policies",
-                    widget=policy_pages[0],
-                    subpages=policy_pages,
-                    apply=self._apply_optional,
+                self._steps.append(
+                    WizardStep(
+                        name="Policies",
+                        widget=policy_pages[0],
+                        subpages=policy_pages,
+                        apply=self._apply_optional,
                 )
             )
 
@@ -4349,7 +4350,7 @@ class SetupWizardWindow(AtlasWindow):
         self.controller.apply_speech_settings(state)
         return "Speech settings saved."
 
-    def _apply_optional(self) -> str:
+    def _apply_company(self) -> str:
         company_name_entry = self._optional_widgets.get("company_name")
         company_domain_entry = self._optional_widgets.get("company_domain")
         primary_contact_entry = self._optional_widgets.get("primary_contact")
@@ -4361,15 +4362,6 @@ class SetupWizardWindow(AtlasWindow):
         postal_code_entry = self._optional_widgets.get("postal_code")
         country_entry = self._optional_widgets.get("country")
         phone_entry = self._optional_widgets.get("phone_number")
-        tenant_entry = self._optional_widgets.get("tenant_id")
-        retention_days_entry = self._optional_widgets.get("retention_days")
-        retention_history_entry = self._optional_widgets.get("retention_history_limit")
-        scheduler_timezone_entry = self._optional_widgets.get("scheduler_timezone")
-        scheduler_queue_entry = self._optional_widgets.get("scheduler_queue_size")
-        http_toggle = self._optional_widgets.get("http_auto_start")
-        audit_combo = self._optional_widgets.get("audit_template")
-        region_combo = self._optional_widgets.get("data_region")
-        residency_combo = self._optional_widgets.get("residency_requirement")
 
         if not all(
             isinstance(widget, Gtk.Entry)
@@ -4385,6 +4377,68 @@ class SetupWizardWindow(AtlasWindow):
                 postal_code_entry,
                 country_entry,
                 phone_entry,
+            )
+        ):
+            raise RuntimeError("Company identity widgets are not configured correctly")
+
+        assert isinstance(company_name_entry, Gtk.Entry)
+        assert isinstance(company_domain_entry, Gtk.Entry)
+        assert isinstance(primary_contact_entry, Gtk.Entry)
+        assert isinstance(contact_email_entry, Gtk.Entry)
+        assert isinstance(address_line1_entry, Gtk.Entry)
+        assert isinstance(address_line2_entry, Gtk.Entry)
+        assert isinstance(city_entry, Gtk.Entry)
+        assert isinstance(state_entry, Gtk.Entry)
+        assert isinstance(postal_code_entry, Gtk.Entry)
+        assert isinstance(country_entry, Gtk.Entry)
+        assert isinstance(phone_entry, Gtk.Entry)
+
+        company_identity = validate_company_identity(
+            company_name=company_name_entry.get_text(),
+            company_domain=company_domain_entry.get_text(),
+            primary_contact=primary_contact_entry.get_text(),
+            contact_email=contact_email_entry.get_text(),
+            address_line1=address_line1_entry.get_text(),
+            address_line2=address_line2_entry.get_text(),
+            city=city_entry.get_text(),
+            state=state_entry.get_text(),
+            postal_code=postal_code_entry.get_text(),
+            country=country_entry.get_text(),
+            phone_number=phone_entry.get_text(),
+        )
+
+        state = replace(
+            self.controller.state.optional,
+            company_name=company_identity.company_name,
+            company_domain=company_identity.company_domain,
+            primary_contact=company_identity.primary_contact,
+            contact_email=company_identity.contact_email,
+            address_line1=company_identity.address_line1,
+            address_line2=company_identity.address_line2,
+            city=company_identity.city,
+            state=company_identity.state,
+            postal_code=company_identity.postal_code,
+            country=company_identity.country,
+            phone_number=company_identity.phone_number,
+        )
+
+        self.controller.apply_company_identity(state)
+        return "Company identity saved."
+
+    def _apply_optional(self) -> str:
+        tenant_entry = self._optional_widgets.get("tenant_id")
+        retention_days_entry = self._optional_widgets.get("retention_days")
+        retention_history_entry = self._optional_widgets.get("retention_history_limit")
+        scheduler_timezone_entry = self._optional_widgets.get("scheduler_timezone")
+        scheduler_queue_entry = self._optional_widgets.get("scheduler_queue_size")
+        http_toggle = self._optional_widgets.get("http_auto_start")
+        audit_combo = self._optional_widgets.get("audit_template")
+        region_combo = self._optional_widgets.get("data_region")
+        residency_combo = self._optional_widgets.get("residency_requirement")
+
+        if not all(
+            isinstance(widget, Gtk.Entry)
+            for widget in (
                 tenant_entry,
                 retention_days_entry,
                 retention_history_entry,
@@ -4398,17 +4452,6 @@ class SetupWizardWindow(AtlasWindow):
         ):
             raise RuntimeError("Organization settings widgets are not configured correctly")
 
-        assert isinstance(company_name_entry, Gtk.Entry)
-        assert isinstance(company_domain_entry, Gtk.Entry)
-        assert isinstance(primary_contact_entry, Gtk.Entry)
-        assert isinstance(contact_email_entry, Gtk.Entry)
-        assert isinstance(address_line1_entry, Gtk.Entry)
-        assert isinstance(address_line2_entry, Gtk.Entry)
-        assert isinstance(city_entry, Gtk.Entry)
-        assert isinstance(state_entry, Gtk.Entry)
-        assert isinstance(postal_code_entry, Gtk.Entry)
-        assert isinstance(country_entry, Gtk.Entry)
-        assert isinstance(phone_entry, Gtk.Entry)
         assert isinstance(tenant_entry, Gtk.Entry)
         assert isinstance(retention_days_entry, Gtk.Entry)
         assert isinstance(retention_history_entry, Gtk.Entry)
@@ -4419,20 +4462,9 @@ class SetupWizardWindow(AtlasWindow):
         assert isinstance(region_combo, Gtk.ComboBoxText)
         assert isinstance(residency_combo, Gtk.ComboBoxText)
 
-        enterprise_org = validate_enterprise_org(
-            company_name=company_name_entry.get_text(),
-            company_domain=company_domain_entry.get_text(),
-            primary_contact=primary_contact_entry.get_text(),
-            tenant_id=tenant_entry.get_text(),
-            contact_email=contact_email_entry.get_text(),
-            address_line1=address_line1_entry.get_text(),
-            address_line2=address_line2_entry.get_text(),
-            city=city_entry.get_text(),
-            state=state_entry.get_text(),
-            postal_code=postal_code_entry.get_text(),
-            country=country_entry.get_text(),
-            phone_number=phone_entry.get_text(),
-        )
+        tenant_id = tenant_entry.get_text().strip()
+        if not tenant_id:
+            raise ValueError("Tenant ID is required for enterprise setups")
 
         retention_days = parse_required_positive_int(
             retention_days_entry.get_text(), "Conversation retention days"
@@ -4444,8 +4476,9 @@ class SetupWizardWindow(AtlasWindow):
             scheduler_queue_entry.get_text(), "Scheduler queue size"
         )
 
-        state = OptionalState(
-            tenant_id=enterprise_org.tenant_id,
+        state = replace(
+            self.controller.state.optional,
+            tenant_id=tenant_id,
             retention_days=retention_days,
             retention_history_limit=retention_history,
             scheduler_timezone=scheduler_timezone_entry.get_text().strip() or None,
@@ -4454,17 +4487,6 @@ class SetupWizardWindow(AtlasWindow):
             audit_template=audit_combo.get_active_id() or None,
             data_region=region_combo.get_active_id() or None,
             residency_requirement=residency_combo.get_active_id() or None,
-            company_name=enterprise_org.company_name,
-            company_domain=enterprise_org.company_domain,
-            primary_contact=enterprise_org.primary_contact,
-            contact_email=enterprise_org.contact_email,
-            address_line1=enterprise_org.address_line1,
-            address_line2=enterprise_org.address_line2,
-            city=enterprise_org.city,
-            state=enterprise_org.state,
-            postal_code=enterprise_org.postal_code,
-            country=enterprise_org.country,
-            phone_number=enterprise_org.phone_number,
         )
 
         self.controller.apply_optional_settings(state)

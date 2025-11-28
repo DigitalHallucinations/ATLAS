@@ -2,8 +2,23 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Optional
+
+
+@dataclass
+class CompanyIdentity:
+    company_name: str
+    company_domain: str
+    primary_contact: str
+    contact_email: str
+    address_line1: str
+    address_line2: str | None
+    city: str
+    state: str
+    postal_code: str
+    country: str
+    phone_number: str | None
 
 
 @dataclass
@@ -74,6 +89,42 @@ def validate_enterprise_org(
     country: str = "",
     phone_number: str = "",
 ) -> EnterpriseOrg:
+    company = validate_company_identity(
+        company_name=company_name,
+        company_domain=company_domain,
+        primary_contact=primary_contact,
+        contact_email=contact_email,
+        address_line1=address_line1,
+        address_line2=address_line2,
+        city=city,
+        state=state,
+        postal_code=postal_code,
+        country=country,
+        phone_number=phone_number,
+    )
+
+    tenant = tenant_id.strip()
+    if not tenant:
+        raise ValueError("Tenant ID is required for enterprise setups")
+
+    company_payload = asdict(company)
+    return EnterpriseOrg(tenant_id=tenant, **company_payload)
+
+
+def validate_company_identity(
+    *,
+    company_name: str,
+    company_domain: str,
+    primary_contact: str,
+    contact_email: str,
+    address_line1: str,
+    address_line2: str = "",
+    city: str = "",
+    state: str = "",
+    postal_code: str = "",
+    country: str = "",
+    phone_number: str = "",
+) -> CompanyIdentity:
     name = company_name.strip()
     if not name:
         raise ValueError("Company name is required for enterprise setups")
@@ -85,10 +136,6 @@ def validate_enterprise_org(
     contact = primary_contact.strip()
     if not contact:
         raise ValueError("Primary contact is required for enterprise setups")
-
-    tenant = tenant_id.strip()
-    if not tenant:
-        raise ValueError("Tenant ID is required for enterprise setups")
 
     email = contact_email.strip().lower()
     if not email:
@@ -124,11 +171,10 @@ def validate_enterprise_org(
 
     phone_normalized = phone_value or ""
 
-    return EnterpriseOrg(
+    return CompanyIdentity(
         company_name=name,
         company_domain=domain,
         primary_contact=contact,
-        tenant_id=tenant,
         contact_email=email,
         address_line1=line1,
         address_line2=line2 or None,
