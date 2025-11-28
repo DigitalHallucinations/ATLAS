@@ -166,6 +166,14 @@ class OptionalState:
     company_name: Optional[str] = None
     company_domain: Optional[str] = None
     primary_contact: Optional[str] = None
+    contact_email: Optional[str] = None
+    address_line1: Optional[str] = None
+    address_line2: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    postal_code: Optional[str] = None
+    country: Optional[str] = None
+    phone_number: Optional[str] = None
     retention_days: Optional[int] = None
     retention_history_limit: Optional[int] = None
     scheduler_timezone: Optional[str] = None
@@ -480,6 +488,14 @@ class SetupWizardController:
             company_name=company_identity.get("name"),
             company_domain=company_identity.get("domain"),
             primary_contact=company_identity.get("primary_contact"),
+            contact_email=company_identity.get("contact_email"),
+            address_line1=company_identity.get("address_line1"),
+            address_line2=company_identity.get("address_line2"),
+            city=company_identity.get("city"),
+            state=company_identity.get("state"),
+            postal_code=company_identity.get("postal_code"),
+            country=company_identity.get("country"),
+            phone_number=company_identity.get("phone_number"),
             retention_days=retention.get("days") or retention.get("max_days"),
             retention_history_limit=retention.get("history_message_limit"),
             scheduler_timezone=self.state.job_scheduling.timezone,
@@ -992,6 +1008,14 @@ class SetupWizardController:
             name=state.company_name,
             domain=state.company_domain,
             primary_contact=state.primary_contact,
+            contact_email=state.contact_email,
+            address_line1=state.address_line1,
+            address_line2=state.address_line2,
+            city=state.city,
+            state=state.state,
+            postal_code=state.postal_code,
+            country=state.country,
+            phone_number=state.phone_number,
         )
         self.state.optional = dataclasses.replace(state)
         return self.state.optional

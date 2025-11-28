@@ -171,6 +171,45 @@ def config_manager(tmp_path, monkeypatch):
     return manager
 
 
+def test_company_identity_roundtrip(config_manager):
+    identity = config_manager.set_company_identity(
+        name=" Atlas ",
+        domain=" example.com ",
+        primary_contact=" Owner ",
+        contact_email="OWNER@example.com",
+        address_line1=" 123 Example Street ",
+        address_line2=" Suite 100 ",
+        city=" Gotham ",
+        state=" NY ",
+        postal_code=" 10001 ",
+        country=" USA ",
+        phone_number=" +1-212-555-1234 ",
+    )
+
+    assert identity == {
+        "name": "Atlas",
+        "domain": "example.com",
+        "primary_contact": "Owner",
+        "contact_email": "owner@example.com",
+        "address_line1": "123 Example Street",
+        "address_line2": "Suite 100",
+        "city": "Gotham",
+        "state": "NY",
+        "postal_code": "10001",
+        "country": "USA",
+        "phone_number": "+1-212-555-1234",
+    }
+
+    assert config_manager.yaml_config["company"] == identity
+    assert config_manager.config["company"] == identity
+    assert config_manager.get_company_identity() == identity
+
+    cleared = config_manager.set_company_identity()
+    assert cleared == {key: None for key in identity}
+    assert "company" not in config_manager.yaml_config
+    assert "company" not in config_manager.config
+
+
 def test_ui_config_wrap_roundtrip(config_manager):
     ui_config = config_manager.ui_config
     writes: list[bool] = []

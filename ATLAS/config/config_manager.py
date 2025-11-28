@@ -558,22 +558,35 @@ class ConfigManager(ProviderConfigMixin, PersistenceConfigMixin, ConfigCore):
     def get_company_identity(self) -> Dict[str, Optional[str]]:
         """Return persisted company identity fields."""
 
+        defaults = {
+            "name": None,
+            "domain": None,
+            "primary_contact": None,
+            "contact_email": None,
+            "address_line1": None,
+            "address_line2": None,
+            "city": None,
+            "state": None,
+            "postal_code": None,
+            "country": None,
+            "phone_number": None,
+        }
+
         block = self.config.get("company")
         if not isinstance(block, Mapping):
-            return {"name": None, "domain": None, "primary_contact": None}
+            return defaults
 
-        name = str(block.get("name")).strip() if block.get("name") else None
-        domain = str(block.get("domain")).strip() if block.get("domain") else None
-        primary_contact = (
-            str(block.get("primary_contact")).strip()
-            if block.get("primary_contact")
-            else None
-        )
-        return {
-            "name": name or None,
-            "domain": domain or None,
-            "primary_contact": primary_contact or None,
-        }
+        normalized: Dict[str, Optional[str]] = dict(defaults)
+
+        for key in defaults:
+            value = block.get(key)
+            if isinstance(value, str):
+                cleaned = value.strip()
+                normalized[key] = cleaned or None
+            else:
+                normalized[key] = None
+
+        return normalized
 
     def set_company_identity(
         self,
@@ -581,6 +594,14 @@ class ConfigManager(ProviderConfigMixin, PersistenceConfigMixin, ConfigCore):
         name: Optional[str] = None,
         domain: Optional[str] = None,
         primary_contact: Optional[str] = None,
+        contact_email: Optional[str] = None,
+        address_line1: Optional[str] = None,
+        address_line2: Optional[str] = None,
+        city: Optional[str] = None,
+        state: Optional[str] = None,
+        postal_code: Optional[str] = None,
+        country: Optional[str] = None,
+        phone_number: Optional[str] = None,
     ) -> Dict[str, Optional[str]]:
         """Persist company identity fields for enterprise setups."""
 
@@ -590,13 +611,29 @@ class ConfigManager(ProviderConfigMixin, PersistenceConfigMixin, ConfigCore):
             "primary_contact": (
                 primary_contact.strip() if isinstance(primary_contact, str) else None
             ),
+            "contact_email": (
+                contact_email.strip().lower() if isinstance(contact_email, str) else None
+            ),
+            "address_line1": (
+                address_line1.strip() if isinstance(address_line1, str) else None
+            ),
+            "address_line2": (
+                address_line2.strip() if isinstance(address_line2, str) else None
+            ),
+            "city": city.strip() if isinstance(city, str) else None,
+            "state": state.strip() if isinstance(state, str) else None,
+            "postal_code": postal_code.strip() if isinstance(postal_code, str) else None,
+            "country": country.strip() if isinstance(country, str) else None,
+            "phone_number": (
+                phone_number.strip() if isinstance(phone_number, str) else None
+            ),
         }
 
         if not any(cleaned.values()):
             self.yaml_config.pop("company", None)
             self.config.pop("company", None)
             self._write_yaml_config()
-            return {"name": None, "domain": None, "primary_contact": None}
+            return {key: None for key in cleaned}
 
         self.yaml_config["company"] = dict(cleaned)
         self.config["company"] = dict(cleaned)
