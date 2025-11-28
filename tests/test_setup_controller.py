@@ -2,9 +2,15 @@ import dataclasses
 from pathlib import Path
 
 import pytest
-from pathlib import Path
 
-from ATLAS.setup import AdminProfile, KvStoreState, SetupWizardController
+from ATLAS.setup import (
+    AdminProfile,
+    JobSchedulingState,
+    KvStoreState,
+    RetryPolicyState,
+    SetupWizardController,
+)
+from modules.conversation_store.bootstrap import BootstrapError
 
 
 class _StubConfigManager:
@@ -30,7 +36,7 @@ class _StubConfigManager:
         return "postgresql"
 
     def get_job_scheduling_settings(self):
-        return {}
+        return dict(getattr(self, "job_scheduling", {}))
 
     def get_messaging_settings(self):
         return {}
@@ -62,8 +68,40 @@ class _StubConfigManager:
     def _write_yaml_config(self):
         self.__class__.write_calls += 1
 
+    def set_job_scheduling_settings(
+        self,
+        *,
+        enabled=None,
+        job_store_url=None,
+        max_workers=None,
+        retry_policy=None,
+        timezone=None,
+        queue_size=None,
+    ):
+        self.job_scheduling = {}
+        if enabled is not None:
+            self.job_scheduling["enabled"] = bool(enabled)
+        if job_store_url is not self.UNSET:
+            if job_store_url:
+                self.job_scheduling["job_store_url"] = job_store_url
+        if max_workers is not self.UNSET and max_workers is not None:
+            self.job_scheduling["max_workers"] = max_workers
+        if timezone is not self.UNSET and timezone:
+            self.job_scheduling["timezone"] = timezone
+        if queue_size is not self.UNSET and queue_size is not None:
+            self.job_scheduling["queue_size"] = queue_size
+        if retry_policy is not None:
+            self.job_scheduling["retry_policy"] = retry_policy
+        return dict(self.job_scheduling)
+
     def get_audit_template(self):
         return None
+
+    def get_data_residency_settings(self):
+        return {}
+
+    def get_company_identity(self):
+        return {}
 
     def export_yaml_config(self, path):
         resolved = str(Path(path))
@@ -218,6 +256,95 @@ def test_import_config_refreshes_state(tmp_path):
 
     assert result == str(source)
     assert _StubConfigManager.import_paths[-1] == str(source)
+
+
+def test_apply_job_scheduling_bootstraps_and_applies_schema(monkeypatch):
+    engine_calls: dict[str, object] = {}
+
+    class _DummyEngine:
+        disposed = False
+
+        def dispose(self):  # pragma: no cover - defensive
+            self.disposed = True
+
+    dummy_engine = _DummyEngine()
+
+    def _fake_engine(url, *, future):
+        engine_calls["url"] = url
+        engine_calls["future"] = future
+        return dummy_engine
+
+    def _fake_schema(engine):
+        engine_calls["schema_engine"] = engine
+
+    def _fake_bootstrap(dsn: str, **kwargs):
+        engine_calls["bootstrap_dsn"] = dsn
+        engine_calls["bootstrap_kwargs"] = kwargs
+        return "postgresql+psycopg://bootstrapped:secret@localhost:5432/job_store"
+
+    monkeypatch.setattr("ATLAS.setup.controller.create_engine", _fake_engine)
+    monkeypatch.setattr("ATLAS.setup.controller.ensure_job_schema", _fake_schema)
+
+    controller = SetupWizardController(
+        config_manager=_StubConfigManager(),
+        bootstrap=_fake_bootstrap,
+        request_privileged_password=lambda: "prompted",
+    )
+    controller.set_privileged_credentials(("admin", "pw"))
+
+    state = JobSchedulingState(
+        enabled=True,
+        job_store_url="postgresql+psycopg://atlas:atlas@localhost:5432/jobs",
+        max_workers=2,
+        retry_policy=RetryPolicyState(),
+        timezone="UTC",
+        queue_size=5,
+    )
+
+    settings = controller.apply_job_scheduling(state)
+
+    assert engine_calls["bootstrap_dsn"] == state.job_store_url
+    assert engine_calls["bootstrap_kwargs"].get("privileged_credentials") == ("admin", "pw")
+    assert engine_calls["bootstrap_kwargs"].get("request_privileged_password") is not None
+    assert engine_calls["url"] == "postgresql+psycopg://bootstrapped:secret@localhost:5432/job_store"
+    assert engine_calls["schema_engine"] is dummy_engine
+    assert dummy_engine.disposed is True
+    assert controller.state.job_scheduling.job_store_url == engine_calls["url"]
+    assert settings.get("job_store_url") == engine_calls["url"]
+
+
+def test_apply_job_scheduling_raises_on_schema_error(monkeypatch):
+    def _fake_bootstrap(dsn: str, **_kwargs):
+        return dsn
+
+    class _Disposable:
+        def dispose(self):
+            pass
+
+    def _fake_engine(url, *, future):  # pragma: no cover - defensive stub
+        return _Disposable()
+
+    def _fail_schema(_engine):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr("ATLAS.setup.controller.create_engine", _fake_engine)
+    monkeypatch.setattr("ATLAS.setup.controller.ensure_job_schema", _fail_schema)
+
+    controller = SetupWizardController(
+        config_manager=_StubConfigManager(),
+        bootstrap=_fake_bootstrap,
+    )
+
+    state = JobSchedulingState(
+        enabled=True,
+        job_store_url="postgresql+psycopg://atlas:atlas@localhost:5432/jobs",
+        retry_policy=RetryPolicyState(),
+    )
+
+    with pytest.raises(BootstrapError):
+        controller.apply_job_scheduling(state)
+
+    assert getattr(controller.config_manager, "job_scheduling", {}) == {}
     assert controller.state.database.host == "restored"
 
 
