@@ -1469,7 +1469,14 @@ class UserAccountService:
             self._database.delete_password_reset_token(normalised_username)
             return False
 
-        if self._current_time() > expires_at:
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=_dt.timezone.utc)
+
+        now = self._current_time()
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=_dt.timezone.utc)
+
+        if now.astimezone(_dt.timezone.utc) >= expires_at.astimezone(_dt.timezone.utc):
             self._database.delete_password_reset_token(normalised_username)
             return False
 

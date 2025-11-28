@@ -63,6 +63,14 @@ class _StubConfigManager:
     def get_config(self, key: str, default=None):
         return self._overrides.get(key, default)
 
+    def get_local_profile_limit(self, default: int = 5) -> int:
+        value = self.get_config("LOCAL_PROFILE_LIMIT", default)
+        try:
+            normalized = int(value)
+        except (TypeError, ValueError):
+            return default
+        return normalized if normalized > 0 else default
+
 
 class _SpyConversationRepository:
     def __init__(self, delegate: ConversationStoreRepository) -> None:
@@ -363,6 +371,27 @@ def test_password_reset_flow_success(monkeypatch, conversation_repository):
         success = service.complete_password_reset("erin", challenge.token, "Newpass123!")
         assert success is True
         assert service.authenticate_user("erin", "Newpass123!") is True
+    finally:
+        service.close()
+
+
+def test_password_reset_token_expires(monkeypatch, conversation_repository):
+    now = datetime.now(timezone.utc)
+    later = now + timedelta(seconds=30)
+
+    service, _ = _create_service(
+        monkeypatch, conversation_repository, clock=lambda: now
+    )
+    try:
+        service.register_user("emma", "Password123!", "emma@example.com")
+
+        challenge = service.initiate_password_reset("emma", expires_in_seconds=10)
+        assert challenge is not None
+
+        service._clock = lambda: later  # type: ignore[assignment]
+        assert service.verify_password_reset_token("emma", challenge.token) is False
+
+        assert service._database.get_password_reset_token("emma") is None
     finally:
         service.close()
 
