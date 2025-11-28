@@ -604,7 +604,9 @@ class ATLAS:
         """Retrieve a single account record for display purposes."""
 
         self._ensure_delegated_admin_enabled()
-        return await self._require_user_account_facade().get_user_account_details(username)
+        return await self._require_user_account_facade().get_user_account_details(
+            username, tenant_id=self.tenant_id
+        )
 
     async def get_user_account_overview(self) -> Dict[str, object]:
         """Return aggregated statistics for stored user accounts."""

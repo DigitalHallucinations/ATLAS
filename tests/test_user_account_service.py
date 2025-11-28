@@ -313,6 +313,40 @@ def test_register_user_with_tenant(monkeypatch, conversation_repository):
         service.close()
 
 
+def test_get_user_details_filters_by_tenant(monkeypatch, conversation_repository):
+    service, _ = _create_service(monkeypatch, conversation_repository)
+    try:
+        service.register_user(
+            "tenant-user",
+            "Password123!",
+            "tenant@example.com",
+            "Tenant User",
+            "1990-01-01",
+            tenant_id="tenant-a",
+        )
+        service.register_user(
+            "tenant-user",
+            "Password123!",
+            "tenant+alt@example.com",
+            "Tenant User",
+            "1990-01-01",
+            tenant_id="tenant-b",
+        )
+
+        details_a = service.get_user_details("tenant-user", tenant_id="tenant-a")
+        assert details_a is not None
+        assert details_a["email"] == "tenant@example.com"
+
+        details_b = service.get_user_details("tenant-user", tenant_id="tenant-b")
+        assert details_b is not None
+        assert details_b["email"] == "tenant+alt@example.com"
+
+        details_invalid = service.get_user_details("tenant-user", tenant_id="tenant-c")
+        assert details_invalid is None
+    finally:
+        service.close()
+
+
 def test_authenticate_user_success_and_failure(monkeypatch, conversation_repository):
     service, _ = _create_service(monkeypatch, conversation_repository)
     try:

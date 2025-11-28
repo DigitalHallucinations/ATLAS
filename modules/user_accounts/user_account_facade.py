@@ -247,10 +247,12 @@ class UserAccountFacade:
         return await run_async_in_thread(service.search_users, query_text)
 
     async def get_user_account_details(
-        self, username: str
+        self, username: str, *, tenant_id: Optional[str] = None
     ) -> Optional[Dict[str, object]]:
         service = self._get_user_account_service()
-        return await run_async_in_thread(service.get_user_details, username)
+        return await run_async_in_thread(
+            service.get_user_details, username, tenant_id=tenant_id
+        )
 
     async def get_user_account_overview(self) -> Dict[str, object]:
         service = self._get_user_account_service()
