@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Mapping, Optional
 
 import yaml
+from sqlalchemy import create_engine
+from sqlalchemy.engine.url import make_url
 
 from ATLAS.config import (
     ConfigManager,
@@ -16,6 +18,7 @@ from ATLAS.config import (
 )
 from modules.conversation_store.bootstrap import BootstrapError, bootstrap_conversation_store
 from modules.conversation_store.repository import ConversationStoreRepository
+from modules.job_store import ensure_job_schema
 from modules.user_accounts.user_account_service import UserAccountService
 
 
@@ -827,6 +830,37 @@ class SetupWizardController:
     # -- job scheduling ----------------------------------------------------
 
     def apply_job_scheduling(self, state: JobSchedulingState) -> Dict[str, Any]:
+        ensured_job_store_url = state.job_store_url
+        if state.job_store_url:
+            kwargs: dict[str, Any] = {}
+            if self._privileged_password_requester is not None:
+                kwargs["request_privileged_password"] = self._privileged_password_requester
+            staged_privileged = self.get_privileged_credentials()
+            if staged_privileged is not None:
+                kwargs["privileged_credentials"] = staged_privileged
+            try:
+                ensured_job_store_url = self._bootstrap(state.job_store_url, **kwargs)
+            except BootstrapError:
+                raise
+            except Exception as exc:
+                raise BootstrapError(f"Failed to provision job store: {exc}") from exc
+
+            if not ensured_job_store_url.startswith(("mongodb://", "mongodb+srv://")):
+                try:
+                    make_url(ensured_job_store_url)
+                except Exception as exc:
+                    raise BootstrapError(
+                        f"Invalid job store URL after provisioning: {exc}"
+                    ) from exc
+
+                engine = create_engine(ensured_job_store_url, future=True)
+                try:
+                    ensure_job_schema(engine)
+                except Exception as exc:
+                    raise BootstrapError(f"Failed to initialize job store schema: {exc}") from exc
+                finally:
+                    engine.dispose()
+
         policy = {
             "max_attempts": state.retry_policy.max_attempts,
             "backoff_seconds": state.retry_policy.backoff_seconds,
@@ -835,13 +869,13 @@ class SetupWizardController:
         }
         settings = self.config_manager.set_job_scheduling_settings(
             enabled=state.enabled,
-            job_store_url=state.job_store_url or ConfigManager.UNSET,
+            job_store_url=ensured_job_store_url or ConfigManager.UNSET,
             max_workers=state.max_workers if state.max_workers is not None else ConfigManager.UNSET,
             retry_policy=policy,
             timezone=state.timezone or ConfigManager.UNSET,
             queue_size=state.queue_size if state.queue_size is not None else ConfigManager.UNSET,
         )
-        self.state.job_scheduling = dataclasses.replace(state)
+        self.state.job_scheduling = dataclasses.replace(state, job_store_url=ensured_job_store_url)
         return settings
 
     # -- messaging ---------------------------------------------------------
