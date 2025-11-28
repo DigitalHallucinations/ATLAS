@@ -363,6 +363,23 @@ class ConfigManager(ProviderConfigMixin, PersistenceConfigMixin, ConfigCore):
                 return dict(vector_block)
         return {}
 
+    def get_javascript_executor_settings(self) -> Dict[str, Any]:
+        """Return configuration for the JavaScript executor tool."""
+
+        tools_block = self.config.get("tools")
+        if isinstance(tools_block, Mapping):
+            js_block = tools_block.get("javascript_executor")
+            if isinstance(js_block, Mapping):
+                return dict(js_block)
+
+        yaml_tools = self.yaml_config.get("tools")
+        if isinstance(yaml_tools, Mapping):
+            js_block = yaml_tools.get("javascript_executor")
+            if isinstance(js_block, Mapping):
+                return dict(js_block)
+
+        return {}
+
     def set_vector_store_settings(
         self,
         *,
