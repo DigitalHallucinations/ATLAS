@@ -33,6 +33,16 @@ from ATLAS.setup_marker import write_setup_marker
 from GTKUI.Utils.logging import GTKUILogHandler
 from GTKUI.Utils.styled_window import AtlasWindow
 from GTKUI.Utils.utils import apply_css
+from GTKUI.Setup.wizard.log_window import SetupWizardLogWindow
+from GTKUI.Setup.wizard.validators import (
+    parse_optional_int,
+    parse_required_float,
+    parse_required_int,
+    parse_required_positive_int,
+    validate_enterprise_org,
+)
+from GTKUI.Setup.wizard.pages.overview import build_overview_page
+from GTKUI.Setup.wizard.pages.setup_type import build_setup_type_page
 from modules.logging.audit_templates import get_audit_template, get_audit_templates
 from modules.conversation_store.bootstrap import BootstrapError
 DATABASE_LOCAL_TIP = (
@@ -88,73 +98,6 @@ class WizardStep:
             self.subpages.insert(0, self.widget)
         if self.subpages:
             self.widget = self.subpages[0]
-
-
-class SetupWizardLogWindow(AtlasWindow):
-    """Lightweight window that streams setup logs to an inspector view."""
-
-    def __init__(
-        self,
-        *,
-        application: Gtk.Application | None = None,
-        transient_for: Gtk.Window | None = None,
-    ) -> None:
-        super().__init__(
-            title="ATLAS Setup Logs",
-            default_size=(720, 480),
-            transient_for=transient_for,
-        )
-
-        if application is not None:
-            try:
-                self.set_application(application)
-            except Exception:  # pragma: no cover - GTK stubs in tests
-                pass
-
-        header = Gtk.HeaderBar()
-        try:
-            header.set_show_title_buttons(True)
-        except Exception:  # pragma: no cover - compatibility shim
-            pass
-
-        title_label = Gtk.Label(label="Setup Activity Log")
-        if hasattr(title_label, "add_css_class"):
-            title_label.add_css_class("heading")
-        try:
-            header.set_title_widget(title_label)
-        except Exception:  # pragma: no cover - GTK3 fallback
-            try:
-                header.set_title("Setup Activity Log")
-            except Exception:
-                pass
-
-        try:
-            self.set_titlebar(header)
-        except Exception:  # pragma: no cover - GTK3 fallback
-            pass
-
-        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        root.set_hexpand(True)
-        root.set_vexpand(True)
-        self.set_child(root)
-
-        scroller = Gtk.ScrolledWindow()
-        scroller.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-        scroller.set_hexpand(True)
-        scroller.set_vexpand(True)
-        root.append(scroller)
-
-        self.text_view = Gtk.TextView()
-        self.text_view.set_editable(False)
-        self.text_view.set_cursor_visible(False)
-        self.text_view.set_monospace(True)
-        wrap_mode = getattr(Gtk.WrapMode, "WORD_CHAR", getattr(Gtk.WrapMode, "WORD", None))
-        if wrap_mode is not None:
-            self.text_view.set_wrap_mode(wrap_mode)
-        scroller.set_child(self.text_view)
-
-        self.text_buffer = self.text_view.get_buffer()
-
 
 class SetupWizardWindow(AtlasWindow):
     """A small multi-step wizard bound to :class:`SetupWizardController`."""
@@ -940,8 +883,8 @@ class SetupWizardWindow(AtlasWindow):
         self._setup_type_headers.clear()
         provider_pages = self._build_provider_pages()
 
-        overview_page = self._build_overview_page()
-        setup_type_page = self._build_setup_type_page()
+        overview_page = build_overview_page(self)
+        setup_type_page = build_setup_type_page(self)
         administrator_intro = self._build_administrator_intro_page()
         user_collection_page = self._build_users_page()
         administrator_form = self._build_user_page()
@@ -1327,114 +1270,6 @@ class SetupWizardWindow(AtlasWindow):
         self._instructions_label.set_text(instructions)
         self._instructions_label.set_visible(bool(instructions))
 
-    def _build_overview_page(self) -> Gtk.Widget:
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        box.set_hexpand(True)
-        box.set_vexpand(True)
-
-        heading = Gtk.Label(label="Welcome! Let's get ATLAS ready")
-        heading.set_wrap(True)
-        heading.set_xalign(0.0)
-        if hasattr(heading, "add_css_class"):
-            heading.add_css_class("heading")
-        box.append(heading)
-
-        summary = Gtk.Label(
-            label=(
-                "This short walkthrough gathers the essentials so your deployment starts "
-                "with sensible defaults. We'll pause along the way to explain what each "
-                "choice does."
-            )
-        )
-        summary.set_wrap(True)
-        summary.set_xalign(0.0)
-        box.append(summary)
-
-        reassurance = Gtk.Label(
-            label=(
-                "Your answers save automatically—come back to any step from the sidebar "
-                "whenever you need to tweak something or resume later."
-            )
-        )
-        reassurance.set_wrap(True)
-        reassurance.set_xalign(0.0)
-        box.append(reassurance)
-
-        why_callout = self._create_overview_callout(
-            "Why this matters",
-            [
-                "Give ATLAS an owner who can finish setup and invite others.",
-                "Connect the services that keep conversations safe and responsive.",
-                "Set expectations now so future teammates know what was chosen.",
-            ],
-        )
-        box.append(why_callout)
-
-        needs_callout = self._create_overview_callout(
-            "What you'll need",
-            [
-                "Contact details for the first administrator.",
-                "Connection info for your conversation store (PostgreSQL, SQLite, or MongoDB/Atlas) and supporting services.",
-                "API keys or credentials for any model providers you plan to use.",
-            ],
-        )
-        box.append(needs_callout)
-
-        hosting_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        hosting_box.set_hexpand(False)
-        hosting_label = Gtk.Label(
-            label=(
-                "Here are quick hosting tips for the database, vector store, and model"
-                " inference choices you make throughout setup. Update the forms to refresh"
-                " the suggestions based on your selections."
-            )
-        )
-        hosting_label.set_wrap(True)
-        hosting_label.set_xalign(0.0)
-        hosting_box.append(hosting_label)
-
-        hosting_hint = Gtk.Label()
-        hosting_hint.set_wrap(True)
-        hosting_hint.set_xalign(0.0)
-        self._hosting_hint_label = hosting_hint
-        self._refresh_hosting_summary()
-        hosting_box.append(hosting_hint)
-        box.append(hosting_box)
-
-        cli_label = Gtk.Label(
-            label=(
-                "Prefer a terminal instead? Run scripts/setup_atlas.py to pick up the "
-                "same guided flow from the command line."
-            )
-        )
-        cli_label.set_wrap(True)
-        cli_label.set_xalign(0.0)
-        box.append(cli_label)
-
-        self._register_instructions(
-            box,
-            (
-                "Glance through the overview and check the two callouts so you know what "
-                "we'll ask for before you continue to the administrator details."
-            ),
-        )
-        self._register_instructions(
-            why_callout,
-            "Use this to align the setup goals with anyone joining you for the rollout.",
-        )
-        self._register_instructions(
-            needs_callout,
-            "Gather these items now so the next few forms go quickly.",
-        )
-        if hosting_hint is not None:
-            summary = hosting_hint.get_text() or ""
-            self._register_instructions(hosting_hint, summary)
-        self._register_instructions(
-            cli_label,
-            "You can swap to the terminal helper at any point—the wizard keeps your progress in sync.",
-        )
-        return box
-
     def _compute_hosting_summary(self) -> str:
         try:
             database_state = self._collect_database_state(strict=False)
@@ -1467,150 +1302,6 @@ class SetupWizardWindow(AtlasWindow):
 
     def _on_hosting_relevant_field_changed(self, *_args: object) -> None:
         self._refresh_hosting_summary()
-
-    def _build_setup_type_page(self) -> Gtk.Widget:
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        box.set_hexpand(True)
-        box.set_vexpand(True)
-
-        heading = Gtk.Label(label="Choose how presets should shape the rest of setup")
-        heading.set_wrap(True)
-        heading.set_xalign(0.0)
-        if hasattr(heading, "add_css_class"):
-            heading.add_css_class("heading")
-        box.append(heading)
-
-        copy = Gtk.Label(
-            label=(
-                "Presets apply once to pre-fill the remaining forms. After you tweak a field manually,"
-                " picking the same preset again leaves your edits alone."
-            )
-        )
-        copy.set_wrap(True)
-        copy.set_xalign(0.0)
-        box.append(copy)
-
-        button_column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        button_column.set_hexpand(False)
-
-        radio_descriptors = [
-            (
-                "personal",
-                "Personal",
-                "Single administrator, defaults favor convenience on one host.",
-            ),
-            (
-                "enterprise",
-                "Enterprise",
-                "Team rollout with Redis, schedulers, and stricter retention defaults.",
-            ),
-        ]
-
-        first_button: Gtk.CheckButton | None = None
-        for key, title, subtitle in radio_descriptors:
-            row = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-            toggle = Gtk.CheckButton.new_with_label(title)
-            if first_button is None:
-                first_button = toggle
-            else:
-                toggle.set_group(first_button)
-            toggle.set_hexpand(False)
-            toggle.connect("toggled", self._on_setup_type_toggled, key)
-            self._setup_type_buttons[key] = toggle
-            row.append(toggle)
-
-            if subtitle:
-                detail = Gtk.Label(label=subtitle)
-                detail.set_wrap(True)
-                detail.set_xalign(0.0)
-                if hasattr(detail, "add_css_class"):
-                    detail.add_css_class("dim-label")
-                row.append(detail)
-
-            button_column.append(row)
-
-        box.append(button_column)
-
-        table = Gtk.Grid(column_spacing=12, row_spacing=6)
-        table.set_hexpand(True)
-        table.set_vexpand(False)
-
-        headers = ["Area", "Personal", "Enterprise"]
-        for col, title in enumerate(headers):
-            label = Gtk.Label(label=title)
-            label.set_wrap(True)
-            label.set_xalign(0.0)
-            if hasattr(label, "add_css_class"):
-                label.add_css_class("heading")
-            table.attach(label, col, 0, 1, 1)
-            if col == 1:
-                self._setup_type_headers["personal"] = label
-            elif col == 2:
-                self._setup_type_headers["enterprise"] = label
-
-        rows = [
-            (
-                "Message bus",
-                "In-memory queue for a single app server.",
-                "Redis backend with shared streams.",
-            ),
-            (
-                "Job scheduling",
-                "Disabled so nothing else is required.",
-                "Enabled with a dedicated database-backed job store.",
-            ),
-            (
-                "Key-value store",
-                "Reuse the conversation database.",
-                "Separate database-backed cache for scale.",
-            ),
-            (
-                "Retention & policies",
-                "No retention limits are pre-set.",
-                "30 day retention and 500 message history.",
-            ),
-            (
-                "HTTP server",
-                "Auto-start for easy local testing.",
-                "Manual start so ops can control ingress.",
-            ),
-        ]
-
-        for row_index, (area, personal, enterprise) in enumerate(rows, start=1):
-            for column, text in enumerate((area, personal, enterprise)):
-                label = Gtk.Label(label=text)
-                label.set_wrap(True)
-                label.set_xalign(0.0)
-                table.attach(label, column, row_index, 1, 1)
-
-        box.append(table)
-
-        local_only_toggle = Gtk.CheckButton(
-            label="Keep data on this device (SQLite and in-memory queues)"
-        )
-        if hasattr(local_only_toggle, "set_tooltip_text"):
-            local_only_toggle.set_tooltip_text(
-                "Disable remote backends and external connectors for a single-device setup."
-            )
-        local_only_toggle.set_halign(Gtk.Align.START)
-        local_only_toggle.connect("toggled", self._on_local_mode_toggled)
-        self._local_only_toggle = local_only_toggle
-        box.append(local_only_toggle)
-
-        instructions = (
-            "Pick the preset that matches your rollout. You can always override fields later or"
-            " switch presets if plans change."
-        )
-
-        self._register_instructions(box, instructions)
-        self._register_instructions(
-            table,
-            "Scan this comparison so you know which downstream defaults will update when you choose a preset.",
-        )
-
-        self._sync_setup_type_selection()
-
-        return box
 
     def _sync_setup_type_selection(self) -> None:
         if not self._setup_type_buttons:
@@ -4000,39 +3691,6 @@ class SetupWizardWindow(AtlasWindow):
     def _format_float(self, value: float) -> str:
         return f"{value}".rstrip("0").rstrip(".") if isinstance(value, float) else str(value)
 
-    def _parse_required_int(self, entry: Gtk.Entry, field: str) -> int:
-        text = entry.get_text().strip()
-        if not text:
-            raise ValueError(f"{field} is required")
-        try:
-            return int(text)
-        except ValueError as exc:
-            raise ValueError(f"{field} must be an integer") from exc
-
-    def _parse_optional_int(self, entry: Gtk.Entry, field: str) -> Optional[int]:
-        text = entry.get_text().strip()
-        if not text:
-            return None
-        try:
-            return int(text)
-        except ValueError as exc:
-            raise ValueError(f"{field} must be an integer") from exc
-
-    def _parse_required_positive_int(self, entry: Gtk.Entry, field: str) -> int:
-        value = self._parse_required_int(entry, field)
-        if value <= 0:
-            raise ValueError(f"{field} must be a positive integer")
-        return value
-
-    def _parse_required_float(self, entry: Gtk.Entry, field: str) -> float:
-        text = entry.get_text().strip()
-        if not text:
-            raise ValueError(f"{field} is required")
-        try:
-            return float(text)
-        except ValueError as exc:
-            raise ValueError(f"{field} must be a number") from exc
-
     # -- navigation -----------------------------------------------------
 
     def _get_current_page_index(self, step_index: int | None = None) -> int:
@@ -4514,20 +4172,26 @@ class SetupWizardWindow(AtlasWindow):
         assert isinstance(job_store_entry, Gtk.Entry)
         job_store_url = job_store_entry.get_text().strip() or None
         assert isinstance(max_workers_entry, Gtk.Entry)
-        max_workers = self._parse_optional_int(max_workers_entry, "Max workers")
+        max_workers = parse_optional_int(
+            max_workers_entry.get_text(), "Max workers"
+        )
         assert isinstance(timezone_entry, Gtk.Entry)
         timezone = timezone_entry.get_text().strip() or None
         assert isinstance(queue_size_entry, Gtk.Entry)
-        queue_size = self._parse_optional_int(queue_size_entry, "Queue size")
+        queue_size = parse_optional_int(queue_size_entry.get_text(), "Queue size")
 
         assert isinstance(retry_max_entry, Gtk.Entry)
-        max_attempts = self._parse_required_int(retry_max_entry, "Max attempts")
+        max_attempts = parse_required_int(retry_max_entry.get_text(), "Max attempts")
         assert isinstance(backoff_entry, Gtk.Entry)
-        backoff_seconds = self._parse_required_float(backoff_entry, "Backoff seconds")
+        backoff_seconds = parse_required_float(
+            backoff_entry.get_text(), "Backoff seconds"
+        )
         assert isinstance(jitter_entry, Gtk.Entry)
-        jitter_seconds = self._parse_required_float(jitter_entry, "Jitter seconds")
+        jitter_seconds = parse_required_float(jitter_entry.get_text(), "Jitter seconds")
         assert isinstance(multiplier_entry, Gtk.Entry)
-        backoff_multiplier = self._parse_required_float(multiplier_entry, "Backoff multiplier")
+        backoff_multiplier = parse_required_float(
+            multiplier_entry.get_text(), "Backoff multiplier"
+        )
 
         if not enabled:
             job_store_url = None
@@ -4666,34 +4330,25 @@ class SetupWizardWindow(AtlasWindow):
         assert isinstance(region_combo, Gtk.ComboBoxText)
         assert isinstance(residency_combo, Gtk.ComboBoxText)
 
-        company_name = company_name_entry.get_text().strip()
-        if not company_name:
-            raise ValueError("Company name is required for enterprise setups")
-
-        company_domain = company_domain_entry.get_text().strip()
-        if not company_domain:
-            raise ValueError("Company domain is required for enterprise setups")
-
-        primary_contact = primary_contact_entry.get_text().strip()
-        if not primary_contact:
-            raise ValueError("Primary contact is required for enterprise setups")
-
-        tenant_id = tenant_entry.get_text().strip()
-        if not tenant_id:
-            raise ValueError("Tenant ID is required for enterprise setups")
-
-        retention_days = self._parse_required_positive_int(
-            retention_days_entry, "Conversation retention days"
+        enterprise_org = validate_enterprise_org(
+            company_name=company_name_entry.get_text(),
+            company_domain=company_domain_entry.get_text(),
+            primary_contact=primary_contact_entry.get_text(),
+            tenant_id=tenant_entry.get_text(),
         )
-        retention_history = self._parse_required_positive_int(
-            retention_history_entry, "Conversation history limit"
+
+        retention_days = parse_required_positive_int(
+            retention_days_entry.get_text(), "Conversation retention days"
         )
-        scheduler_queue_size = self._parse_required_positive_int(
-            scheduler_queue_entry, "Scheduler queue size"
+        retention_history = parse_required_positive_int(
+            retention_history_entry.get_text(), "Conversation history limit"
+        )
+        scheduler_queue_size = parse_required_positive_int(
+            scheduler_queue_entry.get_text(), "Scheduler queue size"
         )
 
         state = OptionalState(
-            tenant_id=tenant_id,
+            tenant_id=enterprise_org.tenant_id,
             retention_days=retention_days,
             retention_history_limit=retention_history,
             scheduler_timezone=scheduler_timezone_entry.get_text().strip() or None,
@@ -4702,9 +4357,9 @@ class SetupWizardWindow(AtlasWindow):
             audit_template=audit_combo.get_active_id() or None,
             data_region=region_combo.get_active_id() or None,
             residency_requirement=residency_combo.get_active_id() or None,
-            company_name=company_name,
-            company_domain=company_domain,
-            primary_contact=primary_contact,
+            company_name=enterprise_org.company_name,
+            company_domain=enterprise_org.company_domain,
+            primary_contact=enterprise_org.primary_contact,
         )
 
         self.controller.apply_optional_settings(state)
