@@ -96,6 +96,7 @@ class ProviderState:
     default_provider: Optional[str] = None
     default_model: Optional[str] = None
     api_keys: Dict[str, str] = field(default_factory=dict)
+    settings: Dict[str, Dict[str, str]] = field(default_factory=dict)
 
 
 @dataclass
@@ -431,10 +432,28 @@ class SetupWizardController:
             value = self.config_manager.get_config(env_key)
             if isinstance(value, str) and value.strip():
                 api_key_state[provider] = value.strip()
+        provider_settings_state: Dict[str, Dict[str, str]] = {}
+        saved_provider_settings = self.config_manager.get_config("PROVIDER_SETTINGS")
+        if isinstance(saved_provider_settings, Mapping):
+            for provider, settings in saved_provider_settings.items():
+                if not isinstance(settings, Mapping):
+                    continue
+                provider_settings_state[provider] = {
+                    key: str(value)
+                    for key, value in settings.items()
+                    if isinstance(key, str) and isinstance(value, str)
+                }
+        if (openai_base := self.config_manager.get_config("OPENAI_BASE_URL")):
+            provider_settings_state.setdefault("OpenAI", {})["base_url"] = str(openai_base)
+        if (openai_org := self.config_manager.get_config("OPENAI_ORGANIZATION")):
+            provider_settings_state.setdefault("OpenAI", {})["organization"] = str(openai_org)
+        if (mistral_base := self.config_manager.get_config("MISTRAL_BASE_URL")):
+            provider_settings_state.setdefault("Mistral", {})["base_url"] = str(mistral_base)
         self.state.providers = ProviderState(
             default_provider=self.config_manager.get_default_provider(),
             default_model=self.config_manager.get_default_model(),
             api_keys=api_key_state,
+            settings=provider_settings_state,
         )
 
         tts_enabled = bool(self.config_manager.get_tts_enabled()) if hasattr(self.config_manager, "get_tts_enabled") else False
@@ -837,12 +856,34 @@ class SetupWizardController:
             if provider in state.api_keys:
                 self.config_manager.update_api_key(provider, state.api_keys[provider])
 
+        sanitized_settings: Dict[str, Dict[str, str]] = {}
+        for provider, settings in state.settings.items():
+            if not isinstance(settings, Mapping):
+                continue
+            filtered = {
+                key: value
+                for key, value in settings.items()
+                if isinstance(key, str) and isinstance(value, str) and value.strip()
+            }
+            if filtered:
+                sanitized_settings[provider] = filtered
+
         if state.default_provider:
             self.config_manager.set_default_provider(state.default_provider)
         if state.default_model:
             self.config_manager.set_default_model(state.default_model)
 
-        self.state.providers = dataclasses.replace(state, api_keys=dict(state.api_keys))
+        if sanitized_settings:
+            self.config_manager.yaml_config["PROVIDER_SETTINGS"] = dict(sanitized_settings)
+            self.config_manager.config["PROVIDER_SETTINGS"] = dict(sanitized_settings)
+        else:
+            self.config_manager.yaml_config.pop("PROVIDER_SETTINGS", None)
+            self.config_manager.config.pop("PROVIDER_SETTINGS", None)
+        self.config_manager._write_yaml_config()
+
+        self.state.providers = dataclasses.replace(
+            state, api_keys=dict(state.api_keys), settings=dict(sanitized_settings)
+        )
         return self.state.providers
 
     # -- speech ------------------------------------------------------------

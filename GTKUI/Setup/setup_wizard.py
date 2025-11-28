@@ -6,7 +6,7 @@ import logging
 from datetime import datetime
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
 
 import gi
 
@@ -560,10 +560,8 @@ class SetupWizardWindow(AtlasWindow):
         self._database_backend_combo: Gtk.ComboBoxText | None = None
         self._database_stack: Gtk.Stack | None = None
         self._provider_entries: Dict[str, Gtk.Entry] = {}
-        self._provider_buffer: Optional[Gtk.TextBuffer] = None
-        self._provider_mask_buffer: Optional[Gtk.TextBuffer] = None
-        self._provider_stack: Gtk.Stack | None = None
-        self._provider_show_toggle: Gtk.CheckButton | None = None
+        self._provider_settings_entries: Dict[str, Dict[str, Gtk.Entry]] = {}
+        self._provider_secret_toggles: Dict[str, Gtk.CheckButton] = {}
         self._local_only_toggle: Gtk.CheckButton | None = None
         self._user_collection_entries: Dict[str, Gtk.Entry] = {}
         self._user_collection_labels: Dict[str, Gtk.Label] = {}
@@ -2570,10 +2568,10 @@ class SetupWizardWindow(AtlasWindow):
             "About Providers",
             [
                 "Choose the default providers and models new conversations should start with.",
-                "You'll tune provider-specific settings on the following pages when more than one is enabled.",
+                "You'll walk through each provider to add API keys and optional endpoints with per-page visibility controls.",
                 MODEL_HOSTING_TIP,
             ],
-            "Decide which providers you'll enable so the next forms go quickly.",
+            "Review each provider card and have credentials ready before continuing.",
         )
 
     def _select_step_row(self, index: int) -> None:
@@ -2924,6 +2922,12 @@ class SetupWizardWindow(AtlasWindow):
     def _build_provider_pages(self) -> list[Gtk.Widget]:
         state = self.controller.state.providers
 
+        self._provider_entries.clear()
+        self._provider_settings_entries.clear()
+        self._provider_secret_toggles.clear()
+
+        provider_definitions = self._get_provider_definitions()
+
         defaults_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         defaults_box.set_hexpand(True)
         defaults_box.set_vexpand(True)
@@ -2945,88 +2949,142 @@ class SetupWizardWindow(AtlasWindow):
             defaults_box, defaults_instructions, "Configure defaults"
         )
 
-        keys_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        keys_box.set_hexpand(True)
-        keys_box.set_vexpand(True)
+        pages: list[Gtk.Widget] = [defaults_form]
 
-        helper_label = Gtk.Label(
-            label=(
-                "Enter each provider and key on its own line using provider=key. "
-                "Keys are stored in your local configuration and only sent to the provider when needed."
+        seeded_settings: Dict[str, Dict[str, str]] = {}
+        raw_settings = getattr(state, "settings", {}) or {}
+        if isinstance(raw_settings, Mapping):
+            for provider, values in raw_settings.items():
+                if not isinstance(values, Mapping):
+                    continue
+                seeded_settings[provider] = {
+                    key: str(value)
+                    for key, value in values.items()
+                    if isinstance(key, str) and isinstance(value, str)
+                }
+
+        config_manager = getattr(self.controller, "config_manager", None)
+        if config_manager is not None:
+            openai_settings = seeded_settings.setdefault("OpenAI", {})
+            mistral_settings = seeded_settings.setdefault("Mistral", {})
+            if (base_url := config_manager.get_config("OPENAI_BASE_URL")):
+                openai_settings.setdefault("base_url", str(base_url))
+            if (org := config_manager.get_config("OPENAI_ORGANIZATION")):
+                openai_settings.setdefault("organization", str(org))
+            if (mistral_base := config_manager.get_config("MISTRAL_BASE_URL")):
+                mistral_settings.setdefault("base_url", str(mistral_base))
+
+        for provider in sorted(provider_definitions):
+            metadata = provider_definitions[provider]
+            provider_state = seeded_settings.get(provider, {})
+            page = self._build_single_provider_page(
+                provider,
+                metadata.get("optional_fields", []),
+                state.api_keys.get(provider, ""),
+                provider_state,
             )
-        )
-        helper_label.set_wrap(True)
-        helper_label.set_xalign(0.0)
-        keys_box.append(helper_label)
+            pages.append(page)
 
-        show_toggle = Gtk.CheckButton(label="Show keys")
-        if hasattr(show_toggle, "set_tooltip_text"):
-            show_toggle.set_tooltip_text(
-                "Temporarily reveal saved API keys to review or edit them."
+        return pages
+
+    def _get_provider_definitions(self) -> Dict[str, Dict[str, Any]]:
+        config_manager = getattr(self.controller, "config_manager", None)
+        provider_keys: Dict[str, str] = {}
+
+        if config_manager is not None:
+            provider_key_getter = getattr(config_manager, "_get_provider_env_keys", None)
+            if callable(provider_key_getter):
+                try:
+                    provider_keys = provider_key_getter()
+                except Exception:  # pragma: no cover - defensive fallback
+                    provider_keys = {}
+
+        if not provider_keys:
+            provider_keys = {
+                "OpenAI": "OPENAI_API_KEY",
+                "Anthropic": "ANTHROPIC_API_KEY",
+                "HuggingFace": "HUGGINGFACE_API_KEY",
+            }
+
+        optional_fields: Dict[str, list[Dict[str, str]]] = {
+            "OpenAI": [
+                {"key": "base_url", "label": "Base URL (optional)"},
+                {"key": "organization", "label": "Organization (optional)"},
+            ],
+            "Mistral": [
+                {"key": "base_url", "label": "Base URL (optional)"},
+            ],
+        }
+
+        definitions: Dict[str, Dict[str, Any]] = {}
+        for provider, env_key in provider_keys.items():
+            definitions[provider] = {
+                "env_key": env_key,
+                "optional_fields": optional_fields.get(provider, []),
+            }
+
+        return definitions
+
+    def _build_single_provider_page(
+        self,
+        provider: str,
+        optional_fields: list[Mapping[str, str]],
+        api_key_value: str,
+        provider_settings: Mapping[str, str],
+    ) -> Gtk.Widget:
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        box.set_hexpand(True)
+        box.set_vexpand(True)
+
+        grid = Gtk.Grid(column_spacing=12, row_spacing=6)
+        grid.set_hexpand(True)
+        grid.set_vexpand(True)
+
+        row = 0
+        api_entry = self._create_labeled_entry(
+            grid,
+            row,
+            "API key",
+            api_key_value,
+            placeholder=f"{provider} API key",
+            visibility=False,
+        )
+        self._provider_settings_entries[provider] = {"api_key": api_entry}
+        row += 1
+
+        show_toggle = Gtk.CheckButton(label="Show API key")
+        show_toggle.set_tooltip_text("Temporarily reveal this provider key")
+        show_toggle.connect(
+            "toggled", lambda toggle, entry=api_entry: entry.set_visibility(toggle.get_active())
+        )
+        grid.attach(show_toggle, 0, row, 2, 1)
+        self._provider_secret_toggles[provider] = show_toggle
+        row += 1
+
+        for field in optional_fields:
+            field_key = field.get("key") if isinstance(field, Mapping) else None
+            if not field_key:
+                continue
+            label = field.get("label", field_key.title()) if isinstance(field, Mapping) else field_key
+            placeholder = None
+            if isinstance(field, Mapping):
+                placeholder = field.get("placeholder")
+            entry = self._create_labeled_entry(
+                grid,
+                row,
+                label,
+                str(provider_settings.get(field_key, "")),
+                placeholder=placeholder,
             )
-        keys_box.append(show_toggle)
+            self._provider_settings_entries[provider][field_key] = entry
+            row += 1
 
-        stack = Gtk.Stack()
-        stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
-        stack.set_transition_duration(150)
-        stack.set_hexpand(True)
-        stack.set_vexpand(True)
+        box.append(grid)
 
-        visible_view = Gtk.TextView()
-        visible_view.set_monospace(True)
-        visible_view.set_hexpand(True)
-        visible_view.set_vexpand(True)
-        wrap_mode = getattr(Gtk.WrapMode, "CHAR", getattr(Gtk.WrapMode, "WORD_CHAR", None))
-        if wrap_mode is not None:
-            visible_view.set_wrap_mode(wrap_mode)
-        visible_buffer = visible_view.get_buffer()
-        visible_buffer.set_text(self._format_api_keys(state.api_keys))
-
-        masked_view = Gtk.TextView()
-        masked_view.set_monospace(True)
-        masked_view.set_editable(False)
-        masked_view.set_cursor_visible(False)
-        if hasattr(masked_view, "set_focusable"):
-            masked_view.set_focusable(False)
-        elif hasattr(masked_view, "set_can_focus"):
-            masked_view.set_can_focus(False)
-        if wrap_mode is not None:
-            masked_view.set_wrap_mode(wrap_mode)
-
-        visible_scroller = Gtk.ScrolledWindow()
-        visible_scroller.set_hexpand(True)
-        visible_scroller.set_vexpand(True)
-        visible_scroller.set_child(visible_view)
-
-        masked_scroller = Gtk.ScrolledWindow()
-        masked_scroller.set_hexpand(True)
-        masked_scroller.set_vexpand(True)
-        masked_scroller.set_child(masked_view)
-
-        stack.add_named(masked_scroller, "masked")
-        stack.add_named(visible_scroller, "visible")
-        stack.set_visible_child_name("masked")
-
-        keys_box.append(stack)
-
-        self._provider_buffer = visible_buffer
-        self._provider_mask_buffer = masked_view.get_buffer()
-        self._provider_stack = stack
-        self._provider_show_toggle = show_toggle
-
-        visible_buffer.connect("changed", self._on_provider_buffer_changed)
-        show_toggle.connect("toggled", self._on_provider_show_toggled)
-
-        self._on_provider_buffer_changed(visible_buffer)
-
-        keys_instructions = (
-            "Add API keys for any providers you plan to use. We only display the full values while the toggle is enabled."
+        instructions = (
+            f"Enter credentials and optional settings for {provider}. Keys stay local and are only sent to the provider when needed."
         )
-        keys_form = self._wrap_with_instructions(
-            keys_box, keys_instructions, "API keys"
-        )
-
-        return [defaults_form, keys_form]
+        return self._wrap_with_instructions(box, instructions, f"Configure {provider}")
 
     def _build_kv_store_page(self) -> Gtk.Widget:
         state = self.controller.state.kv_store
@@ -3936,63 +3994,6 @@ class SetupWizardWindow(AtlasWindow):
         for widget in list(self._validation_rules):
             self._run_validation(widget)
 
-    def _on_provider_buffer_changed(self, buffer: Gtk.TextBuffer) -> None:
-        mask_buffer = self._provider_mask_buffer
-        if mask_buffer is None:
-            return
-
-        start_iter = buffer.get_start_iter()
-        end_iter = buffer.get_end_iter()
-        text = buffer.get_text(start_iter, end_iter, True)
-
-        masked_text = self._mask_api_keys_text(text)
-        mask_buffer.set_text(masked_text)
-
-    def _on_provider_show_toggled(self, toggle: Gtk.CheckButton) -> None:
-        stack = self._provider_stack
-        if stack is None:
-            return
-
-        show_plain = toggle.get_active()
-        if not show_plain:
-            buffer = self._provider_buffer
-            if buffer is not None:
-                self._on_provider_buffer_changed(buffer)
-            stack.set_visible_child_name("masked")
-            return
-
-        stack.set_visible_child_name("visible")
-
-    def _mask_api_keys_text(self, text: str) -> str:
-        if not text:
-            return ""
-
-        masked_parts: list[str] = []
-        for segment in text.splitlines(keepends=True):
-            newline = ""
-            content = segment
-            if segment.endswith("\r\n"):
-                newline = "\r\n"
-                content = segment[:-2]
-            elif segment.endswith("\n") or segment.endswith("\r"):
-                newline = segment[-1]
-                content = segment[:-1]
-
-            if "=" in content:
-                prefix, suffix = content.split("=", 1)
-                masked_suffix = "".join("•" if not ch.isspace() else ch for ch in suffix)
-                masked_content = f"{prefix}={masked_suffix}"
-            else:
-                masked_content = "".join("•" if not ch.isspace() else ch for ch in content)
-
-            masked_parts.append(masked_content + newline)
-
-        return "".join(masked_parts)
-
-    def _format_api_keys(self, mapping: Dict[str, str]) -> str:
-        lines = [f"{provider}={key}" for provider, key in sorted(mapping.items())]
-        return "\n".join(lines)
-
     def _optional_to_text(self, value: Optional[int]) -> str:
         return "" if value is None else str(value)
 
@@ -4713,29 +4714,32 @@ class SetupWizardWindow(AtlasWindow):
         default_provider = self._provider_entries["default_provider"].get_text().strip() or None
         default_model = self._provider_entries["default_model"].get_text().strip() or None
 
-        buffer = self._provider_buffer
         api_keys: Dict[str, str] = {}
-        if buffer is not None:
-            start_iter = buffer.get_start_iter()
-            end_iter = buffer.get_end_iter()
-            text = buffer.get_text(start_iter, end_iter, True)
-            for line in text.splitlines():
-                line = line.strip()
-                if not line:
+        provider_settings: Dict[str, Dict[str, str]] = {}
+
+        for provider, entries in self._provider_settings_entries.items():
+            api_entry = entries.get("api_key")
+            if isinstance(api_entry, Gtk.Entry):
+                key_value = api_entry.get_text().strip()
+                if key_value:
+                    api_keys[provider] = key_value
+
+            settings: Dict[str, str] = {}
+            for field, entry in entries.items():
+                if field == "api_key" or not isinstance(entry, Gtk.Entry):
                     continue
-                if "=" not in line:
-                    raise ValueError("API key entries must use provider=key format")
-                provider, key = line.split("=", 1)
-                provider = provider.strip()
-                key = key.strip()
-                if not provider or not key:
-                    raise ValueError("API key entries must include both provider and key")
-                api_keys[provider] = key
+                value = entry.get_text().strip()
+                if value:
+                    settings[field] = value
+
+            if settings:
+                provider_settings[provider] = settings
 
         state = ProviderState(
             default_provider=default_provider,
             default_model=default_model,
             api_keys=api_keys,
+            settings=provider_settings,
         )
 
         self.controller.apply_provider_settings(state)
