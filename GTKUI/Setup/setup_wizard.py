@@ -1495,6 +1495,14 @@ class SetupWizardWindow(AtlasWindow):
             "company_name": state.company_name or "",
             "company_domain": state.company_domain or "",
             "primary_contact": state.primary_contact or "",
+            "contact_email": state.contact_email or "",
+            "address_line1": state.address_line1 or "",
+            "address_line2": state.address_line2 or "",
+            "city": state.city or "",
+            "state": state.state or "",
+            "postal_code": state.postal_code or "",
+            "country": state.country or "",
+            "phone_number": state.phone_number or "",
             "retention_days": self._optional_to_text(state.retention_days),
             "retention_history_limit": self._optional_to_text(
                 state.retention_history_limit
@@ -2114,6 +2122,14 @@ class SetupWizardWindow(AtlasWindow):
         )
         row += 1
 
+        self._optional_widgets["contact_email"] = self._create_labeled_entry(
+            grid, row, "Contact email", state.contact_email or ""
+        )
+        self._register_required_text(
+            self._optional_widgets["contact_email"], "Contact email"
+        )
+        row += 1
+
         contact_hint = (
             "List the primary compliance or security contact (name, email, or team alias)."
         )
@@ -2126,6 +2142,55 @@ class SetupWizardWindow(AtlasWindow):
         contact_label = grid.get_child_at(0, row)
         if isinstance(contact_label, Gtk.Widget):
             contact_label.set_tooltip_text(contact_hint)
+        row += 1
+
+        self._optional_widgets["address_line1"] = self._create_labeled_entry(
+            grid, row, "Address line 1", state.address_line1 or ""
+        )
+        self._register_required_text(
+            self._optional_widgets["address_line1"], "Address line 1"
+        )
+        row += 1
+
+        self._optional_widgets["address_line2"] = self._create_labeled_entry(
+            grid, row, "Address line 2", state.address_line2 or ""
+        )
+        row += 1
+
+        self._optional_widgets["city"] = self._create_labeled_entry(
+            grid, row, "City", state.city or ""
+        )
+        self._register_required_text(self._optional_widgets["city"], "City or town")
+        row += 1
+
+        self._optional_widgets["state"] = self._create_labeled_entry(
+            grid, row, "State / Province", state.state or ""
+        )
+        self._register_required_text(
+            self._optional_widgets["state"], "State or province"
+        )
+        row += 1
+
+        self._optional_widgets["postal_code"] = self._create_labeled_entry(
+            grid, row, "Postal code", state.postal_code or ""
+        )
+        self._register_required_text(
+            self._optional_widgets["postal_code"], "Postal code"
+        )
+        row += 1
+
+        self._optional_widgets["country"] = self._create_labeled_entry(
+            grid, row, "Country", state.country or ""
+        )
+        self._register_required_text(self._optional_widgets["country"], "Country")
+        row += 1
+
+        self._optional_widgets["phone_number"] = self._create_labeled_entry(
+            grid, row, "Phone number", state.phone_number or ""
+        )
+        phone_label = grid.get_child_at(0, row)
+        if isinstance(phone_label, Gtk.Widget):
+            phone_label.set_tooltip_text("Optional; include a direct or team line")
         row += 1
 
         instructions = (
@@ -4288,6 +4353,14 @@ class SetupWizardWindow(AtlasWindow):
         company_name_entry = self._optional_widgets.get("company_name")
         company_domain_entry = self._optional_widgets.get("company_domain")
         primary_contact_entry = self._optional_widgets.get("primary_contact")
+        contact_email_entry = self._optional_widgets.get("contact_email")
+        address_line1_entry = self._optional_widgets.get("address_line1")
+        address_line2_entry = self._optional_widgets.get("address_line2")
+        city_entry = self._optional_widgets.get("city")
+        state_entry = self._optional_widgets.get("state")
+        postal_code_entry = self._optional_widgets.get("postal_code")
+        country_entry = self._optional_widgets.get("country")
+        phone_entry = self._optional_widgets.get("phone_number")
         tenant_entry = self._optional_widgets.get("tenant_id")
         retention_days_entry = self._optional_widgets.get("retention_days")
         retention_history_entry = self._optional_widgets.get("retention_history_limit")
@@ -4304,6 +4377,14 @@ class SetupWizardWindow(AtlasWindow):
                 company_name_entry,
                 company_domain_entry,
                 primary_contact_entry,
+                contact_email_entry,
+                address_line1_entry,
+                address_line2_entry,
+                city_entry,
+                state_entry,
+                postal_code_entry,
+                country_entry,
+                phone_entry,
                 tenant_entry,
                 retention_days_entry,
                 retention_history_entry,
@@ -4320,6 +4401,14 @@ class SetupWizardWindow(AtlasWindow):
         assert isinstance(company_name_entry, Gtk.Entry)
         assert isinstance(company_domain_entry, Gtk.Entry)
         assert isinstance(primary_contact_entry, Gtk.Entry)
+        assert isinstance(contact_email_entry, Gtk.Entry)
+        assert isinstance(address_line1_entry, Gtk.Entry)
+        assert isinstance(address_line2_entry, Gtk.Entry)
+        assert isinstance(city_entry, Gtk.Entry)
+        assert isinstance(state_entry, Gtk.Entry)
+        assert isinstance(postal_code_entry, Gtk.Entry)
+        assert isinstance(country_entry, Gtk.Entry)
+        assert isinstance(phone_entry, Gtk.Entry)
         assert isinstance(tenant_entry, Gtk.Entry)
         assert isinstance(retention_days_entry, Gtk.Entry)
         assert isinstance(retention_history_entry, Gtk.Entry)
@@ -4335,6 +4424,14 @@ class SetupWizardWindow(AtlasWindow):
             company_domain=company_domain_entry.get_text(),
             primary_contact=primary_contact_entry.get_text(),
             tenant_id=tenant_entry.get_text(),
+            contact_email=contact_email_entry.get_text(),
+            address_line1=address_line1_entry.get_text(),
+            address_line2=address_line2_entry.get_text(),
+            city=city_entry.get_text(),
+            state=state_entry.get_text(),
+            postal_code=postal_code_entry.get_text(),
+            country=country_entry.get_text(),
+            phone_number=phone_entry.get_text(),
         )
 
         retention_days = parse_required_positive_int(
@@ -4360,6 +4457,14 @@ class SetupWizardWindow(AtlasWindow):
             company_name=enterprise_org.company_name,
             company_domain=enterprise_org.company_domain,
             primary_contact=enterprise_org.primary_contact,
+            contact_email=enterprise_org.contact_email,
+            address_line1=enterprise_org.address_line1,
+            address_line2=enterprise_org.address_line2,
+            city=enterprise_org.city,
+            state=enterprise_org.state,
+            postal_code=enterprise_org.postal_code,
+            country=enterprise_org.country,
+            phone_number=enterprise_org.phone_number,
         )
 
         self.controller.apply_optional_settings(state)
