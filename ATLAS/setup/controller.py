@@ -1038,6 +1038,21 @@ class SetupWizardController:
             region=state.data_region,
             residency_requirement=state.residency_requirement,
         )
+        self.state.optional = dataclasses.replace(
+            self.state.optional,
+            tenant_id=state.tenant_id,
+            retention_days=state.retention_days,
+            retention_history_limit=state.retention_history_limit,
+            scheduler_timezone=state.scheduler_timezone,
+            scheduler_queue_size=state.scheduler_queue_size,
+            http_auto_start=state.http_auto_start,
+            audit_template=state.audit_template,
+            data_region=state.data_region,
+            residency_requirement=state.residency_requirement,
+        )
+        return self.state.optional
+
+    def apply_company_identity(self, state: OptionalState) -> OptionalState:
         self.config_manager.set_company_identity(
             name=state.company_name,
             domain=state.company_domain,
@@ -1051,7 +1066,20 @@ class SetupWizardController:
             country=state.country,
             phone_number=state.phone_number,
         )
-        self.state.optional = dataclasses.replace(state)
+        self.state.optional = dataclasses.replace(
+            self.state.optional,
+            company_name=state.company_name,
+            company_domain=state.company_domain,
+            primary_contact=state.primary_contact,
+            contact_email=state.contact_email,
+            address_line1=state.address_line1,
+            address_line2=state.address_line2,
+            city=state.city,
+            state=state.state,
+            postal_code=state.postal_code,
+            country=state.country,
+            phone_number=state.phone_number,
+        )
         return self.state.optional
 
     # -- staging helpers ----------------------------------------------------

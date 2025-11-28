@@ -5,6 +5,7 @@ from GTKUI.Setup.wizard.validators import (
     parse_required_float,
     parse_required_int,
     parse_required_positive_int,
+    validate_company_identity,
     validate_enterprise_org,
 )
 
@@ -40,6 +41,34 @@ def test_parse_required_positive_int_rejects_non_positive():
         parse_required_positive_int("0", "Positive")
 
 
+def test_validate_company_identity_returns_cleaned_dataclass():
+    result = validate_company_identity(
+        company_name=" Atlas ",
+        company_domain=" example.com ",
+        primary_contact=" Owner ",
+        contact_email=" CONTACT@example.com ",
+        address_line1=" 123 Example Street ",
+        address_line2=" Suite 100 ",
+        city=" Gotham ",
+        state=" NY ",
+        postal_code=" 10001 ",
+        country=" USA ",
+        phone_number=" +1 (212) 555-1234 ",
+    )
+
+    assert result.company_name == "Atlas"
+    assert result.company_domain == "example.com"
+    assert result.primary_contact == "Owner"
+    assert result.contact_email == "contact@example.com"
+    assert result.address_line1 == "123 Example Street"
+    assert result.address_line2 == "Suite 100"
+    assert result.city == "Gotham"
+    assert result.state == "NY"
+    assert result.postal_code == "10001"
+    assert result.country == "USA"
+    assert result.phone_number == "+1 (212) 555-1234"
+
+
 def test_validate_enterprise_org_returns_cleaned_dataclass():
     result = validate_enterprise_org(
         company_name=" Atlas ",
@@ -68,6 +97,46 @@ def test_validate_enterprise_org_returns_cleaned_dataclass():
     assert result.postal_code == "10001"
     assert result.country == "USA"
     assert result.phone_number == "+1 (212) 555-1234"
+
+
+@pytest.mark.parametrize(
+    "kwargs,expected_message",
+    [
+        (
+            {
+                "company_name": "",
+                "company_domain": "example.com",
+                "primary_contact": "Owner",
+                "contact_email": "owner@example.com",
+                "address_line1": "123 Example Street",
+                "city": "Gotham",
+                "state": "NY",
+                "postal_code": "10001",
+                "country": "USA",
+            },
+            "Company name is required",
+        ),
+        (
+            {
+                "company_name": "Atlas",
+                "company_domain": "",
+                "primary_contact": "Owner",
+                "contact_email": "owner@example.com",
+                "address_line1": "123 Example Street",
+                "city": "Gotham",
+                "state": "NY",
+                "postal_code": "10001",
+                "country": "USA",
+            },
+            "Company domain is required",
+        ),
+    ],
+)
+def test_validate_company_identity_errors(kwargs, expected_message):
+    with pytest.raises(ValueError) as excinfo:
+        validate_company_identity(**kwargs)
+
+    assert expected_message in str(excinfo.value)
 
 
 @pytest.mark.parametrize(
