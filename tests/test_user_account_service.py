@@ -26,6 +26,7 @@ from modules.conversation_store import (
     User,
     UserCredential,
 )
+from modules.conversation_store.models import PasswordResetToken
 from modules.user_accounts import user_account_service
 
 
@@ -487,6 +488,72 @@ def test_password_reset_token_expires(monkeypatch, conversation_repository):
         assert service.verify_password_reset_token("emma", challenge.token) is False
 
         assert service._database.get_password_reset_token("emma") is None
+    finally:
+        service.close()
+
+
+@pytest.mark.parametrize(
+    "identifier",
+    ["unknown-user", "missing@example.com"],
+)
+def test_initiate_password_reset_unknown_identifier(monkeypatch, conversation_repository, identifier):
+    service, _ = _create_service(monkeypatch, conversation_repository)
+    try:
+        challenge = service.initiate_password_reset(identifier)
+
+        assert challenge is None
+
+        session = conversation_repository._session_factory()
+        try:
+            tokens = session.execute(select(PasswordResetToken)).scalars().all()
+        finally:
+            session.close()
+
+        assert tokens == []
+    finally:
+        service.close()
+
+
+def test_initiate_password_reset_negative_expiration(monkeypatch, conversation_repository):
+    now = datetime.now(timezone.utc)
+    service, _ = _create_service(
+        monkeypatch, conversation_repository, clock=lambda: now
+    )
+    try:
+        service.register_user("helen", "Password123!", "helen@example.com")
+
+        challenge = service.initiate_password_reset("helen", expires_in_seconds=-10)
+
+        assert challenge is not None
+        assert challenge.username == "helen"
+        assert challenge.expires_at == now
+
+        assert service.verify_password_reset_token("helen", challenge.token) is False
+        assert service._database.get_password_reset_token("helen") is None
+    finally:
+        service.close()
+
+
+@pytest.mark.parametrize("expires_in_seconds", ["invalid", object()])
+def test_initiate_password_reset_rejects_non_integer_lifetime(
+    monkeypatch, conversation_repository, expires_in_seconds
+):
+    service, _ = _create_service(monkeypatch, conversation_repository)
+    try:
+        service.register_user("ivan", "Password123!", "ivan@example.com")
+
+        with pytest.raises(ValueError):
+            service.initiate_password_reset(
+                "ivan", expires_in_seconds=expires_in_seconds
+            )
+
+        session = conversation_repository._session_factory()
+        try:
+            tokens = session.execute(select(PasswordResetToken)).scalars().all()
+        finally:
+            session.close()
+
+        assert tokens == []
     finally:
         service.close()
 
