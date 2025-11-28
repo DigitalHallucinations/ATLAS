@@ -2,6 +2,4 @@
 
 from ATLAS.setup import SetupWizardController
 
-from .setup_wizard import SetupWizardWindow
-
-__all__ = ["SetupWizardWindow", "SetupWizardController"]
+__all__ = ["SetupWizardController"]
