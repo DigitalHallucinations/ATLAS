@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import List, Optional
 
@@ -32,7 +33,7 @@ if "yaml" not in sys.modules:
 from types import MappingProxyType
 
 from modules.Server.conversation_routes import RequestContext
-from modules.Server.routes import AtlasServer
+from modules.Server.routes import _as_bool, _parse_query_timestamp, AtlasServer
 from modules.Tools.manifest_loader import ToolManifestEntry
 from modules.Skills.manifest_loader import SkillMetadata
 from modules.orchestration.capability_registry import ToolCapabilityView, SkillCapabilityView
@@ -92,6 +93,44 @@ def _make_skill_view(entry: SkillMetadata) -> SkillCapabilityView:
         capability_tags=tuple(entry.capability_tags),
         required_capabilities=tuple(entry.required_capabilities),
     )
+
+
+@pytest.mark.parametrize(
+    "raw_value, expected",
+    [
+        (None, None),
+        ("", None),
+        ("   ", None),
+        (
+            "2024-05-22T10:00:00Z",
+            datetime(2024, 5, 22, 10, 0, tzinfo=timezone.utc),
+        ),
+        (
+            "2024-05-22T10:00:00",
+            datetime(2024, 5, 22, 10, 0, tzinfo=timezone.utc),
+        ),
+        ("not-a-timestamp", None),
+    ],
+)
+def test_parse_query_timestamp_variants(raw_value, expected):
+    parsed = _parse_query_timestamp(raw_value)
+    assert parsed == expected
+
+
+@pytest.mark.parametrize(
+    "raw_value, expected",
+    [
+        (None, False),
+        ("", False),
+        ("true", True),
+        ("ON", True),
+        ("false", False),
+        (False, False),
+        (True, True),
+    ],
+)
+def test_as_bool_variants(raw_value, expected):
+    assert _as_bool(raw_value) is expected
 
 
 class _RegistryStub:
