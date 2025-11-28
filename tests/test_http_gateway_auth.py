@@ -57,7 +57,9 @@ class _StubUserAccountService:
             "details": payload,
         }
 
-    def authenticate_user(self, username: str, password: str) -> bool:
+    def authenticate_user(
+        self, username: str, password: str, *, tenant_id: Optional[str] = None
+    ) -> bool:
         record = self._users.get(username)
         if record is None:
             return False

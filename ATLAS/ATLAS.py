@@ -647,6 +647,7 @@ class ATLAS:
         email: Optional[str] = None,
         name: Optional[str] = None,
         dob: Optional[str] = None,
+        tenant_id: Optional[str] = None,
     ) -> Dict[str, object]:
         """Update an existing user account and refresh cached identity."""
 
@@ -657,6 +658,7 @@ class ATLAS:
             email=email,
             name=name,
             dob=dob,
+            tenant_id=tenant_id,
         )
 
     def get_user_password_requirements(self) -> PasswordRequirements:
@@ -669,12 +671,15 @@ class ATLAS:
 
         return self._require_user_account_facade().describe_user_password_requirements()
 
-    async def login_user_account(self, username: str, password: str) -> bool:
+    async def login_user_account(
+        self, username: str, password: str, *, tenant_id: Optional[str] = None
+    ) -> bool:
         """Validate credentials and mark the account as active."""
 
         return await self._require_user_account_facade().login_user_account(
             username,
             password,
+            tenant_id=tenant_id,
         )
 
     async def request_password_reset(self, identifier: str) -> Optional[Dict[str, object]]:

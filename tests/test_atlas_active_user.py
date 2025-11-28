@@ -76,7 +76,7 @@ class _AccountServiceStub:
         self.users[username] = {"account": account, "password": password}
         return account
 
-    def authenticate_user(self, username, password):
+    def authenticate_user(self, username, password, *, tenant_id=None):
         record = self.users.get(username)
         if not record:
             return False

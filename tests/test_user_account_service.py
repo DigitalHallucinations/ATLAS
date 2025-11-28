@@ -347,6 +347,35 @@ def test_get_user_details_filters_by_tenant(monkeypatch, conversation_repository
         service.close()
 
 
+def test_authenticate_user_with_tenant(monkeypatch, conversation_repository):
+    service, _ = _create_service(monkeypatch, conversation_repository)
+    try:
+        service.register_user(
+            "tenant-user",
+            "Password123!",
+            "tenant@example.com",
+            tenant_id="tenant-a",
+        )
+
+        assert (
+            service.authenticate_user(
+                "tenant-user", "Password123!", tenant_id="tenant-a"
+            )
+            is True
+        )
+        assert (
+            service.authenticate_user(
+                "tenant-user", "Password123!", tenant_id="tenant-b"
+            )
+            is False
+        )
+        assert (
+            service.authenticate_user("tenant-user", "Password123!") is False
+        )
+    finally:
+        service.close()
+
+
 def test_authenticate_user_success_and_failure(monkeypatch, conversation_repository):
     service, _ = _create_service(monkeypatch, conversation_repository)
     try:
@@ -389,6 +418,38 @@ def test_authenticate_user_lockout(monkeypatch, conversation_repository):
         now_plus = now + timedelta(seconds=31)
         service._clock = lambda: now_plus  # type: ignore[assignment]
         assert service.authenticate_user("dave", "Password123!") is True
+    finally:
+        service.close()
+
+
+def test_update_user_password_requires_tenant(monkeypatch, conversation_repository):
+    service, _ = _create_service(monkeypatch, conversation_repository)
+    try:
+        service.register_user(
+            "tenant-user",
+            "Password123!",
+            "tenant@example.com",
+            tenant_id="tenant-a",
+        )
+
+        with pytest.raises(ValueError):
+            service.update_user(
+                "tenant-user",
+                password="Newpass123!",
+                current_password="Password123!",
+            )
+
+        updated = service.update_user(
+            "tenant-user",
+            password="Newpass123!",
+            current_password="Password123!",
+            tenant_id="tenant-a",
+        )
+
+        assert updated.username == "tenant-user"
+        assert service.authenticate_user(
+            "tenant-user", "Newpass123!", tenant_id="tenant-a"
+        ) is True
     finally:
         service.close()
 
