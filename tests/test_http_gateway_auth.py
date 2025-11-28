@@ -65,7 +65,9 @@ class _StubUserAccountService:
             raise self._locked_error_cls(username, retry_after=60)
         return record.get("password") == password
 
-    def get_user_details(self, username: str) -> Optional[Mapping[str, Any]]:
+    def get_user_details(
+        self, username: str, *, tenant_id: Optional[str] = None
+    ) -> Optional[Mapping[str, Any]]:
         record = self._users.get(username)
         if record is None:
             return None

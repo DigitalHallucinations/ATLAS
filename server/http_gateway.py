@@ -204,7 +204,9 @@ async def _collect_user_metadata(
 
     if hasattr(service, "get_user_details"):
         try:
-            details = await run_in_threadpool(service.get_user_details, username)
+            details = await run_in_threadpool(
+                service.get_user_details, username, tenant_id=tenant_id
+            )
         except Exception:  # pragma: no cover - defensive logging only
             LOGGER.debug("Failed to load user account details for %s", username, exc_info=True)
         else:

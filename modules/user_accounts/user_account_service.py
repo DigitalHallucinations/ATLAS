@@ -183,8 +183,10 @@ class ConversationCredentialStore:
         records = self._repository.search_user_accounts(query_text)
         return [self._dict_to_row(record) for record in records]
 
-    def get_user_details(self, username: str) -> Optional[Dict[str, object]]:
-        record = self._repository.get_user_account(username)
+    def get_user_details(
+        self, username: str, *, tenant_id: Optional[str] = None
+    ) -> Optional[Dict[str, object]]:
+        record = self._repository.get_user_account(username, tenant_id=tenant_id)
         if not record:
             return None
         return {
@@ -1537,14 +1539,20 @@ class UserAccountService:
         rows = self._database.search_users(query_text)
         return self._rows_to_mappings(rows)
 
-    def get_user_details(self, username: str) -> Optional[Dict[str, object]]:
+    def get_user_details(
+        self, username: str, *, tenant_id: Optional[str] = None
+    ) -> Optional[Dict[str, object]]:
         """Return a mapping of account details for the given username."""
 
         normalised_username = self._normalise_username(username)
         if not normalised_username:
             return None
 
-        details = self._database.get_user_details(normalised_username)
+        validated_tenant = self._validate_tenant(tenant_id)
+
+        details = self._database.get_user_details(
+            normalised_username, tenant_id=validated_tenant
+        )
         if not details:
             return None
 

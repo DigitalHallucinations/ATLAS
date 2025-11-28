@@ -184,7 +184,7 @@ class _AtlasStub:
         self.delete_called = username
         return None
 
-    async def get_user_account_details(self, username):
+    async def get_user_account_details(self, username, *, tenant_id=None):
         self.details_called = username
         return self.details_result.get(username)
 
