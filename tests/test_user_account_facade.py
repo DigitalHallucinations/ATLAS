@@ -1,6 +1,7 @@
 import asyncio
 import inspect
 from types import SimpleNamespace
+from typing import Optional
 from unittest.mock import Mock
 
 import pytest
@@ -29,7 +30,7 @@ class _ServiceStub:
         self.authenticate_result = True
         self.delete_user_result = True
         self.set_active_calls: list[str | None] = []
-        self.authenticate_calls: list[tuple[str, str]] = []
+        self.authenticate_calls: list[tuple[str, str, Optional[str]]] = []
         self.delete_calls: list[str] = []
 
     # synchronous helpers used by the facade
@@ -43,8 +44,8 @@ class _ServiceStub:
         self.set_active_calls.append(username)
         self.active_user = username
 
-    def authenticate_user(self, username, password):
-        self.authenticate_calls.append((username, password))
+    def authenticate_user(self, username, password, *, tenant_id=None):
+        self.authenticate_calls.append((username, password, tenant_id))
         return self.authenticate_result
 
     def delete_user(self, username):

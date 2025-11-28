@@ -302,6 +302,7 @@ class UserAccountFacade:
         email: Optional[str] = None,
         name: Optional[str] = None,
         dob: Optional[str] = None,
+        tenant_id: Optional[str] = None,
     ) -> Dict[str, object]:
         service = self._get_user_account_service()
 
@@ -315,6 +316,7 @@ class UserAccountFacade:
             email=email,
             name=name,
             dob=dob,
+            tenant_id=tenant_id,
         )
 
         if active_username and account.username == active_username:
@@ -338,9 +340,13 @@ class UserAccountFacade:
         service = self._get_user_account_service()
         return service.describe_password_requirements()
 
-    async def login_user_account(self, username: str, password: str) -> bool:
+    async def login_user_account(
+        self, username: str, password: str, *, tenant_id: Optional[str] = None
+    ) -> bool:
         service = self._get_user_account_service()
-        success = await run_async_in_thread(service.authenticate_user, username, password)
+        success = await run_async_in_thread(
+            service.authenticate_user, username, password, tenant_id=tenant_id
+        )
         if success:
             await run_async_in_thread(service.set_active_user, username)
             self.refresh_active_user_identity()

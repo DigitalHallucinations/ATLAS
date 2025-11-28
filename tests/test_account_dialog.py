@@ -129,7 +129,7 @@ class _AtlasStub:
         self.last_future = future
         return future
 
-    async def login_user_account(self, username, password):
+    async def login_user_account(self, username, password, *, tenant_id=None):
         self.login_called = (username, password)
         if self.login_error is not None:
             raise self.login_error
@@ -148,6 +148,7 @@ class _AtlasStub:
         email=None,
         name=None,
         dob=None,
+        tenant_id=None,
     ):
         self.update_called = {
             "username": username,
@@ -156,6 +157,7 @@ class _AtlasStub:
             "email": email,
             "name": name,
             "dob": dob,
+            "tenant_id": tenant_id,
         }
         return self.update_result
 

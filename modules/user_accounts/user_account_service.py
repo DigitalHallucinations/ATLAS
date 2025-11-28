@@ -172,8 +172,10 @@ class ConversationCredentialStore:
             return None
         return self._dict_to_row(record)
 
-    def get_username_for_email(self, email: str) -> Optional[str]:
-        return self._repository.get_username_for_email(email)
+    def get_username_for_email(
+        self, email: str, *, tenant_id: Optional[str] = None
+    ) -> Optional[str]:
+        return self._repository.get_username_for_email(email, tenant_id=tenant_id)
 
     def get_all_users(self) -> List[Tuple[object, ...]]:
         records = self._repository.list_user_accounts()
@@ -198,14 +200,24 @@ class ConversationCredentialStore:
             "last_login": record.get("last_login"),
         }
 
-    def verify_user_password(self, username: str, candidate_password: Optional[str]) -> bool:
-        record = self._repository.get_user_account(username)
+    def verify_user_password(
+        self,
+        username: str,
+        candidate_password: Optional[str],
+        *,
+        tenant_id: Optional[str] = None,
+    ) -> bool:
+        record = self._repository.get_user_account(username, tenant_id=tenant_id)
         if not record:
             return False
         return self._verify_password(record.get("password_hash"), candidate_password)
 
-    def update_last_login(self, username: str, timestamp: str) -> bool:
-        return self._repository.update_last_login(username, timestamp)
+    def update_last_login(
+        self, username: str, timestamp: str, *, tenant_id: Optional[str] = None
+    ) -> bool:
+        return self._repository.update_last_login(
+            username, timestamp, tenant_id=tenant_id
+        )
 
     def add_login_attempt(
         self,
@@ -271,6 +283,7 @@ class ConversationCredentialStore:
         email: Optional[str] = None,
         name: Optional[str] = None,
         dob: Optional[str] = None,
+        tenant_id: Optional[str] = None,
     ) -> None:
         password_hash = self._hash_password(password) if password is not None else None
         canonical_email = (
@@ -283,6 +296,7 @@ class ConversationCredentialStore:
                 name=name,
                 dob=dob,
                 password_hash=password_hash,
+                tenant_id=tenant_id,
             )
         except IntegrityError as exc:
             raise DuplicateUserError(_DUPLICATE_USER_MESSAGE) from exc
@@ -936,23 +950,29 @@ class UserAccountService:
             raise ValueError("Tenant identifier must be 255 characters or fewer")
         return cleaned
 
-    def _resolve_username_from_identifier(self, identifier: str) -> Optional[str]:
+    def _resolve_username_from_identifier(
+        self, identifier: str, *, tenant_id: Optional[str] = None
+    ) -> Optional[str]:
         """Attempt to resolve a username from a login identifier."""
 
         candidate = self._normalise_username(identifier)
         if candidate:
-            if self._database.get_user(candidate):
+            if self._database.get_user(candidate, tenant_id=tenant_id):
                 return candidate
 
         if self._EMAIL_PATTERN.fullmatch(identifier):
-            username = self._database.get_username_for_email(identifier)
+            username = self._database.get_username_for_email(
+                identifier, tenant_id=tenant_id
+            )
             if username:
                 return username
 
         return None
 
-    def _require_existing_user(self, username: str) -> None:
-        if not self._database.get_user(username):
+    def _require_existing_user(
+        self, username: str, *, tenant_id: Optional[str] = None
+    ) -> None:
+        if not self._database.get_user(username, tenant_id=tenant_id):
             raise ValueError(f"Unknown user: {username}")
 
     @staticmethod
@@ -1225,10 +1245,13 @@ class UserAccountService:
         )
         return account
 
-    def authenticate_user(self, username: str, password: str) -> bool:
+    def authenticate_user(
+        self, username: str, password: str, *, tenant_id: Optional[str] = None
+    ) -> bool:
         """Return ``True`` when supplied credentials are valid."""
 
         timestamp = self._current_timestamp()
+        validated_tenant = self._validate_tenant(tenant_id)
         identifier = self._normalise_username(username)
         if not identifier:
             self._record_login_attempt(None, timestamp, False, "invalid-identifier")
@@ -1236,7 +1259,9 @@ class UserAccountService:
 
         lookup_username = identifier
         if self._EMAIL_PATTERN.fullmatch(identifier):
-            resolved_username = self._database.get_username_for_email(identifier)
+            resolved_username = self._database.get_username_for_email(
+                identifier, tenant_id=validated_tenant
+            )
             if not resolved_username:
                 self._record_login_attempt(identifier, timestamp, False, "unknown-identifier")
                 return False
@@ -1259,7 +1284,9 @@ class UserAccountService:
                 self._enforce_lockout(normalised_username, now)
 
                 valid = bool(
-                    self._database.verify_user_password(normalised_username, password)
+                    self._database.verify_user_password(
+                        normalised_username, password, tenant_id=validated_tenant
+                    )
                 )
 
                 if valid:
@@ -1277,7 +1304,9 @@ class UserAccountService:
             timestamp = self._current_timestamp()
             self._record_login_attempt(normalised_username, timestamp, True, None)
             try:
-                self._database.update_last_login(normalised_username, timestamp)
+                self._database.update_last_login(
+                    normalised_username, timestamp, tenant_id=validated_tenant
+                )
             except Exception as exc:  # pragma: no cover - defensive logging
                 self.logger.error(
                     "Failed to update last-login timestamp for '%s': %s",
@@ -1287,7 +1316,9 @@ class UserAccountService:
             metadata_payload: Dict[str, object] = {"last_login": timestamp}
             display_name: Optional[str] = None
             try:
-                account_row = self._database.get_user(normalised_username)
+                account_row = self._database.get_user(
+                    normalised_username, tenant_id=validated_tenant
+                )
             except Exception:  # pragma: no cover - fallback when lookup fails
                 account_row = None
             if account_row:
@@ -1366,6 +1397,7 @@ class UserAccountService:
         email: Optional[str] = None,
         name: Optional[str] = None,
         dob: Optional[str] = None,
+        tenant_id: Optional[str] = None,
     ) -> UserAccount:
         """Validate updates and persist them via the backing database."""
 
@@ -1373,13 +1405,19 @@ class UserAccountService:
         if not normalised_username:
             raise ValueError("Username must not be empty")
 
-        self._require_existing_user(normalised_username)
+        validated_tenant = self._validate_tenant(tenant_id)
+
+        self._require_existing_user(normalised_username, tenant_id=validated_tenant)
 
         if password is not None:
             if not isinstance(current_password, str) or not current_password:
                 raise ValueError("Current password is required to change the password.")
 
-            if not self._database.verify_user_password(normalised_username, current_password):
+            if not self._database.verify_user_password(
+                normalised_username,
+                current_password,
+                tenant_id=validated_tenant,
+            ):
                 raise InvalidCurrentPasswordError("Current password is incorrect.")
 
         validated_password = self._validate_password(password) if password is not None else None
@@ -1394,9 +1432,12 @@ class UserAccountService:
             email=validated_email,
             name=validated_name,
             dob=validated_dob,
+            tenant_id=validated_tenant,
         )
 
-        record = self._database.get_user(normalised_username)
+        record = self._database.get_user(
+            normalised_username, tenant_id=validated_tenant
+        )
         if not record:  # pragma: no cover - defensive safeguard
             raise RuntimeError("Failed to retrieve user after update")
 
