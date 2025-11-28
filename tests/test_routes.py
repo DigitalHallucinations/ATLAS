@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 from datetime import datetime, timezone
 from types import SimpleNamespace
-from typing import List, Optional
+from typing import Any, List, Mapping, Optional
 
 import pytest
 
@@ -161,6 +161,30 @@ class _RegistryStub:
         return results
 
 
+class _DlpEnforcerStub:
+    def __init__(self, sanitized_payload: Mapping[str, Any]):
+        self.sanitized_payload = dict(sanitized_payload)
+        self.calls: list[tuple[Mapping[str, Any], Optional[str]]] = []
+
+    def apply_to_payload(self, payload: Mapping[str, Any], tenant_id: Optional[str]):
+        self.calls.append((payload, tenant_id))
+        return self.sanitized_payload
+
+
+class _ConversationRoutesStub:
+    def __init__(self) -> None:
+        self.created: list[tuple[Mapping[str, Any], RequestContext]] = []
+        self.updated: list[tuple[str, Mapping[str, Any], RequestContext]] = []
+
+    def create_message(self, payload: Mapping[str, Any], *, context: RequestContext):
+        self.created.append((payload, context))
+        return {"action": "create", "payload": payload, "context": context}
+
+    def update_message(self, message_id: str, payload: Mapping[str, Any], *, context: RequestContext):
+        self.updated.append((message_id, payload, context))
+        return {"action": "update", "id": message_id, "payload": payload, "context": context}
+
+
 def test_get_tools_includes_shared_persona(monkeypatch: pytest.MonkeyPatch) -> None:
     server = AtlasServer()
     shared_entry = _make_entry("shared_tool", persona=None)
@@ -291,3 +315,60 @@ def test_handle_request_skills_details_preserves_context(
     assert response["success"] is True
     assert response["skill"]["name"] == "custom_skill"
     assert response["tenant_id"] == context.tenant_id
+
+
+def test_create_message_applies_dlp_and_forwards_sanitized_payload() -> None:
+    server = AtlasServer()
+    sanitized_payload = {"text": "clean"}
+    dlp_enforcer = _DlpEnforcerStub(sanitized_payload)
+    conversation_routes = _ConversationRoutesStub()
+
+    server._dlp_enforcer = dlp_enforcer
+    server._get_conversation_routes = lambda: conversation_routes
+
+    raw_payload = {"text": "raw secret"}
+    response = server.create_message(raw_payload, context={"tenant_id": "tenant-007"})
+
+    expected_context = RequestContext(
+        tenant_id="tenant-007",
+        user_id=None,
+        session_id=None,
+        roles=(),
+        metadata=None,
+    )
+
+    assert dlp_enforcer.calls == [(raw_payload, "tenant-007")]
+    assert conversation_routes.created == [(sanitized_payload, expected_context)]
+    assert response["payload"] == sanitized_payload
+    assert response["context"] == expected_context
+
+
+def test_update_message_applies_dlp_and_forwards_sanitized_payload() -> None:
+    server = AtlasServer()
+    sanitized_payload = {"content": "cleaned"}
+    dlp_enforcer = _DlpEnforcerStub(sanitized_payload)
+    conversation_routes = _ConversationRoutesStub()
+
+    server._dlp_enforcer = dlp_enforcer
+    server._get_conversation_routes = lambda: conversation_routes
+
+    raw_payload = {"content": "raw"}
+    response = server.update_message(
+        "message-1",
+        raw_payload,
+        context={"tenant_id": "tenant-abc", "roles": ["member"]},
+    )
+
+    expected_context = RequestContext(
+        tenant_id="tenant-abc",
+        user_id=None,
+        session_id=None,
+        roles=("member",),
+        metadata=None,
+    )
+
+    assert dlp_enforcer.calls == [(raw_payload, "tenant-abc")]
+    assert conversation_routes.updated == [("message-1", sanitized_payload, expected_context)]
+    assert response["id"] == "message-1"
+    assert response["payload"] == sanitized_payload
+    assert response["context"] == expected_context
