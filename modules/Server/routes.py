@@ -1268,6 +1268,16 @@ class AtlasServer:
         """Return manifest metadata and persisted review state for a single skill."""
 
         payload_map = payload if isinstance(payload, Mapping) else {}
+
+        context_payload = context or (
+            payload_map.get("context") if isinstance(payload_map, Mapping) else None
+        )
+        request_context = self._resolve_request_context(context_payload)
+
+        sanitized_payload = self._dlp_enforcer.apply_to_payload(
+            payload_map, request_context.tenant_id
+        )
+        payload_map = sanitized_payload
         persona_value = persona
         if persona_value is None and isinstance(payload_map, Mapping):
             candidate = payload_map.get("persona")
@@ -1503,6 +1513,16 @@ class AtlasServer:
 
         payload_map = payload if isinstance(payload, Mapping) else {}
 
+        context_payload = context or (
+            payload_map.get("context") if isinstance(payload_map, Mapping) else None
+        )
+        request_context = self._resolve_request_context(context_payload)
+
+        sanitized_payload = self._dlp_enforcer.apply_to_payload(
+            payload_map, request_context.tenant_id
+        )
+        payload_map = sanitized_payload
+
         identifier = self._resolve_skill_identifier(
             skill_identifier,
             name,
@@ -1514,7 +1534,9 @@ class AtlasServer:
         )
 
         if metadata is None:
-            candidate_metadata = payload_map.get("metadata") if isinstance(payload_map, Mapping) else None
+            candidate_metadata = (
+                payload_map.get("metadata") if isinstance(payload_map, Mapping) else None
+            )
             if isinstance(candidate_metadata, Mapping):
                 metadata = candidate_metadata
 
@@ -1523,16 +1545,15 @@ class AtlasServer:
         if not isinstance(metadata, Mapping):
             raise TypeError("Skill metadata payload must be a mapping.")
 
+        metadata = self._dlp_enforcer.apply_to_payload(
+            metadata, request_context.tenant_id
+        )
+
         persona_value = persona
         if persona_value is None:
             candidate = payload_map.get("persona") if isinstance(payload_map, Mapping) else None
             if isinstance(candidate, str):
                 persona_value = candidate
-
-        context_payload = context or (
-            payload_map.get("context") if isinstance(payload_map, Mapping) else None
-        )
-        request_context = self._resolve_request_context(context_payload)
 
         persona_token = str(persona_value).strip() if isinstance(persona_value, str) else None
         try:
@@ -2396,6 +2417,14 @@ class AtlasServer:
 
         request_context = self._resolve_request_context(context)
 
+        sanitized_payload = self._dlp_enforcer.apply_to_payload(
+            {"tools": tools, "rationale": rationale}, request_context.tenant_id
+        )
+        tools = sanitized_payload.get("tools")
+        sanitized_rationale = sanitized_payload.get("rationale", rationale)
+        if sanitized_rationale is not None:
+            rationale = str(sanitized_rationale)
+
         persona = load_persona_definition(
             persona_name,
             config_manager=self._config_manager,
@@ -2494,6 +2523,14 @@ class AtlasServer:
             raise ValueError("Persona name is required")
 
         request_context = self._resolve_request_context(context)
+
+        sanitized_payload = self._dlp_enforcer.apply_to_payload(
+            {"skills": skills, "rationale": rationale}, request_context.tenant_id
+        )
+        skills = sanitized_payload.get("skills")
+        sanitized_rationale = sanitized_payload.get("rationale", rationale)
+        if sanitized_rationale is not None:
+            rationale = str(sanitized_rationale)
 
         persona = load_persona_definition(
             persona_name,
@@ -2643,6 +2680,13 @@ class AtlasServer:
 
         request_context = self._resolve_request_context(context)
 
+        sanitized_payload = self._dlp_enforcer.apply_to_payload(
+            {"bundle": bundle_base64, "rationale": rationale},
+            request_context.tenant_id,
+        )
+        bundle_base64 = str(sanitized_payload.get("bundle") or bundle_base64)
+        rationale = str(sanitized_payload.get("rationale") or rationale)
+
         try:
             resolved_key = self._resolve_signing_key("task")
         except RuntimeError as exc:
@@ -2737,6 +2781,13 @@ class AtlasServer:
             raise ValueError("Bundle payload is required for import")
 
         request_context = self._resolve_request_context(context)
+
+        sanitized_payload = self._dlp_enforcer.apply_to_payload(
+            {"bundle": bundle_base64, "rationale": rationale},
+            request_context.tenant_id,
+        )
+        bundle_base64 = str(sanitized_payload.get("bundle") or bundle_base64)
+        rationale = str(sanitized_payload.get("rationale") or rationale)
 
         try:
             resolved_key = self._resolve_signing_key("tool")
@@ -2833,6 +2884,13 @@ class AtlasServer:
 
         request_context = self._resolve_request_context(context)
 
+        sanitized_payload = self._dlp_enforcer.apply_to_payload(
+            {"bundle": bundle_base64, "rationale": rationale},
+            request_context.tenant_id,
+        )
+        bundle_base64 = str(sanitized_payload.get("bundle") or bundle_base64)
+        rationale = str(sanitized_payload.get("rationale") or rationale)
+
         try:
             resolved_key = self._resolve_signing_key("skill")
         except RuntimeError as exc:
@@ -2928,6 +2986,13 @@ class AtlasServer:
 
         request_context = self._resolve_request_context(context)
 
+        sanitized_payload = self._dlp_enforcer.apply_to_payload(
+            {"bundle": bundle_base64, "rationale": rationale},
+            request_context.tenant_id,
+        )
+        bundle_base64 = str(sanitized_payload.get("bundle") or bundle_base64)
+        rationale = str(sanitized_payload.get("rationale") or rationale)
+
         try:
             resolved_key = self._resolve_signing_key("job")
         except RuntimeError as exc:
@@ -3015,6 +3080,13 @@ class AtlasServer:
 
         request_context = self._resolve_request_context(context)
 
+        sanitized_payload = self._dlp_enforcer.apply_to_payload(
+            {"bundle": bundle_base64, "rationale": rationale},
+            request_context.tenant_id,
+        )
+        bundle_base64 = str(sanitized_payload.get("bundle") or bundle_base64)
+        rationale = str(sanitized_payload.get("rationale") or rationale)
+
         try:
             resolved_key = self._resolve_signing_key("persona")
         except RuntimeError as exc:
@@ -3094,6 +3166,11 @@ class AtlasServer:
             raise ValueError("Bundle payload is required for import")
 
         request_context = self._require_tenant_context(context)
+
+        sanitized_payload = self._dlp_enforcer.apply_to_payload(
+            {"bundle": bundle_base64}, request_context.tenant_id
+        )
+        bundle_base64 = str(sanitized_payload.get("bundle") or bundle_base64)
         repository = self._conversation_repository or self._build_conversation_repository()
         if repository is None:
             raise RuntimeError("Conversation store repository is not configured")
@@ -3297,7 +3374,10 @@ class AtlasServer:
     ) -> Dict[str, Any]:
         routes = self._require_job_routes()
         request_context = self._coerce_context(context)
-        return routes.create_job(payload, context=request_context)
+        sanitized_payload = self._dlp_enforcer.apply_to_payload(
+            payload, request_context.tenant_id
+        )
+        return routes.create_job(sanitized_payload, context=request_context)
 
     def update_job(
         self,
@@ -3308,7 +3388,10 @@ class AtlasServer:
     ) -> Dict[str, Any]:
         routes = self._require_job_routes()
         request_context = self._coerce_context(context)
-        return routes.update_job(job_id, payload, context=request_context)
+        sanitized_payload = self._dlp_enforcer.apply_to_payload(
+            payload, request_context.tenant_id
+        )
+        return routes.update_job(job_id, sanitized_payload, context=request_context)
 
     def transition_job(
         self,
@@ -3491,7 +3574,10 @@ class AtlasServer:
     ) -> Dict[str, Any]:
         routes = self._require_task_routes()
         request_context = self._coerce_context(context)
-        return routes.create_task(payload, context=request_context)
+        sanitized_payload = self._dlp_enforcer.apply_to_payload(
+            payload, request_context.tenant_id
+        )
+        return routes.create_task(sanitized_payload, context=request_context)
 
     def update_task(
         self,
@@ -3502,7 +3588,10 @@ class AtlasServer:
     ) -> Dict[str, Any]:
         routes = self._require_task_routes()
         request_context = self._coerce_context(context)
-        return routes.update_task(task_id, payload, context=request_context)
+        sanitized_payload = self._dlp_enforcer.apply_to_payload(
+            payload, request_context.tenant_id
+        )
+        return routes.update_task(task_id, sanitized_payload, context=request_context)
 
     def transition_task(
         self,
