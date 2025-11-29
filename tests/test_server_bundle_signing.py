@@ -72,7 +72,9 @@ def _stub_import_bundle(
 def test_persona_export_uses_configured_secret(monkeypatch: pytest.MonkeyPatch) -> None:
     config = _ConfigStub({"persona": "server-secret"})
     server = AtlasServer(config_manager=config)
-    context = RequestContext(tenant_id="tenant-123", roles=("admin",))
+    context = RequestContext.from_authenticated_claims(
+        tenant_id="tenant-123", roles=("admin",)
+    )
 
     captured: Dict[str, str] = {}
 
@@ -100,7 +102,9 @@ def test_persona_export_uses_configured_secret(monkeypatch: pytest.MonkeyPatch) 
 def test_export_without_configured_secret() -> None:
     server = AtlasServer(config_manager=_ConfigStub({}))
 
-    context = RequestContext(tenant_id="tenant-123", roles=("admin",))
+    context = RequestContext.from_authenticated_claims(
+        tenant_id="tenant-123", roles=("admin",)
+    )
     result = server.export_persona_bundle("Helper", context=context)
 
     assert result["success"] is False
@@ -122,7 +126,9 @@ def test_import_rejects_unsigned_bundle(monkeypatch: pytest.MonkeyPatch) -> None
     }
     encoded = base64.b64encode(json.dumps(payload).encode("utf-8")).decode("ascii")
 
-    context = RequestContext(tenant_id="tenant-123", roles=("admin",))
+    context = RequestContext.from_authenticated_claims(
+        tenant_id="tenant-123", roles=("admin",)
+    )
     result = server.import_persona_bundle(
         bundle_base64=encoded,
         signing_key="unused",
@@ -159,7 +165,9 @@ def test_import_rejects_bundle_with_wrong_signature(monkeypatch: pytest.MonkeyPa
     }
     encoded = base64.b64encode(json.dumps(signed_payload).encode("utf-8")).decode("ascii")
 
-    context = RequestContext(tenant_id="tenant-123", roles=("admin",))
+    context = RequestContext.from_authenticated_claims(
+        tenant_id="tenant-123", roles=("admin",)
+    )
     result = server.import_persona_bundle(
         bundle_base64=encoded,
         signing_key="unused",

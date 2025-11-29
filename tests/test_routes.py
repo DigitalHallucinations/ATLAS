@@ -353,19 +353,17 @@ def test_update_message_applies_dlp_and_forwards_sanitized_payload() -> None:
     server._get_conversation_routes = lambda: conversation_routes
 
     raw_payload = {"content": "raw"}
+    request_context = RequestContext.from_authenticated_claims(
+        tenant_id="tenant-abc", roles=("member",)
+    )
+
     response = server.update_message(
         "message-1",
         raw_payload,
-        context={"tenant_id": "tenant-abc", "roles": ["member"]},
+        context=request_context,
     )
 
-    expected_context = RequestContext(
-        tenant_id="tenant-abc",
-        user_id=None,
-        session_id=None,
-        roles=("member",),
-        metadata=None,
-    )
+    expected_context = request_context
 
     assert dlp_enforcer.calls == [(raw_payload, "tenant-abc")]
     assert conversation_routes.updated == [("message-1", sanitized_payload, expected_context)]

@@ -338,7 +338,7 @@ async def _build_request_context(request: Request, atlas: ATLAS) -> RequestConte
     else:
         metadata_value = metadata_payload
 
-    return RequestContext(
+    return RequestContext.from_authenticated_claims(
         tenant_id=tenant_id,
         user_id=principal.username,
         session_id=_normalize_optional_text(headers.get(_HEADER_SESSION)),
