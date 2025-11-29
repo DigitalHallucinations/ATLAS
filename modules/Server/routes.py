@@ -127,7 +127,17 @@ def _as_bool(raw_value: Optional[Any]) -> bool:
 
 
 class AtlasServer:
-    """Expose read-only endpoints for tool metadata."""
+    """Coordinate REST handlers for Atlas resources and enforcement layers.
+
+    AtlasServer wires up read/write routes for conversations, tasks, jobs,
+    personas, tools, and skills. It constructs the backing repositories and
+    services, enforces tenant-scoped authorization for every request, and
+    applies data loss prevention checks to sensitive payloads before they are
+    persisted or streamed. The class mirrors the implemented routes for
+    metadata queries, bundle import/export flows, analytics, scheduling, and
+    conversation lifecycle operations so the API surface stays aligned with the
+    configured access controls.
+    """
 
     def __init__(
         self,
