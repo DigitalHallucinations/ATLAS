@@ -320,6 +320,62 @@ def test_roles_header_is_ignored(http_client) -> None:
     assert tuple(context.roles) == ("user",)
 
 
+def test_metadata_header_rejects_invalid_json(http_client) -> None:
+    client, service, _, server, _, http_gateway = http_client
+    service.add_user("meta", "pw")
+
+    headers = {
+        "Authorization": f"Basic {_encode_basic('meta', 'pw')}",
+        http_gateway._HEADER_METADATA: "not-json",
+    }
+
+    response = client.get("/conversations", headers=headers)
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Invalid X-Atlas-Metadata header"
+    assert server.calls == []
+
+
+@pytest.mark.parametrize("raw_metadata", [json.dumps(["array"]), json.dumps(3)])
+def test_metadata_header_rejects_non_object_payloads(http_client, raw_metadata: str) -> None:
+    client, service, _, server, _, http_gateway = http_client
+    service.add_user("meta", "pw")
+
+    headers = {
+        "Authorization": f"Basic {_encode_basic('meta', 'pw')}",
+        http_gateway._HEADER_METADATA: raw_metadata,
+    }
+
+    response = client.get("/conversations", headers=headers)
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Metadata header must encode an object"
+    assert server.calls == []
+
+
+def test_metadata_header_merges_with_context(http_client) -> None:
+    client, service, repository, server, _, http_gateway = http_client
+    service.add_user("metamerge", "pw", email="merge@example.com")
+    repository.set_profile("metamerge", profile={"team": "platform"}, display_name="Meta Merge")
+
+    headers = {
+        "Authorization": f"Basic {_encode_basic('metamerge', 'pw')}",
+        http_gateway._HEADER_METADATA: json.dumps({"source": "client", "trace_id": "abc123"}),
+    }
+
+    response = client.get("/tasks", headers=headers)
+
+    assert response.status_code == 200
+    context = server.calls[-1][1]
+    metadata = context.metadata or {}
+    assert metadata["tenant_id"] == "tenant"
+    assert metadata["user"]["email"] == "merge@example.com"
+    assert metadata["profile"]["team"] == "platform"
+    assert metadata["user_display_name"] == "Meta Merge"
+    assert metadata["source"] == "client"
+    assert metadata["trace_id"] == "abc123"
+
+
 def test_invalid_credentials_rejected(http_client) -> None:
     client, service, _, server, _, http_gateway = http_client
     service.add_user("bob", "builder")
