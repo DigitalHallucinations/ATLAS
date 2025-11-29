@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
+import base64
 from datetime import datetime, timedelta, timezone
 import uuid
 
 from modules.Server.conversation_routes import RequestContext
-from modules.Server.task_routes import TaskRoutes, _decode_cursor, _encode_cursor
+from modules.Server.task_routes import (
+    TaskRoutes,
+    TaskValidationError,
+    _decode_cursor,
+    _encode_cursor,
+)
+import pytest
 
 
 def _isoformat(moment: datetime) -> str:
@@ -59,3 +66,23 @@ def test_list_tasks_delegates_pagination_arguments():
     assert response["page"]["next_cursor"] == _encode_cursor(
         tasks[1]["created_at"], tasks[1]["id"]
     )
+
+
+@pytest.mark.parametrize(
+    "cursor",
+    [
+        "!!not-base64!!",
+        base64.urlsafe_b64encode(b"2024-01-01T00:00:00Z").decode("ascii").rstrip("="),
+        _encode_cursor(_isoformat(datetime(2024, 1, 1, tzinfo=timezone.utc)), "not-a-uuid"),
+        _encode_cursor("", str(uuid.uuid4())),
+    ],
+)
+def test_list_tasks_rejects_corrupted_cursor_inputs(cursor):
+    service = _TaskServiceStub([])
+    routes = TaskRoutes(service, page_size_limit=5)
+    context = RequestContext(tenant_id="tenant-2")
+
+    with pytest.raises(TaskValidationError):
+        routes.list_tasks({"cursor": cursor}, context=context)
+
+    assert service.calls == []

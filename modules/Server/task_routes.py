@@ -109,7 +109,13 @@ def _decode_cursor(cursor: str) -> tuple[datetime, uuid.UUID]:
         timestamp_text, task_id_text = decoded.split("|", 1)
     except ValueError as exc:  # pragma: no cover - defensive guard
         raise TaskValidationError("Malformed pagination cursor") from exc
-    return _parse_datetime(timestamp_text), uuid.UUID(task_id_text)
+    try:
+        timestamp = _parse_datetime(timestamp_text)
+        task_id = uuid.UUID(task_id_text)
+    except (TypeError, ValueError) as exc:  # noqa: BLE001 - validation error reporting
+        raise TaskValidationError("Invalid pagination cursor supplied") from exc
+
+    return timestamp, task_id
 
 
 class TaskRoutes:
