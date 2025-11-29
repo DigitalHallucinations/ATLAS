@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import sys
 from datetime import datetime, timezone
 from types import SimpleNamespace
@@ -183,6 +184,34 @@ class _ConversationRoutesStub:
     def update_message(self, message_id: str, payload: Mapping[str, Any], *, context: RequestContext):
         self.updated.append((message_id, payload, context))
         return {"action": "update", "id": message_id, "payload": payload, "context": context}
+
+
+class _TaskRoutesStub:
+    def __init__(self) -> None:
+        self.created: list[tuple[Mapping[str, Any], RequestContext]] = []
+        self.updated: list[tuple[str, Mapping[str, Any], RequestContext]] = []
+
+    def create_task(self, payload: Mapping[str, Any], *, context: RequestContext):
+        self.created.append((payload, context))
+        return payload
+
+    def update_task(self, task_id: str, payload: Mapping[str, Any], *, context: RequestContext):
+        self.updated.append((task_id, payload, context))
+        return payload
+
+
+class _JobRoutesStub:
+    def __init__(self) -> None:
+        self.created: list[tuple[Mapping[str, Any], RequestContext]] = []
+        self.updated: list[tuple[str, Mapping[str, Any], RequestContext]] = []
+
+    def create_job(self, payload: Mapping[str, Any], *, context: RequestContext):
+        self.created.append((payload, context))
+        return payload
+
+    def update_job(self, job_id: str, payload: Mapping[str, Any], *, context: RequestContext):
+        self.updated.append((job_id, payload, context))
+        return payload
 
 
 def test_get_tools_includes_shared_persona(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -370,3 +399,150 @@ def test_update_message_applies_dlp_and_forwards_sanitized_payload() -> None:
     assert response["id"] == "message-1"
     assert response["payload"] == sanitized_payload
     assert response["context"] == expected_context
+
+
+def test_create_task_redacts_pii_before_forwarding() -> None:
+    config = SimpleNamespace(get_dlp_policy=lambda _tenant: {"enabled": True})
+    server = AtlasServer(config_manager=config)
+    task_routes = _TaskRoutesStub()
+    server._require_task_routes = lambda: task_routes
+
+    raw_payload = {"summary": "Email user@example.com"}
+    response = server.create_task(raw_payload, context={"tenant_id": "tenant-1"})
+
+    assert task_routes.created[0][0]["summary"] == "Email <redacted>"
+    assert response["summary"] == "Email <redacted>"
+
+
+def test_update_job_redacts_pii_before_forwarding() -> None:
+    config = SimpleNamespace(get_dlp_policy=lambda _tenant: {"enabled": True})
+    server = AtlasServer(config_manager=config)
+    job_routes = _JobRoutesStub()
+    server._require_job_routes = lambda: job_routes
+
+    raw_payload = {"notes": "Call 123-45-6789"}
+    context = RequestContext.from_authenticated_claims(tenant_id="tenant-9", roles=("admin",))
+
+    response = server.update_job("job-007", raw_payload, context=context)
+
+    assert job_routes.updated[0][0] == "job-007"
+    assert job_routes.updated[0][1]["notes"] == "Call <redacted>"
+    assert response["notes"] == "Call <redacted>"
+
+
+def test_update_persona_tools_sanitizes_before_persistence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = SimpleNamespace(get_dlp_policy=lambda _tenant: {"enabled": True})
+    server = AtlasServer(config_manager=config)
+
+    monkeypatch.setattr(
+        "modules.Server.routes.load_persona_definition",
+        lambda persona_name, config_manager=None: {"name": persona_name, "allowed_tools": []},
+    )
+    monkeypatch.setattr(
+        "modules.Server.routes.load_tool_metadata",
+        lambda config_manager=None: (["search"], {"search": {}}),
+    )
+    monkeypatch.setattr(
+        "modules.Server.routes.load_skill_catalog",
+        lambda config_manager=None: ([], {}),
+    )
+    monkeypatch.setattr(
+        "modules.Server.routes.normalize_allowed_tools", lambda tools, metadata_order=None: list(tools)
+    )
+    monkeypatch.setattr(
+        "modules.Server.routes._validate_persona_payload", lambda *args, **kwargs: None
+    )
+
+    persisted: dict[str, Any] = {}
+
+    def _persist(name: str, payload: Mapping[str, Any], *, config_manager=None, rationale=None):
+        persisted["name"] = name
+        persisted["payload"] = payload
+        persisted["rationale"] = rationale
+
+    monkeypatch.setattr("modules.Server.routes.persist_persona_definition", _persist)
+
+    response = server.update_persona_tools(
+        "Example",
+        tools=["ssn 123-45-6789"],
+        rationale="See 123-45-6789",
+        context=RequestContext.from_authenticated_claims(
+            tenant_id="tenant-2", roles=("admin",)
+        ),
+    )
+
+    assert persisted["payload"]["allowed_tools"] == ["<redacted>"]
+    assert persisted["rationale"] == "See <redacted>"
+    assert response["persona"]["allowed_tools"] == ["<redacted>"]
+
+
+def test_set_skill_metadata_redacts_notes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    metadata_calls: list[Mapping[str, Any]] = []
+    persisted_metadata: dict[str, Any] = {}
+
+    def _set_skill_metadata(name: str, payload: Mapping[str, Any]) -> None:
+        metadata_calls.append(payload)
+        persisted_metadata.update(payload)
+
+    def _get_skill_metadata(_name: str) -> Mapping[str, Any]:
+        return dict(persisted_metadata)
+
+    config = SimpleNamespace(
+        get_dlp_policy=lambda _tenant: {"enabled": True},
+        set_skill_metadata=_set_skill_metadata,
+        get_skill_metadata=_get_skill_metadata,
+    )
+
+    server = AtlasServer(config_manager=config)
+    server._find_skill_view = (
+        lambda identifier, persona_token=None: SimpleNamespace(
+            manifest=SimpleNamespace(persona=None)
+        )
+    )
+    monkeypatch.setattr("modules.Server.routes._serialize_skill", lambda _view: {"name": "demo"})
+    monkeypatch.setattr(
+        "modules.Server.routes.get_skill_audit_logger",
+        lambda: SimpleNamespace(record_change=lambda *args, **kwargs: None),
+    )
+
+    response = server.set_skill_metadata(
+        skill_name="demo",
+        metadata={"tester_notes": "Reach me at user@example.com"},
+        context={"tenant_id": "tenant-x"},
+    )
+
+    assert metadata_calls[0]["tester_notes"] == "Reach me at <redacted>"
+    assert response["metadata"]["tester_notes"] == "Reach me at <redacted>"
+
+
+def test_import_tool_bundle_redacts_rationale(monkeypatch: pytest.MonkeyPatch) -> None:
+    config = SimpleNamespace(get_dlp_policy=lambda _tenant: {"enabled": True})
+    server = AtlasServer(config_manager=config)
+    server._resolve_signing_key = lambda *_args, **_kwargs: "signing-key"
+    server._parse_bundle_metadata = lambda _data: {}
+    server._resolve_resource_tenant_from_metadata = lambda _metadata: None
+    server._authorize_mutation = lambda *args, **kwargs: None
+
+    captured: dict[str, Any] = {}
+
+    def _import_tool_bundle_bytes(bundle_bytes, *, signing_key, config_manager, rationale):
+        captured["rationale"] = rationale
+        return {"imported": True}
+
+    monkeypatch.setattr(
+        "modules.Server.routes.import_tool_bundle_bytes", _import_tool_bundle_bytes
+    )
+
+    bundle = base64.b64encode(b"{}").decode("ascii")
+    response = server.import_tool_bundle(
+        bundle_base64=bundle,
+        rationale="Contact user@example.com",
+        context={"tenant_id": "tenant-import"},
+    )
+
+    assert captured["rationale"] == "Contact <redacted>"
+    assert response["success"] is True
