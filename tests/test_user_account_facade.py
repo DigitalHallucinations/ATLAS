@@ -29,9 +29,15 @@ class _ServiceStub:
         self.users: list[dict[str, object]] = []
         self.authenticate_result = True
         self.delete_user_result = True
+        self.password_reset_challenge = None
+        self.verify_password_reset_token_result = True
+        self.complete_password_reset_result = True
         self.set_active_calls: list[str | None] = []
         self.authenticate_calls: list[tuple[str, str, Optional[str]]] = []
         self.delete_calls: list[str] = []
+        self.initiate_password_reset_calls: list[str] = []
+        self.verify_password_reset_token_calls: list[tuple[str, str]] = []
+        self.complete_password_reset_calls: list[tuple[str, str, str]] = []
 
     # synchronous helpers used by the facade
     def get_active_user(self):
@@ -51,6 +57,27 @@ class _ServiceStub:
     def delete_user(self, username):
         self.delete_calls.append(username)
         return self.delete_user_result
+
+    def initiate_password_reset(self, identifier):
+        self.initiate_password_reset_calls.append(identifier)
+        challenge = self.password_reset_challenge
+        if isinstance(challenge, Exception):
+            raise challenge
+        return challenge
+
+    def verify_password_reset_token(self, username: str, token: str) -> bool:
+        self.verify_password_reset_token_calls.append((username, token))
+        result = self.verify_password_reset_token_result
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    def complete_password_reset(self, username: str, token: str, new_password: str) -> bool:
+        self.complete_password_reset_calls.append((username, token, new_password))
+        result = self.complete_password_reset_result
+        if isinstance(result, Exception):
+            raise result
+        return result
 
     def register_user(self, username, password, email, name=None, dob=None):
         account = SimpleNamespace(
@@ -155,3 +182,90 @@ def test_delete_user_account_raises_for_unknown_user(facade: UserAccountFacade, 
         asyncio.run(facade.delete_user_account("missing"))
 
     assert service_stub.delete_calls == ["missing"]
+
+
+def test_request_password_reset_returns_challenge_dict(
+    monkeypatch, facade: UserAccountFacade, service_stub: _ServiceStub
+):
+    class Challenge:
+        def __init__(self):
+            self.username = "alice"
+            self.token = "reset-token"
+            self._expires_at = "2024-01-01T00:00:00Z"
+
+        def expires_at_iso(self):
+            return self._expires_at
+
+    service_stub.password_reset_challenge = Challenge()
+    calls: list[tuple[object, tuple[object, ...], dict[str, object]]] = []
+
+    async def capture(func, *args, **kwargs):
+        calls.append((func, args, kwargs))
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(user_account_facade_module, "run_async_in_thread", capture)
+
+    result = asyncio.run(facade.request_password_reset("alice"))
+
+    assert result == {
+        "username": "alice",
+        "token": "reset-token",
+        "expires_at": "2024-01-01T00:00:00Z",
+    }
+    assert calls == [
+        (service_stub.initiate_password_reset, ("alice",), {}),
+    ]
+
+
+def test_verify_password_reset_token_propagates_result(
+    monkeypatch, facade: UserAccountFacade, service_stub: _ServiceStub
+):
+    service_stub.verify_password_reset_token_result = False
+    calls: list[tuple[object, tuple[object, ...], dict[str, object]]] = []
+
+    async def capture(func, *args, **kwargs):
+        calls.append((func, args, kwargs))
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(user_account_facade_module, "run_async_in_thread", capture)
+
+    result = asyncio.run(
+        facade.verify_password_reset_token("alice", "verification-token")
+    )
+
+    assert result is False
+    assert calls == [
+        (
+            service_stub.verify_password_reset_token,
+            ("alice", "verification-token"),
+            {},
+        ),
+    ]
+
+
+def test_complete_password_reset_propagates_exceptions(
+    monkeypatch, facade: UserAccountFacade, service_stub: _ServiceStub
+):
+    service_stub.complete_password_reset_result = RuntimeError("service failure")
+    calls: list[tuple[object, tuple[object, ...], dict[str, object]]] = []
+
+    async def capture(func, *args, **kwargs):
+        calls.append((func, args, kwargs))
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(user_account_facade_module, "run_async_in_thread", capture)
+
+    with pytest.raises(RuntimeError, match="service failure"):
+        asyncio.run(
+            facade.complete_password_reset(
+                "alice", "verification-token", "new-password"
+            )
+        )
+
+    assert calls == [
+        (
+            service_stub.complete_password_reset,
+            ("alice", "verification-token", "new-password"),
+            {},
+        ),
+    ]
