@@ -485,20 +485,18 @@ class AtlasServer:
             if tenant_id is None:
                 raise ValueError("Context mapping must include 'tenant_id'")
             roles = context.get("roles") or ()
+            if roles:
+                raise ConversationAuthorizationError(
+                    "Roles must come from authenticated identity claims"
+                )
             metadata = context.get("metadata")
             if metadata is not None and not isinstance(metadata, Mapping):
                 metadata = None
-            if isinstance(roles, str):
-                roles_tuple = (roles,)
-            elif isinstance(roles, Iterable):
-                roles_tuple = tuple(roles)
-            else:
-                roles_tuple = ()
             return RequestContext(
                 tenant_id=str(tenant_id),
                 user_id=context.get("user_id"),
                 session_id=context.get("session_id"),
-                roles=roles_tuple,
+                roles=(),
                 metadata=metadata,
             )
         raise TypeError("Unsupported request context type")
@@ -553,6 +551,7 @@ class AtlasServer:
                 session_id=resolved.session_id,
                 roles=resolved.roles,
                 metadata=resolved.metadata,
+                roles_authenticated=resolved.roles_authenticated,
             )
         return resolved
 
@@ -675,6 +674,11 @@ class AtlasServer:
         resource_tenant: Optional[str],
         action: str,
     ) -> None:
+        if not request_context.roles_authenticated:
+            raise ConversationAuthorizationError(
+                "Authenticated administrative identity is required"
+            )
+
         normalized_roles = {role.lower() for role in request_context.roles}
         if not normalized_roles.intersection({"admin", "system"}):
             raise ConversationAuthorizationError(
@@ -3152,11 +3156,12 @@ class AtlasServer:
             self._conversation_repository = repository
 
         request_context = self._coerce_context(context)
-        normalized_roles = {role.lower() for role in request_context.roles}
-        if not normalized_roles.intersection({"admin", "system"}):
-            raise ConversationAuthorizationError(
-                "Administrative role required to trigger retention policies"
-            )
+
+        self._authorize_mutation(
+            request_context,
+            resource_tenant=request_context.tenant_id,
+            action="trigger retention policies",
+        )
 
         return repository.run_retention(now=datetime.now(timezone.utc))
 

@@ -80,10 +80,26 @@ def test_update_persona_tools_requires_admin(monkeypatch: pytest.MonkeyPatch) ->
     server = AtlasServer(config_manager=_ConfigStub("tenant-alpha"))
     persisted = _setup_persona_patches(monkeypatch, "tenant-alpha")
 
-    context = RequestContext(tenant_id="tenant-alpha", roles=("viewer",))
+    context = RequestContext.from_authenticated_claims(
+        tenant_id="tenant-alpha", roles=("viewer",)
+    )
 
     with pytest.raises(ConversationAuthorizationError):
         server.update_persona_tools("Example", tools=["search"], context=context)
+
+    assert not persisted
+
+
+def test_update_persona_tools_rejects_spoofed_roles(monkeypatch: pytest.MonkeyPatch) -> None:
+    server = AtlasServer(config_manager=_ConfigStub("tenant-alpha"))
+    persisted = _setup_persona_patches(monkeypatch, "tenant-alpha")
+
+    with pytest.raises(ConversationAuthorizationError):
+        server.update_persona_tools(
+            "Example",
+            tools=["search"],
+            context={"tenant_id": "tenant-alpha", "roles": ["admin"]},
+        )
 
     assert not persisted
 
@@ -92,7 +108,23 @@ def test_update_persona_tools_rejects_mismatched_tenant(monkeypatch: pytest.Monk
     server = AtlasServer(config_manager=_ConfigStub("tenant-alpha"))
     persisted = _setup_persona_patches(monkeypatch, "tenant-alpha")
 
-    context = RequestContext(tenant_id="tenant-beta", roles=("admin",))
+    context = RequestContext.from_authenticated_claims(
+        tenant_id="tenant-beta", roles=("admin",)
+    )
+
+    with pytest.raises(ConversationAuthorizationError):
+        server.update_persona_tools("Example", tools=["search"], context=context)
+
+    assert not persisted
+
+
+def test_update_persona_tools_rejects_unauthenticated_roles(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    server = AtlasServer(config_manager=_ConfigStub("tenant-alpha"))
+    persisted = _setup_persona_patches(monkeypatch, "tenant-alpha")
+
+    context = RequestContext(tenant_id="tenant-alpha", roles=("admin",))
 
     with pytest.raises(ConversationAuthorizationError):
         server.update_persona_tools("Example", tools=["search"], context=context)
@@ -104,7 +136,9 @@ def test_update_persona_tools_allows_admin(monkeypatch: pytest.MonkeyPatch) -> N
     server = AtlasServer(config_manager=_ConfigStub("tenant-alpha"))
     persisted = _setup_persona_patches(monkeypatch, "tenant-alpha")
 
-    context = RequestContext(tenant_id="tenant-alpha", roles=("admin",))
+    context = RequestContext.from_authenticated_claims(
+        tenant_id="tenant-alpha", roles=("admin",)
+    )
 
     result = server.update_persona_tools("Example", tools=["search"], context=context)
 
@@ -130,7 +164,9 @@ def test_import_task_bundle_rejects_cross_tenant(monkeypatch: pytest.MonkeyPatch
 
     encoded = _encoded_task_bundle({"tenant_id": "tenant-alpha"})
 
-    context = RequestContext(tenant_id="tenant-beta", roles=("admin",))
+    context = RequestContext.from_authenticated_claims(
+        tenant_id="tenant-beta", roles=("admin",)
+    )
 
     with pytest.raises(ConversationAuthorizationError):
         server.import_task_bundle(bundle_base64=encoded, context=context)
@@ -151,7 +187,9 @@ def test_import_task_bundle_allows_matching_admin(monkeypatch: pytest.MonkeyPatc
 
     monkeypatch.setattr(server_routes, "import_task_bundle_bytes", _fake_import)
 
-    context = RequestContext(tenant_id="tenant-alpha", roles=("admin",))
+    context = RequestContext.from_authenticated_claims(
+        tenant_id="tenant-alpha", roles=("admin",)
+    )
 
     result = server.import_task_bundle(bundle_base64=encoded, context=context)
 

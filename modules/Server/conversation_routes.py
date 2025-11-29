@@ -54,6 +54,34 @@ class RequestContext:
     session_id: Optional[str] = None
     roles: Sequence[str] = ()
     metadata: Optional[Mapping[str, Any]] = None
+    roles_authenticated: bool = False
+
+    @classmethod
+    def from_authenticated_claims(
+        cls,
+        *,
+        tenant_id: str,
+        user_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+        roles: Sequence[str] = (),
+        metadata: Optional[Mapping[str, Any]] = None,
+    ) -> "RequestContext":
+        """Build a context whose roles originate from verified identity claims."""
+
+        normalized_roles: list[str] = []
+        for role in roles or ():
+            token = str(role).strip()
+            if token:
+                normalized_roles.append(token)
+
+        return cls(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            session_id=session_id,
+            roles=tuple(normalized_roles),
+            metadata=metadata,
+            roles_authenticated=True,
+        )
 
 
 class _JsonSchemaValidator:

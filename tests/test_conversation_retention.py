@@ -180,7 +180,9 @@ def test_server_retention_endpoint_requires_admin():
     repo = DummyRepository()
     server = AtlasServer(conversation_repository=repo)
 
-    admin_context = RequestContext(tenant_id="admin", roles=("Admin",))
+    admin_context = RequestContext.from_authenticated_claims(
+        tenant_id="admin", roles=("Admin",)
+    )
     result = server.run_conversation_retention(context=admin_context)
     assert repo.calls == 1
     assert result["messages"] == {"hard_deleted": 0, "soft_deleted": 0}
