@@ -107,12 +107,19 @@ def _parse_datetime(value: Any) -> datetime:
     if isinstance(value, datetime):
         return value.astimezone(timezone.utc)
     text = str(value).strip()
+    if not text:
+        raise ConversationValidationError("Invalid timestamp supplied")
     if text.endswith("Z"):
         text = text[:-1] + "+00:00"
     try:
         parsed = datetime.fromisoformat(text)
-    except ValueError:
-        parsed = datetime.strptime(text, "%Y-%m-%d %H:%M:%S")
+    except (TypeError, ValueError) as exc:
+        try:
+            parsed = datetime.strptime(text, "%Y-%m-%d %H:%M:%S")
+        except Exception as fallback_exc:  # noqa: BLE001 - validation error reporting
+            raise ConversationValidationError("Invalid timestamp supplied") from fallback_exc
+        else:
+            return parsed.replace(tzinfo=timezone.utc)
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
     return parsed.astimezone(timezone.utc)
@@ -135,7 +142,10 @@ def _decode_cursor(cursor: str) -> tuple[datetime, uuid.UUID]:
         timestamp_text, message_id_text = decoded.split("|", 1)
     except ValueError as exc:  # pragma: no cover - defensive, invalid cursor
         raise ConversationValidationError("Malformed pagination cursor") from exc
-    return _parse_datetime(timestamp_text), uuid.UUID(message_id_text)
+    try:
+        return _parse_datetime(timestamp_text), uuid.UUID(message_id_text)
+    except Exception as exc:  # noqa: BLE001 - validation error reporting
+        raise ConversationValidationError("Invalid pagination cursor supplied") from exc
 
 
 def _metadata_matches(candidate: Mapping[str, Any], expected: Mapping[str, Any]) -> bool:
