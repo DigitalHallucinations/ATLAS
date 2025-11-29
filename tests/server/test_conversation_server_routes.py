@@ -15,6 +15,13 @@ from modules.Server.conversation_routes import (
 from modules.conversation_store import ConversationStoreRepository
 
 
+class _ConfigStub:
+    def __init__(self, tenant_id: str) -> None:
+        self.tenant_id = tenant_id
+        self.config = {"tenant_id": tenant_id}
+        self.yaml_config = {"tenant_id": tenant_id}
+
+
 @pytest.fixture()
 def repository() -> MagicMock:
     repo = MagicMock(spec=ConversationStoreRepository)
@@ -149,3 +156,28 @@ def test_handle_request_requires_context_for_conversations(
 ) -> None:
     with pytest.raises(ConversationAuthorizationError):
         server.handle_request("/conversations", method="GET")
+
+
+def test_list_conversations_defaults_missing_tenant(repository: MagicMock) -> None:
+    server = AtlasServer(conversation_repository=repository)
+
+    payload = server.list_conversations(context=None)
+
+    repository.list_conversations_for_tenant.assert_called_once_with(
+        "default", limit=None, offset=0, order="desc"
+    )
+    assert payload["items"] == repository.list_conversations_for_tenant.return_value
+    assert payload["count"] == len(payload["items"])
+
+
+def test_list_conversations_rejects_missing_tenant_for_enterprise(
+    repository: MagicMock,
+) -> None:
+    server = AtlasServer(
+        conversation_repository=repository, config_manager=_ConfigStub("enterprise-1")
+    )
+
+    with pytest.raises(ConversationAuthorizationError):
+        server.list_conversations(context=None)
+
+    repository.list_conversations_for_tenant.assert_not_called()
