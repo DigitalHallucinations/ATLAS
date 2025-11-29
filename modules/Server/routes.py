@@ -505,7 +505,7 @@ class AtlasServer:
         configured_tenant = self._resolve_configured_tenant_id()
 
         if context is not None:
-            resolved = self._coerce_context(context)
+            resolved = self._resolve_request_context(context)
         else:
             if configured_tenant:
                 raise ConversationAuthorizationError(
@@ -3232,7 +3232,7 @@ class AtlasServer:
                 raise RuntimeError("Conversation store repository is not configured")
             self._conversation_repository = repository
 
-        request_context = self._coerce_context(context)
+        request_context = self._resolve_request_context(context)
 
         self._authorize_mutation(
             request_context,
@@ -3251,7 +3251,7 @@ class AtlasServer:
         """Handle ``GET /conversations`` requests."""
 
         routes = self._get_conversation_routes()
-        request_context = self._coerce_context(context)
+        request_context = self._resolve_request_context(context)
         return routes.list_conversations(params, context=request_context)
 
     def reset_conversation(
@@ -3263,7 +3263,7 @@ class AtlasServer:
         """Handle ``POST /conversations/{id}/reset`` requests."""
 
         routes = self._get_conversation_routes()
-        request_context = self._coerce_context(context)
+        request_context = self._resolve_request_context(context)
         return routes.reset_conversation(conversation_id, context=request_context)
 
     def delete_conversation(
@@ -3275,7 +3275,7 @@ class AtlasServer:
         """Handle ``DELETE /conversations/{id}`` requests."""
 
         routes = self._get_conversation_routes()
-        request_context = self._coerce_context(context)
+        request_context = self._resolve_request_context(context)
         return routes.delete_conversation(conversation_id, context=request_context)
 
     def create_message(
@@ -3287,7 +3287,7 @@ class AtlasServer:
         """Handle ``POST /messages`` requests."""
 
         routes = self._get_conversation_routes()
-        request_context = self._coerce_context(context)
+        request_context = self._resolve_request_context(context)
         sanitized_payload = self._dlp_enforcer.apply_to_payload(
             payload, request_context.tenant_id
         )
@@ -3303,7 +3303,7 @@ class AtlasServer:
         """Handle ``PATCH /messages/{id}`` requests."""
 
         routes = self._get_conversation_routes()
-        request_context = self._coerce_context(context)
+        request_context = self._resolve_request_context(context)
         sanitized_payload = self._dlp_enforcer.apply_to_payload(
             payload, request_context.tenant_id
         )
@@ -3319,7 +3319,7 @@ class AtlasServer:
         """Handle ``DELETE /messages/{id}`` requests."""
 
         routes = self._get_conversation_routes()
-        request_context = self._coerce_context(context)
+        request_context = self._resolve_request_context(context)
         return routes.delete_message(message_id, payload, context=request_context)
 
     def list_messages(
@@ -3332,7 +3332,7 @@ class AtlasServer:
         """Handle ``GET /conversations/{id}/messages`` requests."""
 
         routes = self._get_conversation_routes()
-        request_context = self._coerce_context(context)
+        request_context = self._resolve_request_context(context)
         return routes.list_messages(conversation_id, params, context=request_context)
 
     def search_conversations(
@@ -3344,7 +3344,7 @@ class AtlasServer:
         """Handle ``POST /conversations/search`` requests."""
 
         routes = self._get_conversation_routes()
-        request_context = self._coerce_context(context)
+        request_context = self._resolve_request_context(context)
         return routes.search_conversations(payload, context=request_context)
 
     def stream_conversation_events(
@@ -3357,7 +3357,7 @@ class AtlasServer:
         """Stream conversation message events via Server-Sent Events."""
 
         routes = self._get_conversation_routes()
-        request_context = self._coerce_context(context)
+        request_context = self._resolve_request_context(context)
         return routes.stream_message_events(
             conversation_id,
             context=request_context,
@@ -3373,7 +3373,7 @@ class AtlasServer:
         context: Any,
     ) -> Dict[str, Any]:
         routes = self._require_job_routes()
-        request_context = self._coerce_context(context)
+        request_context = self._resolve_request_context(context)
         sanitized_payload = self._dlp_enforcer.apply_to_payload(
             payload, request_context.tenant_id
         )
@@ -3387,7 +3387,7 @@ class AtlasServer:
         context: Any,
     ) -> Dict[str, Any]:
         routes = self._require_job_routes()
-        request_context = self._coerce_context(context)
+        request_context = self._resolve_request_context(context)
         sanitized_payload = self._dlp_enforcer.apply_to_payload(
             payload, request_context.tenant_id
         )
@@ -3402,7 +3402,7 @@ class AtlasServer:
         expected_updated_at: Any | None = None,
     ) -> Dict[str, Any]:
         routes = self._require_job_routes()
-        request_context = self._coerce_context(context)
+        request_context = self._resolve_request_context(context)
         return routes.transition_job(
             job_id,
             target_status,
@@ -3418,7 +3418,7 @@ class AtlasServer:
         expected_updated_at: Any | None = None,
     ) -> Dict[str, Any]:
         routes = self._require_job_routes()
-        request_context = self._coerce_context(context)
+        request_context = self._resolve_request_context(context)
         return routes.pause_schedule(
             job_id,
             context=request_context,
@@ -3433,7 +3433,7 @@ class AtlasServer:
         expected_updated_at: Any | None = None,
     ) -> Dict[str, Any]:
         routes = self._require_job_routes()
-        request_context = self._coerce_context(context)
+        request_context = self._resolve_request_context(context)
         return routes.resume_schedule(
             job_id,
             context=request_context,
@@ -3448,7 +3448,7 @@ class AtlasServer:
         expected_updated_at: Any | None = None,
     ) -> Dict[str, Any]:
         routes = self._require_job_routes()
-        request_context = self._coerce_context(context)
+        request_context = self._resolve_request_context(context)
         return routes.rerun_job(
             job_id,
             context=request_context,
@@ -3463,7 +3463,7 @@ class AtlasServer:
         expected_updated_at: Any | None = None,
     ) -> Dict[str, Any]:
         routes = self._require_job_routes()
-        request_context = self._coerce_context(context)
+        request_context = self._resolve_request_context(context)
         return routes.run_now(
             job_id,
             context=request_context,
@@ -3494,7 +3494,7 @@ class AtlasServer:
         include_events: bool = False,
     ) -> Dict[str, Any]:
         routes = self._require_job_routes()
-        request_context = self._coerce_context(context)
+        request_context = self._resolve_request_context(context)
         return routes.get_job(
             job_id,
             context=request_context,
@@ -3510,7 +3510,7 @@ class AtlasServer:
         context: Any,
     ) -> Dict[str, Any]:
         routes = self._ensure_job_routes()
-        request_context = self._coerce_context(context)
+        request_context = self._resolve_request_context(context)
         if routes is None:
             return {"items": []}
         return routes.list_jobs(params, context=request_context)
@@ -3522,7 +3522,7 @@ class AtlasServer:
         context: Any,
     ) -> list[Dict[str, Any]]:
         routes = self._require_job_routes()
-        request_context = self._coerce_context(context)
+        request_context = self._resolve_request_context(context)
         return routes.list_linked_tasks(job_id, context=request_context)
 
     def link_job_task(
@@ -3533,7 +3533,7 @@ class AtlasServer:
         context: Any,
     ) -> Dict[str, Any]:
         routes = self._require_job_routes()
-        request_context = self._coerce_context(context)
+        request_context = self._resolve_request_context(context)
         return routes.link_task(job_id, payload, context=request_context)
 
     def unlink_job_task(
@@ -3545,7 +3545,7 @@ class AtlasServer:
         task_id: Any | None = None,
     ) -> Dict[str, Any]:
         routes = self._require_job_routes()
-        request_context = self._coerce_context(context)
+        request_context = self._resolve_request_context(context)
         return routes.unlink_task(
             job_id,
             context=request_context,
@@ -3561,7 +3561,7 @@ class AtlasServer:
         after: Optional[str] = None,
     ) -> AsyncIterator[Dict[str, Any]]:
         routes = self._require_job_routes()
-        request_context = self._coerce_context(context)
+        request_context = self._resolve_request_context(context)
         return routes.stream_job_events(job_id, context=request_context, after=after)
 
     # -- task routes -------------------------------------------------------
@@ -3573,7 +3573,7 @@ class AtlasServer:
         context: Any,
     ) -> Dict[str, Any]:
         routes = self._require_task_routes()
-        request_context = self._coerce_context(context)
+        request_context = self._resolve_request_context(context)
         sanitized_payload = self._dlp_enforcer.apply_to_payload(
             payload, request_context.tenant_id
         )
@@ -3587,7 +3587,7 @@ class AtlasServer:
         context: Any,
     ) -> Dict[str, Any]:
         routes = self._require_task_routes()
-        request_context = self._coerce_context(context)
+        request_context = self._resolve_request_context(context)
         sanitized_payload = self._dlp_enforcer.apply_to_payload(
             payload, request_context.tenant_id
         )
@@ -3602,7 +3602,7 @@ class AtlasServer:
         expected_updated_at: Any | None = None,
     ) -> Dict[str, Any]:
         routes = self._require_task_routes()
-        request_context = self._coerce_context(context)
+        request_context = self._resolve_request_context(context)
         return routes.transition_task(
             task_id,
             target_status,
@@ -3632,7 +3632,7 @@ class AtlasServer:
         include_events: bool = False,
     ) -> Dict[str, Any]:
         routes = self._require_task_routes()
-        request_context = self._coerce_context(context)
+        request_context = self._resolve_request_context(context)
         return routes.get_task(task_id, context=request_context, include_events=include_events)
 
     def list_tasks(
@@ -3642,7 +3642,7 @@ class AtlasServer:
         context: Any,
     ) -> Dict[str, Any]:
         routes = self._ensure_task_routes()
-        request_context = self._coerce_context(context)
+        request_context = self._resolve_request_context(context)
         if routes is None:
             return {"items": []}
         return routes.list_tasks(params, context=request_context)
@@ -3654,7 +3654,7 @@ class AtlasServer:
         context: Any,
     ) -> Dict[str, Any]:
         routes = self._require_task_routes()
-        request_context = self._coerce_context(context)
+        request_context = self._resolve_request_context(context)
         return routes.search_tasks(payload, context=request_context)
 
     def stream_task_events(
@@ -3665,7 +3665,7 @@ class AtlasServer:
         after: Optional[str] = None,
     ) -> AsyncIterator[Dict[str, Any]]:
         routes = self._require_task_routes()
-        request_context = self._coerce_context(context)
+        request_context = self._resolve_request_context(context)
         return routes.stream_task_events(task_id, context=request_context, after=after)
 
 
