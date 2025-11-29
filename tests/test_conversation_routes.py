@@ -13,8 +13,10 @@ from sqlalchemy.orm import sessionmaker
 from modules.Server import AtlasServer, RequestContext
 from modules.Server.conversation_routes import (
     ConversationAuthorizationError,
+    ConversationValidationError,
     _decode_cursor,
     _encode_cursor,
+    _parse_datetime,
 )
 from modules.conversation_store import Base, ConversationStoreRepository
 from modules.conversation_store.models import Message, Session, User
@@ -224,6 +226,50 @@ def test_cursor_decoding_accepts_zulu_timestamp() -> None:
 
     assert decoded_id == uuid.UUID(message_id)
     assert decoded_at.tzinfo == timezone.utc
+
+
+def test_parse_datetime_rejects_invalid_input() -> None:
+    with pytest.raises(ConversationValidationError):
+        _parse_datetime("")
+
+    with pytest.raises(ConversationValidationError):
+        _parse_datetime("not-a-timestamp")
+
+
+def test_decode_cursor_reports_invalid_timestamp() -> None:
+    message_id = str(uuid.uuid4())
+    cursor = _encode_cursor("not-a-timestamp", message_id)
+
+    with pytest.raises(ConversationValidationError) as excinfo:
+        _decode_cursor(cursor)
+
+    assert excinfo.value.status_code == 422
+
+
+def test_list_messages_rejects_malformed_cursor(
+    server: AtlasServer,
+    tenant_context: RequestContext,
+):
+    conversation_id = str(uuid.uuid4())
+    server.create_message(
+        {
+            "conversation_id": conversation_id,
+            "role": "user",
+            "content": {"text": "hello"},
+        },
+        context=tenant_context,
+    )
+
+    cursor = _encode_cursor("not-a-timestamp", str(uuid.uuid4()))
+
+    with pytest.raises(ConversationValidationError) as excinfo:
+        server.list_messages(
+            conversation_id,
+            {"cursor": cursor},
+            context=tenant_context,
+        )
+
+    assert excinfo.value.status_code == 422
 
 
 def test_search_scans_long_conversations(server: AtlasServer, tenant_context: RequestContext):
