@@ -19,6 +19,12 @@ class _ConfigStub:
         self.yaml_config = {"tenant_id": tenant_id}
 
 
+def _build_server(config_manager: object) -> AtlasServer:
+    server = AtlasServer(config_manager=config_manager)
+    server._resolve_request_context = server._coerce_context
+    return server
+
+
 def _setup_persona_patches(monkeypatch: pytest.MonkeyPatch, metadata_tenant: str) -> List[Dict[str, Any]]:
     persona_payload: Dict[str, Any] = {
         "name": "Example",
@@ -77,7 +83,7 @@ def _encoded_task_bundle(metadata: Dict[str, Any]) -> str:
 
 
 def test_update_persona_tools_requires_admin(monkeypatch: pytest.MonkeyPatch) -> None:
-    server = AtlasServer(config_manager=_ConfigStub("tenant-alpha"))
+    server = _build_server(_ConfigStub("tenant-alpha"))
     persisted = _setup_persona_patches(monkeypatch, "tenant-alpha")
 
     context = RequestContext.from_authenticated_claims(
@@ -91,7 +97,7 @@ def test_update_persona_tools_requires_admin(monkeypatch: pytest.MonkeyPatch) ->
 
 
 def test_update_persona_tools_rejects_spoofed_roles(monkeypatch: pytest.MonkeyPatch) -> None:
-    server = AtlasServer(config_manager=_ConfigStub("tenant-alpha"))
+    server = _build_server(_ConfigStub("tenant-alpha"))
     persisted = _setup_persona_patches(monkeypatch, "tenant-alpha")
 
     with pytest.raises(ConversationAuthorizationError):
@@ -105,7 +111,7 @@ def test_update_persona_tools_rejects_spoofed_roles(monkeypatch: pytest.MonkeyPa
 
 
 def test_update_persona_tools_rejects_mismatched_tenant(monkeypatch: pytest.MonkeyPatch) -> None:
-    server = AtlasServer(config_manager=_ConfigStub("tenant-alpha"))
+    server = _build_server(_ConfigStub("tenant-alpha"))
     persisted = _setup_persona_patches(monkeypatch, "tenant-alpha")
 
     context = RequestContext.from_authenticated_claims(
@@ -121,7 +127,7 @@ def test_update_persona_tools_rejects_mismatched_tenant(monkeypatch: pytest.Monk
 def test_update_persona_tools_rejects_unauthenticated_roles(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    server = AtlasServer(config_manager=_ConfigStub("tenant-alpha"))
+    server = _build_server(_ConfigStub("tenant-alpha"))
     persisted = _setup_persona_patches(monkeypatch, "tenant-alpha")
 
     context = RequestContext(tenant_id="tenant-alpha", roles=("admin",))
@@ -133,7 +139,7 @@ def test_update_persona_tools_rejects_unauthenticated_roles(
 
 
 def test_update_persona_tools_allows_admin(monkeypatch: pytest.MonkeyPatch) -> None:
-    server = AtlasServer(config_manager=_ConfigStub("tenant-alpha"))
+    server = _build_server(_ConfigStub("tenant-alpha"))
     persisted = _setup_persona_patches(monkeypatch, "tenant-alpha")
 
     context = RequestContext.from_authenticated_claims(
@@ -146,8 +152,68 @@ def test_update_persona_tools_allows_admin(monkeypatch: pytest.MonkeyPatch) -> N
     assert persisted, "persona definition should be persisted"
 
 
+def test_import_tool_bundle_requires_authenticated_roles(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    server = _build_server(_ConfigStub("tenant-alpha"))
+    monkeypatch.setattr(server, "_resolve_signing_key", lambda *_: "secret")
+
+    bundle = base64.b64encode(b"{}\n").decode("ascii")
+    context = RequestContext(tenant_id="tenant-alpha")
+
+    with pytest.raises(ConversationAuthorizationError) as excinfo:
+        server.import_tool_bundle(bundle_base64=bundle, context=context)
+
+    assert str(excinfo.value) == "Authenticated administrative identity is required"
+
+
+def test_import_skill_bundle_rejects_non_admin_roles(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _ConfigStub("tenant-alpha")
+    server = _build_server(config)
+    monkeypatch.setattr(server, "_resolve_signing_key", lambda *_: "secret")
+
+    bundle = base64.b64encode(b"{}\n").decode("ascii")
+    context = RequestContext.from_authenticated_claims(
+        tenant_id="tenant-alpha", roles=("viewer",)
+    )
+
+    with pytest.raises(ConversationAuthorizationError) as excinfo:
+        server.import_skill_bundle(bundle_base64=bundle, context=context)
+
+    assert str(excinfo.value) == "Administrative role required to import skill bundle"
+
+
+class _ConfigWithoutTenant:
+    def get_dlp_policy(self, _tenant: str) -> Dict[str, Any]:
+        return {}
+
+
+def test_import_persona_bundle_rejects_tenant_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    server = _build_server(_ConfigWithoutTenant())
+    monkeypatch.setattr(server, "_resolve_signing_key", lambda *_: "secret")
+
+    bundle_payload = {
+        "metadata": {"tenant_id": "tenant-bundle"},
+        "persona": {"name": "Example", "tenant_id": "tenant-bundle"},
+    }
+    bundle = base64.b64encode(json.dumps(bundle_payload).encode("utf-8")).decode("ascii")
+
+    context = RequestContext.from_authenticated_claims(
+        tenant_id="tenant-context", roles=("admin",)
+    )
+
+    with pytest.raises(ConversationAuthorizationError) as excinfo:
+        server.import_persona_bundle(bundle_base64=bundle, context=context)
+
+    assert str(excinfo.value) == "Tenant mismatch for requested resource"
+
+
 def test_import_task_bundle_requires_admin(monkeypatch: pytest.MonkeyPatch) -> None:
-    server = AtlasServer(config_manager=_ConfigStub("tenant-alpha"))
+    server = _build_server(_ConfigStub("tenant-alpha"))
     monkeypatch.setattr(server, "_resolve_signing_key", lambda asset: "secret")
 
     encoded = _encoded_task_bundle({"tenant_id": "tenant-alpha"})
@@ -159,7 +225,7 @@ def test_import_task_bundle_requires_admin(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 def test_import_task_bundle_rejects_cross_tenant(monkeypatch: pytest.MonkeyPatch) -> None:
-    server = AtlasServer(config_manager=_ConfigStub("tenant-alpha"))
+    server = _build_server(_ConfigStub("tenant-alpha"))
     monkeypatch.setattr(server, "_resolve_signing_key", lambda asset: "secret")
 
     encoded = _encoded_task_bundle({"tenant_id": "tenant-alpha"})
@@ -173,7 +239,7 @@ def test_import_task_bundle_rejects_cross_tenant(monkeypatch: pytest.MonkeyPatch
 
 
 def test_import_task_bundle_allows_matching_admin(monkeypatch: pytest.MonkeyPatch) -> None:
-    server = AtlasServer(config_manager=_ConfigStub("tenant-alpha"))
+    server = _build_server(_ConfigStub("tenant-alpha"))
     monkeypatch.setattr(server, "_resolve_signing_key", lambda asset: "secret")
 
     encoded = _encoded_task_bundle({"tenant_id": "tenant-alpha"})
