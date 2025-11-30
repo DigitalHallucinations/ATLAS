@@ -76,6 +76,12 @@ class GTKUILogHandler(logging.Handler):
                 self._trim_queue_locked()
         GLib.idle_add(self._enforce_retention, priority=self._idle_priority)
 
+    def set_text_view(self, text_view: Optional[Gtk.TextView]) -> None:
+        """Update the text view used for auto-scrolling."""
+
+        with self._lock:
+            self._text_view = text_view
+
     def close(self) -> None:  # noqa: D401 - standard logging Handler API.
         """Flush pending entries and mark the handler as closed."""
 

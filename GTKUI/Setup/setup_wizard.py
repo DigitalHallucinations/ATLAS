@@ -531,6 +531,7 @@ class SetupWizardWindow(AtlasWindow):
         self._database_user_suggestion: str = ""
         self._tenant_id_suggestion: str = ""
         self._log_window: SetupWizardLogWindow | None = None
+        self._log_buffer: Gtk.TextBuffer = Gtk.TextBuffer()
         self._log_handler: GTKUILogHandler | None = None
         self._log_target_loggers: list[logging.Logger] = []
         self._log_toggle_button: Gtk.Button | None = debug_button
@@ -547,6 +548,8 @@ class SetupWizardWindow(AtlasWindow):
                 )
             except Exception:  # pragma: no cover - GTK fallback
                 self._log_button_handler_id = None
+
+        self._initialize_log_handler()
 
         key_controller_cls = getattr(Gtk, "EventControllerKey", None)
         if key_controller_cls is not None:
@@ -4712,6 +4715,44 @@ class SetupWizardWindow(AtlasWindow):
             except Exception:  # pragma: no cover - GTK fallback
                 pass
 
+    def _initialize_log_handler(self) -> None:
+        if self._log_handler is not None:
+            return
+
+        handler = GTKUILogHandler(self._log_buffer)
+        handler.setLevel(logging.INFO)
+        formatter = logging.Formatter(
+            "%(asctime)s %(levelname)s %(name)s: %(message)s",
+            datefmt="%H:%M:%S",
+        )
+        handler.setFormatter(formatter)
+        handler.set_paused(True)
+
+        self._log_handler = handler
+        self._log_target_loggers = []
+
+        for logger in self._collect_setup_loggers():
+            if handler not in logger.handlers:
+                logger.addHandler(handler)
+            effective_level = logger.getEffectiveLevel()
+            if logger.level == logging.NOTSET or effective_level > logging.INFO:
+                logger.setLevel(logging.INFO)
+            self._log_target_loggers.append(logger)
+
+    def _pause_log_handler(self) -> None:
+        handler = self._log_handler
+        if handler is None:
+            return
+        handler.set_text_view(None)
+        handler.set_paused(True)
+
+    def _resume_log_handler(self, text_view: Gtk.TextView | None) -> None:
+        handler = self._log_handler
+        if handler is None:
+            return
+        handler.set_text_view(text_view)
+        handler.set_paused(False)
+
     def _on_log_button_clicked(self, *_: object) -> None:
         window = self._log_window
         is_visible = False
@@ -4778,6 +4819,7 @@ class SetupWizardWindow(AtlasWindow):
     def _ensure_log_window(self) -> SetupWizardLogWindow:
         """Create and present the setup log window if it is not already visible."""
 
+        self._initialize_log_handler()
         window = self._log_window
         if window is None:
             application = None
@@ -4797,37 +4839,22 @@ class SetupWizardWindow(AtlasWindow):
                     except Exception:  # pragma: no cover - GTK stubs
                         pass
 
-            handler = GTKUILogHandler(window.text_buffer, text_view=window.text_view)
-            handler.setLevel(logging.INFO)
-            formatter = logging.Formatter(
-                "%(asctime)s %(levelname)s %(name)s: %(message)s",
-                datefmt="%H:%M:%S",
-            )
-            handler.setFormatter(formatter)
-
-            self._log_handler = handler
-            self._log_target_loggers = []
-
-            for logger in self._collect_setup_loggers():
-                logger.addHandler(handler)
-                effective_level = logger.getEffectiveLevel()
-                if logger.level == logging.NOTSET or effective_level > logging.INFO:
-                    logger.setLevel(logging.INFO)
-                self._log_target_loggers.append(logger)
-
+            window.text_view.set_buffer(self._log_buffer)
+            window.text_buffer = self._log_buffer
             self._log_window = window
 
+        self._resume_log_handler(window.text_view)
         if hasattr(window, "present"):
             window.present()
         self._set_log_button_active(True)
         return window
 
     def _close_log_window(self) -> None:
-        """Close the setup log window and detach logging handlers."""
+        """Close the setup log window while keeping log buffering active."""
 
         window = self._log_window
-        self._detach_log_handler()
         self._log_window = None
+        self._pause_log_handler()
         if window is None:
             return
         for attr in ("close", "destroy"):
@@ -4864,27 +4891,30 @@ class SetupWizardWindow(AtlasWindow):
         return [logging.getLogger(name) for name in sorted(names)]
 
     def _on_log_window_close_request(self, *_: object) -> bool:
-        self._detach_log_handler()
         self._log_window = None
+        self._pause_log_handler()
         self._set_log_button_active(False)
         return False
 
     def _on_log_window_destroy(self, *_: object) -> None:
-        self._detach_log_handler()
         self._log_window = None
+        self._pause_log_handler()
         self._set_log_button_active(False)
 
     def _on_wizard_close_request(self, *_: object) -> bool:
         self._close_log_window()
+        self._detach_log_handler()
         self._disconnect_log_button()
         return False
 
     def _on_wizard_destroy(self, *_: object) -> None:
         self._close_log_window()
+        self._detach_log_handler()
         self._disconnect_log_button()
 
     def close(self) -> None:  # type: ignore[override]
         self._close_log_window()
+        self._detach_log_handler()
         self._disconnect_log_button()
         try:
             super().close()
