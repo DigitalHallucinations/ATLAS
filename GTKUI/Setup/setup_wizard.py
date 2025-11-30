@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import threading
+from collections import deque
 from datetime import datetime
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -532,8 +534,12 @@ class SetupWizardWindow(AtlasWindow):
         self._tenant_id_suggestion: str = ""
         self._log_window: SetupWizardLogWindow | None = None
         self._log_buffer: Gtk.TextBuffer = Gtk.TextBuffer()
+        self._log_history = deque[tuple[int, str]]()
         self._log_handler: GTKUILogHandler | None = None
         self._log_target_loggers: list[logging.Logger] = []
+        self._log_filter_level: int = logging.INFO
+        self._log_render_pending = False
+        self._log_history_lock = threading.Lock()
         self._log_toggle_button: Gtk.Button | None = debug_button
         self._log_button_handler_id: int | None = None
         self._validation_rules: dict[Gtk.Widget, Callable[[], tuple[bool, str | None]]] = {}
@@ -4728,6 +4734,12 @@ class SetupWizardWindow(AtlasWindow):
         handler.setFormatter(formatter)
         handler.set_paused(True)
 
+        try:
+            self._log_history = deque(self._log_history, maxlen=handler.max_lines)
+        except Exception:
+            self._log_history = deque(maxlen=handler.max_lines)
+        handler.addFilter(self._capture_log_record)
+
         self._log_handler = handler
         self._log_target_loggers = []
 
@@ -4752,6 +4764,69 @@ class SetupWizardWindow(AtlasWindow):
             return
         handler.set_text_view(text_view)
         handler.set_paused(False)
+
+    def _capture_log_record(self, record: logging.LogRecord) -> bool:
+        handler = self._log_handler
+        if handler is None:
+            return True
+
+        try:
+            message = handler.format(record)
+        except Exception:
+            return True
+
+        self._append_log_entry(record.levelno, message)
+        self._schedule_log_render()
+        return True
+
+    def _append_log_entry(self, level: int, message: str) -> None:
+        with self._log_history_lock:
+            self._log_history.append((level, message))
+
+    def _schedule_log_render(self) -> None:
+        idle_priority = getattr(GLib, "PRIORITY_DEFAULT_IDLE", GLib.PRIORITY_DEFAULT)
+        with self._log_history_lock:
+            if self._log_render_pending:
+                return
+            self._log_render_pending = True
+        GLib.idle_add(self._render_log_buffer, priority=idle_priority)
+
+    def _render_log_buffer(self) -> bool:
+        with self._log_history_lock:
+            entries = list(self._log_history)
+            self._log_render_pending = False
+            filter_level = self._log_filter_level
+
+        filtered_lines = [message for level, message in entries if level >= filter_level]
+        rendered = "\n".join(filtered_lines)
+        if filtered_lines:
+            rendered = f"{rendered}\n"
+
+        self._log_buffer.set_text(rendered)
+        self._scroll_log_to_end()
+        return False
+
+    def _scroll_log_to_end(self) -> None:
+        window = self._log_window
+        view = getattr(window, "text_view", None) if window is not None else None
+        if view is None:
+            return
+        end_iter = self._log_buffer.get_end_iter()
+        try:
+            view.scroll_to_iter(end_iter, 0.0, False, 0.0, 1.0)
+        except Exception:  # pragma: no cover - GTK fallback
+            pass
+
+    def _set_log_filter_level(self, level: int, *, update_window: bool = True) -> None:
+        self._log_filter_level = level
+        if update_window:
+            window = self._log_window
+            if window is not None:
+                window.set_filter_level(level)
+        self._schedule_log_render()
+
+    def _on_log_filter_changed(self, level: int) -> None:
+        self._set_log_filter_level(level, update_window=False)
 
     def _on_log_button_clicked(self, *_: object) -> None:
         window = self._log_window
@@ -4829,7 +4904,12 @@ class SetupWizardWindow(AtlasWindow):
                 except Exception:  # pragma: no cover - defensive
                     application = None
 
-            window = SetupWizardLogWindow(application=application, transient_for=self)
+            window = SetupWizardLogWindow(
+                application=application,
+                transient_for=self,
+                on_filter_changed=self._on_log_filter_changed,
+                initial_filter_level=self._log_filter_level,
+            )
             if hasattr(window, "connect"):
                 try:
                     window.connect("close-request", self._on_log_window_close_request)
@@ -4841,6 +4921,7 @@ class SetupWizardWindow(AtlasWindow):
 
             window.text_view.set_buffer(self._log_buffer)
             window.text_buffer = self._log_buffer
+            window.set_filter_level(self._log_filter_level)
             self._log_window = window
 
         self._resume_log_handler(window.text_view)
