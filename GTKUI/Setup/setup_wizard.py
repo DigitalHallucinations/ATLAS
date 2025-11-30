@@ -4726,7 +4726,7 @@ class SetupWizardWindow(AtlasWindow):
             return
 
         handler = GTKUILogHandler(self._log_buffer)
-        handler.setLevel(logging.INFO)
+        handler.setLevel(logging.NOTSET)
         formatter = logging.Formatter(
             "%(asctime)s %(levelname)s %(name)s: %(message)s",
             datefmt="%H:%M:%S",
@@ -4746,9 +4746,6 @@ class SetupWizardWindow(AtlasWindow):
         for logger in self._collect_setup_loggers():
             if handler not in logger.handlers:
                 logger.addHandler(handler)
-            effective_level = logger.getEffectiveLevel()
-            if logger.level == logging.NOTSET or effective_level > logging.INFO:
-                logger.setLevel(logging.INFO)
             self._log_target_loggers.append(logger)
 
     def _pause_log_handler(self) -> None:
