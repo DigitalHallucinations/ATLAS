@@ -4543,11 +4543,77 @@ class SetupWizardWindow(AtlasWindow):
         return message
 
     def _apply_users_overview(self) -> str:
+        self._stage_pending_user_entry()
         if not self.controller.state.users.entries:
             raise ValueError("Add at least one user before selecting an administrator.")
         self.controller.set_users(self.controller.state.users.entries)
         self._refresh_admin_candidates()
         return "User roster saved."
+
+    def _stage_pending_user_entry(self) -> None:
+        if not self._user_collection_entries:
+            return
+
+        full_name_entry = self._user_collection_entries.get("full_name")
+        username_entry = self._user_collection_entries.get("username")
+        email_entry = self._user_collection_entries.get("email")
+        password_entry = self._user_collection_entries.get("password")
+        confirm_entry = self._user_collection_entries.get("confirm_password")
+
+        if not all(
+            isinstance(widget, Gtk.Entry)
+            for widget in (
+                full_name_entry,
+                username_entry,
+                password_entry,
+                confirm_entry,
+            )
+        ):
+            return
+
+        assert isinstance(full_name_entry, Gtk.Entry)
+        assert isinstance(username_entry, Gtk.Entry)
+        assert isinstance(password_entry, Gtk.Entry)
+        assert isinstance(confirm_entry, Gtk.Entry)
+
+        full_name = full_name_entry.get_text().strip()
+        username = username_entry.get_text().strip()
+        email = email_entry.get_text().strip() if isinstance(email_entry, Gtk.Entry) else ""
+        password = password_entry.get_text()
+        confirm = confirm_entry.get_text()
+
+        if not any((full_name, username, email, password, confirm)):
+            return
+
+        if not full_name:
+            raise ValueError("Full name is required")
+        if not username:
+            raise ValueError("Username is required")
+
+        has_existing_user = bool(self.controller.state.users.entries)
+        field_label = "Temporary password" if has_existing_user else "Password"
+        password_required = has_existing_user and password_entry.get_sensitive()
+        if password_required and not password:
+            raise ValueError(f"{field_label} is required")
+        if password_required and password != confirm:
+            raise ValueError("Passwords must match")
+
+        requires_reset = bool(self.controller.state.users.entries)
+        entry = SetupUserEntry(
+            username=username,
+            full_name=full_name,
+            email=email,
+            password=password,
+            requires_password_reset=requires_reset,
+        )
+        self.controller.add_user_entry(entry)
+
+        for widget in self._user_collection_entries.values():
+            if isinstance(widget, Gtk.Entry):
+                widget.set_text("")
+
+        self._refresh_user_list()
+        self._refresh_admin_candidates()
 
     def _apply_user(self) -> str:
         admin_username = self.controller.state.users.initial_admin_username.strip()
