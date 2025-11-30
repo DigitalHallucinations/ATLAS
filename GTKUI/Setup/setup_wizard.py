@@ -4815,6 +4815,7 @@ class SetupWizardWindow(AtlasWindow):
         self._log_components = components
 
         for logger in loggers:
+            logger.setLevel(logging.DEBUG)
             if handler not in logger.handlers:
                 logger.addHandler(handler)
             self._log_target_loggers.append(logger)
