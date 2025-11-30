@@ -1,3 +1,4 @@
+import logging
 import types
 
 import pytest
@@ -5,7 +6,7 @@ import pytest
 gi = pytest.importorskip("gi")
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gdk, Gtk
+from gi.repository import Gdk, GLib, Gtk
 
 from GTKUI.Setup.setup_wizard import SetupWizardWindow
 from ATLAS.setup import (
@@ -503,6 +504,43 @@ def test_setup_wizard_debug_button_opens_log_window(monkeypatch):
         window._on_log_button_clicked(debug_button)
 
     assert ensure_calls == [window]
+
+    window.close()
+
+
+def test_log_window_displays_setup_logs(monkeypatch):
+    application = Gtk.Application()
+    controller = FakeController()
+
+    def _immediate_idle(func, *args, **kwargs):
+        func()
+        return 1
+
+    monkeypatch.setattr(GLib, "idle_add", _immediate_idle)
+
+    window = SetupWizardWindow(
+        application=application,
+        atlas=None,
+        on_success=lambda: None,
+        on_error=lambda exc: None,
+        controller=controller,
+    )
+
+    log_window = window._ensure_log_window()
+    assert log_window is not None
+
+    target_logger = logging.getLogger("ATLAS.setup")
+    assert target_logger.getEffectiveLevel() <= logging.DEBUG
+
+    target_logger.info("setup log message")
+
+    buffer_text = window._log_buffer.get_text(
+        window._log_buffer.get_start_iter(),
+        window._log_buffer.get_end_iter(),
+        True,
+    )
+
+    assert "setup log message" in buffer_text
 
     window.close()
 
