@@ -534,10 +534,12 @@ class SetupWizardWindow(AtlasWindow):
         self._tenant_id_suggestion: str = ""
         self._log_window: SetupWizardLogWindow | None = None
         self._log_buffer: Gtk.TextBuffer = Gtk.TextBuffer()
-        self._log_history = deque[tuple[int, str]]()
+        self._log_history = deque[tuple[str, int, str]]()
+        self._log_components: list[str] = []
         self._log_handler: GTKUILogHandler | None = None
         self._log_target_loggers: list[logging.Logger] = []
         self._log_filter_level: int = logging.INFO
+        self._log_filter_component: str | None = None
         self._log_render_pending = False
         self._log_history_lock = threading.Lock()
         self._log_toggle_button: Gtk.Button | None = debug_button
@@ -4743,7 +4745,10 @@ class SetupWizardWindow(AtlasWindow):
         self._log_handler = handler
         self._log_target_loggers = []
 
-        for logger in self._collect_setup_loggers():
+        components, loggers = self._collect_setup_loggers()
+        self._log_components = components
+
+        for logger in loggers:
             if handler not in logger.handlers:
                 logger.addHandler(handler)
             self._log_target_loggers.append(logger)
@@ -4772,13 +4777,13 @@ class SetupWizardWindow(AtlasWindow):
         except Exception:
             return True
 
-        self._append_log_entry(record.levelno, message)
+        self._append_log_entry(record.name, record.levelno, message)
         self._schedule_log_render()
         return True
 
-    def _append_log_entry(self, level: int, message: str) -> None:
+    def _append_log_entry(self, logger_name: str, level: int, message: str) -> None:
         with self._log_history_lock:
-            self._log_history.append((level, message))
+            self._log_history.append((logger_name, level, message))
 
     def _schedule_log_render(self) -> None:
         idle_priority = getattr(GLib, "PRIORITY_DEFAULT_IDLE", GLib.PRIORITY_DEFAULT)
@@ -4793,8 +4798,14 @@ class SetupWizardWindow(AtlasWindow):
             entries = list(self._log_history)
             self._log_render_pending = False
             filter_level = self._log_filter_level
+            filter_component = self._log_filter_component
 
-        filtered_lines = [message for level, message in entries if level >= filter_level]
+        filtered_lines = [
+            message
+            for component, level, message in entries
+            if level >= filter_level
+            and (filter_component is None or component == filter_component)
+        ]
         rendered = "\n".join(filtered_lines)
         if filtered_lines:
             rendered = f"{rendered}\n"
@@ -4824,6 +4835,19 @@ class SetupWizardWindow(AtlasWindow):
 
     def _on_log_filter_changed(self, level: int) -> None:
         self._set_log_filter_level(level, update_window=False)
+
+    def _set_log_filter_component(
+        self, component: str | None, *, update_window: bool = True
+    ) -> None:
+        self._log_filter_component = component
+        if update_window:
+            window = self._log_window
+            if window is not None:
+                window.set_filter_component(component)
+        self._schedule_log_render()
+
+    def _on_log_component_changed(self, component: str | None) -> None:
+        self._set_log_filter_component(component, update_window=False)
 
     def _on_log_button_clicked(self, *_: object) -> None:
         window = self._log_window
@@ -4905,7 +4929,10 @@ class SetupWizardWindow(AtlasWindow):
                 application=application,
                 transient_for=self,
                 on_filter_changed=self._on_log_filter_changed,
+                on_component_changed=self._on_log_component_changed,
                 initial_filter_level=self._log_filter_level,
+                components=self._log_components,
+                initial_component=self._log_filter_component,
             )
             if hasattr(window, "connect"):
                 try:
@@ -4960,13 +4987,14 @@ class SetupWizardWindow(AtlasWindow):
         finally:
             self._log_handler = None
 
-    def _collect_setup_loggers(self) -> list[logging.Logger]:
+    def _collect_setup_loggers(self) -> tuple[list[str], list[logging.Logger]]:
         names = set(self._ADDITIONAL_LOGGER_NAMES)
         controller_module = self.controller.__class__.__module__
         names.add(controller_module)
         if "." in controller_module:
             names.add(controller_module.rsplit(".", 1)[0])
-        return [logging.getLogger(name) for name in sorted(names)]
+        sorted_names = sorted(names)
+        return sorted_names, [logging.getLogger(name) for name in sorted_names]
 
     def _on_log_window_close_request(self, *_: object) -> bool:
         self._log_window = None
