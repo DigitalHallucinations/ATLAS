@@ -411,6 +411,33 @@ if "sounddevice" not in sys.modules:
     sd_stub.wait = lambda: None
     sd_stub.play = lambda *_args, **_kwargs: None
     sd_stub.stop = lambda: None
+    sd_stub.default = types.SimpleNamespace(device=None)
+
+    class _OutputStream:
+        def __init__(self, *args, callback=None, **kwargs):
+            self.callback = callback
+            self.active = False
+
+        def start(self):
+            self.active = True
+            if callable(self.callback):
+                self.callback([[0.0]], 1, None, None)
+            return None
+
+        def stop(self):
+            self.active = False
+            return None
+
+        def close(self):
+            self.active = False
+            return None
+
+    sd_stub.OutputStream = _OutputStream
+
+    def _query_devices():
+        return []
+
+    sd_stub.query_devices = _query_devices
     sys.modules["sounddevice"] = sd_stub
 
 if "numpy" not in sys.modules:

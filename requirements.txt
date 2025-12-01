@@ -40,7 +40,6 @@ platformdirs
 # appdirs can be installed as an optional fallback if needed
 
 # for Audio
-pygame
 soundfile
 sounddevice
 ffmpeg

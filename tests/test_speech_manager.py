@@ -372,8 +372,34 @@ if "sounddevice" not in sys.modules:
         def close(self):
             pass
 
+    class _DummyOutputStream:
+        def __init__(self, *args, callback=None, **kwargs):
+            self.callback = callback
+            self.active = False
+
+        def start(self):
+            self.active = True
+            if callable(self.callback):
+                self.callback([[0.0]], 1, None, None)
+            return None
+
+        def stop(self):
+            self.active = False
+            return None
+
+        def close(self):
+            self.active = False
+            return None
+
     sounddevice_module = types.ModuleType("sounddevice")
     sounddevice_module.InputStream = _DummyInputStream
+    sounddevice_module.OutputStream = _DummyOutputStream
+    sounddevice_module.default = types.SimpleNamespace(device=None)
+
+    def _query_devices():
+        return []
+
+    sounddevice_module.query_devices = _query_devices
 
     sys.modules["sounddevice"] = sounddevice_module
 
@@ -615,22 +641,28 @@ def test_google_tts_uses_unique_temp_files_and_cleans_up(monkeypatch, tmp_path):
 
     monkeypatch.setattr(Google_tts.tempfile, "NamedTemporaryFile", tracking_named_tempfile)
 
-    loaded_files = []
+    class _StubHandle:
+        def wait(self, timeout=None):
+            return None
 
-    def tracking_load(filename):
-        loaded_files.append(filename)
+        def stop(self):
+            return None
 
-    pygame = sys.modules["pygame"]
-    monkeypatch.setattr(pygame.mixer.music, "load", tracking_load)
+        def is_active(self):
+            return False
 
-    busy_states = [True, False]
+        def on(self, event, callback):  # pragma: no cover - unused in this test
+            return None
 
-    def tracking_get_busy():
-        if busy_states:
-            return busy_states.pop(0)
-        return False
+    class _StubEngine:
+        def __init__(self):
+            self.played = []
 
-    monkeypatch.setattr(pygame.mixer.music, "get_busy", tracking_get_busy)
+        def play(self, request):
+            self.played.append(request.path)
+            return _StubHandle()
+
+    google_tts.audio_engine = _StubEngine()
 
     started_threads = []
     real_thread_cls = Google_tts.threading.Thread
@@ -653,7 +685,7 @@ def test_google_tts_uses_unique_temp_files_and_cleans_up(monkeypatch, tmp_path):
 
     assert len(created_paths) == 2
     assert len(set(created_paths)) == 2, "Each synthesis should create a unique temp file"
-    assert loaded_files == created_paths, "Playback should load the specific temp files"
+    assert google_tts.audio_engine.played == created_paths, "Playback should play the specific temp files"
     for path in created_paths:
         assert not os.path.exists(path), "Temporary audio files should be removed after playback"
 

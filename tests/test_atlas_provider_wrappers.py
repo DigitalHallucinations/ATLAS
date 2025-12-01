@@ -380,6 +380,7 @@ def atlas_class(monkeypatch):
     if "numpy" not in sys.modules:
         numpy_stub = types.ModuleType("numpy")
         numpy_stub.array = lambda *_args, **_kwargs: []
+        numpy_stub.ndarray = list
         numpy_stub.zeros = lambda *_args, **_kwargs: []
         ensure_module("numpy", numpy_stub)
 
@@ -400,8 +401,34 @@ def atlas_class(monkeypatch):
             def stop(self):
                 return None
 
+        class _DummyOutputStream:
+            def __init__(self, *args, callback=None, **kwargs):
+                self.callback = callback
+                self.active = False
+
+            def start(self):
+                self.active = True
+                if callable(self.callback):
+                    self.callback([[0.0]], 1, None, None)
+                return None
+
+            def stop(self):
+                self.active = False
+                return None
+
+            def close(self):
+                self.active = False
+                return None
+
         sounddevice_stub = types.ModuleType("sounddevice")
         sounddevice_stub.InputStream = _DummyInputStream
+        sounddevice_stub.OutputStream = _DummyOutputStream
+        sounddevice_stub.default = types.SimpleNamespace(device=None)
+
+        def _query_devices():
+            return []
+
+        sounddevice_stub.query_devices = _query_devices
         ensure_module("sounddevice", sounddevice_stub)
 
     for module_name in ["ATLAS.ATLAS", "ATLAS.provider_manager"]:

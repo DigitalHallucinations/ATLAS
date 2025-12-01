@@ -826,8 +826,35 @@ if "sounddevice" not in sys.modules:
         def close(self):
             return None
 
+    class _DummyOutputStream:
+        def __init__(self, *args, callback=None, **kwargs):
+            self.callback = callback
+            self.active = False
+
+        def start(self):
+            self.active = True
+            if callable(self.callback):
+                # Provide silence to satisfy signatures without real audio
+                self.callback([[0.0]], 1, None, None)
+            return None
+
+        def stop(self):
+            self.active = False
+            return None
+
+        def close(self):
+            self.active = False
+            return None
+
     sounddevice_module = types.ModuleType("sounddevice")
     sounddevice_module.InputStream = _DummyInputStream
+    sounddevice_module.OutputStream = _DummyOutputStream
+    sounddevice_module.default = types.SimpleNamespace(device=None)
+
+    def _query_devices():
+        return []
+
+    sounddevice_module.query_devices = _query_devices
 
     sys.modules["sounddevice"] = sounddevice_module
 
@@ -854,7 +881,12 @@ if "numpy" not in sys.modules:
     numpy_module = types.ModuleType("numpy")
     numpy_module.concatenate = _concatenate
     numpy_module.array = lambda value: value
+    numpy_module.ndarray = list
+    numpy_module.zeros = lambda shape, dtype=None: [[0] * (shape[1] if isinstance(shape, tuple) else 1)] * (shape[0] if isinstance(shape, tuple) else shape)
+    numpy_module.linspace = lambda start, stop, num: [start + (stop - start) * i / (num - 1) for i in range(num)] if num > 1 else [start]
+    numpy_module.interp = lambda x, xp, fp: [fp[0] if xp[0] == xp[-1] else fp[0] for _ in x]
     numpy_module.isscalar = lambda value: isinstance(value, (int, float, complex, bool, str))
     numpy_module.bool_ = bool
+    numpy_module.float32 = "float32"
 
     sys.modules["numpy"] = numpy_module
