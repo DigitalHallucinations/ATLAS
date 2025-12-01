@@ -7,6 +7,7 @@ import threading
 from typing import Any, Optional, Tuple
 
 from google.cloud import texttospeech
+from modules.audio import AudioEngine
 from modules.logging.logger import setup_logger
 from .base import BaseTTS
 
@@ -15,7 +16,7 @@ logger = setup_logger('google_tts.py')
 CHUNK_SIZE = 1024
 
 class GoogleTTS(BaseTTS):
-    def __init__(self):
+    def __init__(self, *, audio_engine: AudioEngine | None = None):
         self._use_tts = False
         self._voice_config = {
             "language_code": "en-US",
@@ -24,6 +25,7 @@ class GoogleTTS(BaseTTS):
         self.voice = texttospeech.VoiceSelectionParams(**self._voice_config)
         self.client = texttospeech.TextToSpeechClient()
         self._playback_thread: Optional[threading.Thread] = None
+        self.audio_engine = audio_engine
 
     async def text_to_speech(self, text: str):
         if not self._use_tts:
@@ -74,6 +76,7 @@ class GoogleTTS(BaseTTS):
         self.play_audio_file(
             filename,
             logger=logger,
+            audio_engine=self.audio_engine,
             cleanup=lambda path: self.safe_remove_file(path, logger=logger),
         )
 

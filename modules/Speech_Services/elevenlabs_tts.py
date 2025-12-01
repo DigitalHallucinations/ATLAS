@@ -20,12 +20,12 @@ import os
 import threading
 from typing import Optional
 
-import pygame
 import requests
 from datetime import datetime
 from dotenv import load_dotenv
 
 from ATLAS.config import ConfigManager
+from modules.audio import AudioEngine
 from modules.logging.logger import setup_logger
 
 from .base import BaseTTS
@@ -45,37 +45,22 @@ except AttributeError:  # pragma: no cover - fallback for minimal request stubs
     setattr(requests.exceptions, "Timeout", RequestsTimeout)
 
 class ElevenLabsTTS(BaseTTS):
-    def __init__(self, config_manager: Optional[ConfigManager] = None):
+    def __init__(
+        self,
+        config_manager: Optional[ConfigManager] = None,
+        *,
+        audio_engine: AudioEngine | None = None,
+    ):
         self._use_tts = True
         self.voice_ids = []
         self.configured = False  # Flag indicating whether API key is configured.
-        self._mixer_failed = False
-        self._mixer_failure_logged = False
+        self.audio_engine = audio_engine
 
         # Bootstrap state
         self._initialization_error: Optional[Exception] = None
         self._initialization_lock: Optional[asyncio.Lock] = None
         self._lock_guard = threading.Lock()
         self._config_manager = config_manager or ConfigManager()
-
-    def _ensure_mixer_ready(self) -> bool:
-        """Ensures the pygame mixer is initialized before playback."""
-        if self._mixer_failed:
-            return False
-
-        if pygame.mixer.get_init():
-            return True
-
-        try:
-            pygame.mixer.init()
-        except Exception as exc:
-            if not self._mixer_failure_logged:
-                logger.error("Failed to initialize pygame mixer: %s", exc)
-                self._mixer_failure_logged = True
-            self._mixer_failed = True
-            return False
-
-        return True
 
     def _load_voices_sync(self) -> None:
         """Load the available voices from Eleven Labs synchronously."""
@@ -302,7 +287,7 @@ class ElevenLabsTTS(BaseTTS):
         self.play_audio_file(
             filename,
             logger=logger,
-            ensure_mixer_ready=self._ensure_mixer_ready,
+            audio_engine=self.audio_engine,
         )
 
     def _resolve_output_dir(self) -> str:

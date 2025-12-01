@@ -11,8 +11,8 @@ without duplicating code.
 
 * `BaseTTS` defines the asynchronous playback contract that all text-to-speech
   providers implement, including helpers for cleaning inline code from prompts
-  and safely managing temporary audio files before delegating to `pygame` for
-  playback.【F:modules/Speech_Services/base.py†L1-L107】【F:modules/Speech_Services/base.py†L122-L152】
+  and safely managing temporary audio files before delegating to the shared
+  `SoundDeviceEngine` for playback.【F:modules/Speech_Services/base.py†L1-L87】【F:modules/Speech_Services/base.py†L89-L139】
 * `BaseSTT` captures the minimal interface for speech-to-text providers so the
   speech manager can work with any backend that supports recording, stopping,
   and transcription hooks.【F:modules/Speech_Services/base.py†L110-L120】
@@ -20,9 +20,8 @@ without duplicating code.
 ## Provider highlights
 
 * **ElevenLabs TTS** lazily loads the available voices, verifies that the
-  `XI_API_KEY` environment variable is configured, skips synthesis when the
-  mixer cannot be initialised, and strips code blocks before sending text to the
-  API.【F:modules/Speech_Services/elevenlabs_tts.py†L1-L115】【F:modules/Speech_Services/elevenlabs_tts.py†L144-L209】
+  `XI_API_KEY` environment variable is configured, uses the shared audio engine
+  for playback, and strips code blocks before sending text to the API.【F:modules/Speech_Services/elevenlabs_tts.py†L1-L111】【F:modules/Speech_Services/elevenlabs_tts.py†L142-L208】
 * **Google TTS** relies on the Cloud Text-to-Speech client, sanitises prompts,
   writes the audio response to a temporary MP3, and reuses the shared playback
   helper to stream the file.【F:modules/Speech_Services/Google_tts.py†L1-L64】【F:modules/Speech_Services/Google_tts.py†L69-L108】
