@@ -20,6 +20,7 @@ from gi.repository import Gio, GLib, Gdk, Gtk
 from ATLAS.setup import (
     AdminProfile,
     DatabaseState,
+    HardwareProfile,
     JobSchedulingState,
     KvStoreState,
     MessageBusState,
@@ -45,6 +46,7 @@ from GTKUI.Setup.wizard.validators import (
     validate_enterprise_org,
 )
 from GTKUI.Setup.wizard.pages.overview import build_overview_page
+from GTKUI.Setup.wizard.pages.preflight import build_preflight_page
 from GTKUI.Setup.wizard.pages.setup_type import build_setup_type_page
 from modules.logging.audit_templates import get_audit_template, get_audit_templates
 from modules.conversation_store.bootstrap import BootstrapError
@@ -893,10 +895,14 @@ class SetupWizardWindow(AtlasWindow):
 
         self._setup_type_buttons.clear()
         self._setup_type_headers.clear()
+
+        # Run the hardware preflight early so later pages can read recommendations.
+        self._ensure_preflight_profile()
         provider_pages = self._build_provider_pages()
 
         overview_page = build_overview_page(self)
         setup_type_page = build_setup_type_page(self)
+        preflight_page = build_preflight_page(self)
         administrator_intro = self._build_administrator_intro_page()
         user_collection_page = self._build_users_page()
         administrator_form = self._build_user_page()
@@ -939,23 +945,29 @@ class SetupWizardWindow(AtlasWindow):
                 subpages=[setup_type_page],
                 apply=self._apply_setup_type,
             ),
+            WizardStep(
+                name="Preflight",
+                widget=preflight_page,
+                subpages=[preflight_page],
+                apply=self._apply_preflight,
+            ),
         ]
 
         if mode == "enterprise":
-                self._steps.append(
-                    WizardStep(
-                        name="Company",
-                        widget=company_form,
-                        subpages=[company_form],
-                        apply=self._apply_company,
-                    )
+            self._steps.append(
+                WizardStep(
+                    name="Company",
+                    widget=company_form,
+                    subpages=[company_form],
+                    apply=self._apply_company,
                 )
-                self._steps.append(
-                    WizardStep(
-                        name="Policies",
-                        widget=policy_pages[0],
-                        subpages=policy_pages,
-                        apply=self._apply_optional,
+            )
+            self._steps.append(
+                WizardStep(
+                    name="Policies",
+                    widget=policy_pages[0],
+                    subpages=policy_pages,
+                    apply=self._apply_optional,
                 )
             )
 
@@ -1314,6 +1326,34 @@ class SetupWizardWindow(AtlasWindow):
 
     def _on_hosting_relevant_field_changed(self, *_args: object) -> None:
         self._refresh_hosting_summary()
+
+    def _ensure_preflight_profile(self) -> HardwareProfile:
+        profile = getattr(self.controller.state, "hardware_profile", None)
+        if not isinstance(profile, HardwareProfile) or profile.tier == "unknown":
+            profile = self.controller.run_preflight()
+        if not getattr(self.controller.state, "setup_recommended_mode", None):
+            profile = self.controller.run_preflight()
+        return profile
+
+    def _append_performance_recommendation(self, box: Gtk.Widget, context: str) -> None:
+        if not isinstance(box, Gtk.Box):
+            return
+
+        profile = self._ensure_preflight_profile()
+        recommended = self.controller.state.setup_recommended_mode or "eco"
+        recommendation = Gtk.Label(
+            label=(
+                f"Recommendation: {recommended.title()} PerformanceMode suits this "
+                f"{profile.tier} system."
+            )
+        )
+        recommendation.set_wrap(True)
+        recommendation.set_xalign(0.0)
+        box.append(recommendation)
+        self._register_instructions(
+            recommendation,
+            context,
+        )
 
     def _sync_setup_type_selection(self) -> None:
         if not self._setup_type_buttons:
@@ -2051,7 +2091,7 @@ class SetupWizardWindow(AtlasWindow):
                 widget.set_text(entry.password)
 
     def _build_database_intro_page(self) -> Gtk.Widget:
-        return self._create_intro_page(
+        page = self._create_intro_page(
             "About the Database",
             [
                 "ATLAS keeps conversations and configuration in a dedicated database.",
@@ -2060,6 +2100,11 @@ class SetupWizardWindow(AtlasWindow):
             ],
             "Keep the relevant connection details or URI nearby so entering them is quick.",
         )
+        self._append_performance_recommendation(
+            page,
+            "Use the performance recommendation to decide whether a local or managed database best fits this host.",
+        )
+        return page
 
     def _build_job_scheduling_intro_page(self) -> Gtk.Widget:
         return self._create_intro_page(
@@ -2332,7 +2377,7 @@ class SetupWizardWindow(AtlasWindow):
         return box
 
     def _build_provider_intro_page(self) -> Gtk.Widget:
-        return self._create_intro_page(
+        page = self._create_intro_page(
             "About Providers",
             [
                 "Choose the default providers and models new conversations should start with.",
@@ -2341,6 +2386,11 @@ class SetupWizardWindow(AtlasWindow):
             ],
             "Review each provider card and have credentials ready before continuing.",
         )
+        self._append_performance_recommendation(
+            page,
+            "Match model choices to the suggested PerformanceMode if you want ATLAS to favor local or hosted inference.",
+        )
+        return page
 
     def _select_step_row(self, index: int) -> None:
         if not self._step_list:
@@ -4052,6 +4102,14 @@ class SetupWizardWindow(AtlasWindow):
             self._go_to_step(self._current_index + 1)
 
     # -- apply handlers -------------------------------------------------
+
+    def _apply_preflight(self) -> str:
+        profile = self.controller.run_preflight()
+        recommended = self.controller.state.setup_recommended_mode or "eco"
+        return (
+            f"Captured {profile.tier} tier (score {profile.total_score}) with"
+            f" {recommended} mode recommended."
+        )
 
     def _apply_database(self) -> str:
         state = self._collect_database_state(strict=True)
