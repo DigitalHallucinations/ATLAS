@@ -509,6 +509,7 @@ class SetupWizardWindow(AtlasWindow):
         self._storage_architecture_manual_widgets: Dict[str, Gtk.Widget] = {}
         self._storage_architecture_manual_box: Gtk.Widget | None = None
         self._storage_architecture_syncing = False
+        self._storage_recommended_mode: PerformanceMode | None = None
         self._database_entries: Dict[str, Gtk.Entry] = {}
         self._database_backend_combo: Gtk.ComboBoxText | None = None
         self._database_stack: Gtk.Stack | None = None
@@ -904,6 +905,7 @@ class SetupWizardWindow(AtlasWindow):
         self._storage_architecture_manual_widgets.clear()
         self._storage_architecture_manual_box = None
         self._storage_architecture_syncing = False
+        self._storage_recommended_mode = None
 
         # Run the hardware preflight early so later pages can read recommendations.
         self._ensure_preflight_profile()
@@ -1436,15 +1438,20 @@ class SetupWizardWindow(AtlasWindow):
             profile = self.controller.run_preflight()
         return profile
 
-    def _append_performance_recommendation(self, box: Gtk.Widget, context: str) -> None:
+    def _append_performance_recommendation(
+        self, box: Gtk.Widget, context: str
+    ) -> PerformanceMode | None:
         if not isinstance(box, Gtk.Box):
-            return
+            return None
 
         profile = self._ensure_preflight_profile()
-        recommended = self.controller.state.setup_recommended_mode or "eco"
+        recommended_mode = PerformanceMode.coerce(
+            self.controller.state.setup_recommended_mode, PerformanceMode.ECO
+        )
+        self._storage_recommended_mode = recommended_mode
         recommendation = Gtk.Label(
             label=(
-                f"Recommendation: {recommended.title()} PerformanceMode suits this "
+                f"Recommendation: {recommended_mode.value.title()} PerformanceMode suits this "
                 f"{profile.tier} system."
             )
         )
@@ -1455,6 +1462,7 @@ class SetupWizardWindow(AtlasWindow):
             recommendation,
             context,
         )
+        return recommended_mode
 
     def _sync_setup_type_selection(self) -> None:
         if not self._setup_type_buttons:
@@ -2201,15 +2209,34 @@ class SetupWizardWindow(AtlasWindow):
             ],
             "Keep the relevant connection details or URI nearby so entering them is quick.",
         )
-        self._append_performance_recommendation(
+        recommended_mode = self._append_performance_recommendation(
             page,
             "Use the performance recommendation to decide whether a local or managed database best fits this host.",
+        )
+
+        if recommended_mode is None:
+            recommended_mode = PerformanceMode.coerce(
+                self.controller.state.setup_recommended_mode, PerformanceMode.BALANCED
+            )
+
+        recommendation_handoff = Gtk.Label(
+            label=(
+                f"Hardware scan suggests the {recommended_mode.value.title()} preset. "
+                "We'll carry that into Storage Architecture so you can keep the preset or switch to manual."
+            )
+        )
+        recommendation_handoff.set_wrap(True)
+        recommendation_handoff.set_xalign(0.0)
+        page.append(recommendation_handoff)
+        self._register_instructions(
+            recommendation_handoff,
+            "We'll preselect the recommended preset on the next storage configuration screen.",
         )
         return page
 
     def _build_storage_architecture_page(self) -> Gtk.Widget:
         architecture = getattr(self.controller.state, "storage_architecture", StorageArchitecture())
-        recommended_mode = PerformanceMode.coerce(
+        recommended_mode = self._storage_recommended_mode or PerformanceMode.coerce(
             getattr(self.controller.state, "setup_recommended_mode", None),
             PerformanceMode.BALANCED,
         )
@@ -2249,6 +2276,21 @@ class SetupWizardWindow(AtlasWindow):
         summary.set_wrap(True)
         summary.set_xalign(0.0)
         box.append(summary)
+
+        if recommended_mode is not None:
+            recommendation_handoff = Gtk.Label(
+                label=(
+                    f"Based on the hardware scan, the {recommended_mode.value.title()} preset is recommended. "
+                    "We'll start with it selected here."
+                )
+            )
+            recommendation_handoff.set_wrap(True)
+            recommendation_handoff.set_xalign(0.0)
+            box.append(recommendation_handoff)
+            self._register_instructions(
+                recommendation_handoff,
+                "Review the suggested preset before switching to manual overrides.",
+            )
 
         preset_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         preset_box.set_hexpand(True)
