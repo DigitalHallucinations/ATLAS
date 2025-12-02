@@ -772,16 +772,14 @@ class SetupWizardWindow(AtlasWindow):
     def _reveal_logs_for_error(self) -> None:
         try:
             window = self._log_window
-            if window is None:
-                window = self._ensure_log_window()
-            else:
+            if window is not None:
                 if hasattr(window, "present"):
                     try:
                         window.present()
                     except Exception:
                         pass
                 self._resume_log_handler(getattr(window, "text_view", None))
-                self._set_log_button_active(True)
+            self._set_log_button_active(True)
         except Exception:  # pragma: no cover - defensive fallback
             self._set_log_button_active(True)
 
