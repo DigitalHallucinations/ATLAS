@@ -17,6 +17,7 @@ gi.require_version("GLib", "2.0")
 gi.require_version("Gio", "2.0")
 from gi.repository import Gio, GLib, Gdk, Gtk
 
+from ATLAS.config import PERFORMANCE_PRESETS, PerformanceMode, StorageArchitecture
 from ATLAS.setup import (
     AdminProfile,
     DatabaseState,
@@ -504,6 +505,10 @@ class SetupWizardWindow(AtlasWindow):
         self._setup_type_buttons: Dict[str, Gtk.CheckButton] = {}
         self._setup_type_headers: Dict[str, Gtk.Label] = {}
         self._setup_type_syncing = False
+        self._storage_architecture_radios: Dict[str | PerformanceMode, Gtk.CheckButton] = {}
+        self._storage_architecture_manual_widgets: Dict[str, Gtk.Widget] = {}
+        self._storage_architecture_manual_box: Gtk.Widget | None = None
+        self._storage_architecture_syncing = False
         self._database_entries: Dict[str, Gtk.Entry] = {}
         self._database_backend_combo: Gtk.ComboBoxText | None = None
         self._database_stack: Gtk.Stack | None = None
@@ -895,6 +900,10 @@ class SetupWizardWindow(AtlasWindow):
 
         self._setup_type_buttons.clear()
         self._setup_type_headers.clear()
+        self._storage_architecture_radios.clear()
+        self._storage_architecture_manual_widgets.clear()
+        self._storage_architecture_manual_box = None
+        self._storage_architecture_syncing = False
 
         # Run the hardware preflight early so later pages can read recommendations.
         self._ensure_preflight_profile()
@@ -907,6 +916,7 @@ class SetupWizardWindow(AtlasWindow):
         user_collection_page = self._build_users_page()
         administrator_form = self._build_user_page()
         database_intro = self._build_database_intro_page()
+        storage_architecture_page = self._build_storage_architecture_page()
         database_form = self._build_database_page()
         job_scheduling_intro = self._build_job_scheduling_intro_page()
         job_scheduling_form = self._build_job_scheduling_page()
@@ -995,7 +1005,19 @@ class SetupWizardWindow(AtlasWindow):
                 WizardStep(
                     name="Database",
                     widget=database_intro,
-                    subpages=[database_intro, database_form],
+                    subpages=[database_intro],
+                    apply=self._apply_database_intro,
+                ),
+                WizardStep(
+                    name="Storage Architecture",
+                    widget=storage_architecture_page,
+                    subpages=[storage_architecture_page],
+                    apply=self._apply_storage_architecture,
+                ),
+                WizardStep(
+                    name="Database Details",
+                    widget=database_form,
+                    subpages=[database_form],
                     apply=self._apply_database,
                 ),
                 WizardStep(
@@ -1326,6 +1348,85 @@ class SetupWizardWindow(AtlasWindow):
 
     def _on_hosting_relevant_field_changed(self, *_args: object) -> None:
         self._refresh_hosting_summary()
+
+    def _register_storage_architecture_manual_trigger(self, widget: Gtk.Widget | None) -> None:
+        if isinstance(widget, Gtk.ComboBoxText):
+            widget.connect("changed", self._select_manual_storage_architecture)
+        elif isinstance(widget, Gtk.CheckButton):
+            widget.connect("toggled", self._select_manual_storage_architecture)
+
+    def _select_manual_storage_architecture(self, *_args: object) -> None:
+        manual = self._storage_architecture_radios.get("manual")
+        if isinstance(manual, Gtk.CheckButton):
+            manual.set_active(True)
+
+    def _on_storage_architecture_option_toggled(self, key: str | PerformanceMode) -> None:
+        if self._storage_architecture_syncing:
+            return
+        self._storage_architecture_syncing = True
+        try:
+            for candidate, button in self._storage_architecture_radios.items():
+                if candidate == key:
+                    continue
+                if isinstance(button, Gtk.CheckButton):
+                    button.set_active(False)
+            if self._storage_architecture_manual_box is not None:
+                self._storage_architecture_manual_box.set_sensitive(key == "manual")
+        finally:
+            self._storage_architecture_syncing = False
+
+    def _get_selected_storage_architecture_key(self) -> PerformanceMode | str:
+        for key, button in self._storage_architecture_radios.items():
+            if isinstance(button, Gtk.CheckButton) and button.get_active():
+                return key
+        return "manual"
+
+    def _storage_architecture_matches_preset(
+        self, state: StorageArchitecture, preset: StorageArchitecture
+    ) -> bool:
+        return (
+            state.performance_mode == preset.performance_mode
+            and (state.conversation_backend or "").lower()
+            == (preset.conversation_backend or "").lower()
+            and bool(state.kv_reuse_conversation_store)
+            == bool(preset.kv_reuse_conversation_store)
+            and (state.vector_store_adapter or "").lower()
+            == (preset.vector_store_adapter or "").lower()
+        )
+
+    def _collect_storage_architecture_state(self) -> StorageArchitecture:
+        selection = self._get_selected_storage_architecture_key()
+        if isinstance(selection, PerformanceMode):
+            preset = PERFORMANCE_PRESETS.get(selection)
+            if preset is not None:
+                return replace(preset)
+            return StorageArchitecture(performance_mode=selection)
+
+        mode_combo = self._storage_architecture_manual_widgets.get("mode")
+        backend_combo = self._storage_architecture_manual_widgets.get("conversation_backend")
+        vector_combo = self._storage_architecture_manual_widgets.get("vector_store_adapter")
+        reuse_toggle = self._storage_architecture_manual_widgets.get("kv_reuse")
+
+        manual_mode = PerformanceMode.coerce(
+            mode_combo.get_active_id() if isinstance(mode_combo, Gtk.ComboBoxText) else None,
+            PerformanceMode.BALANCED,
+        )
+        backend = "postgresql"
+        if isinstance(backend_combo, Gtk.ComboBoxText):
+            backend = (backend_combo.get_active_id() or backend).strip().lower() or "postgresql"
+        vector_adapter = "in_memory"
+        if isinstance(vector_combo, Gtk.ComboBoxText):
+            vector_adapter = (vector_combo.get_active_id() or vector_adapter).strip().lower() or "in_memory"
+        reuse = False
+        if isinstance(reuse_toggle, Gtk.CheckButton):
+            reuse = bool(reuse_toggle.get_active())
+
+        return StorageArchitecture(
+            performance_mode=manual_mode,
+            conversation_backend=backend,
+            kv_reuse_conversation_store=reuse,
+            vector_store_adapter=vector_adapter,
+        )
 
     def _ensure_preflight_profile(self) -> HardwareProfile:
         profile = getattr(self.controller.state, "hardware_profile", None)
@@ -2105,6 +2206,183 @@ class SetupWizardWindow(AtlasWindow):
             "Use the performance recommendation to decide whether a local or managed database best fits this host.",
         )
         return page
+
+    def _build_storage_architecture_page(self) -> Gtk.Widget:
+        architecture = getattr(self.controller.state, "storage_architecture", StorageArchitecture())
+        recommended_mode = PerformanceMode.coerce(
+            getattr(self.controller.state, "setup_recommended_mode", None),
+            PerformanceMode.BALANCED,
+        )
+        default_architecture = StorageArchitecture()
+
+        selected_key: PerformanceMode | str = "manual"
+        for mode, preset in PERFORMANCE_PRESETS.items():
+            if self._storage_architecture_matches_preset(architecture, preset):
+                selected_key = mode
+                break
+
+        if selected_key == PerformanceMode.BALANCED and recommended_mode != PerformanceMode.BALANCED:
+            if self._storage_architecture_matches_preset(architecture, default_architecture):
+                selected_key = recommended_mode
+        if selected_key == "manual" and self._storage_architecture_matches_preset(
+            architecture, default_architecture
+        ):
+            selected_key = recommended_mode
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        box.set_hexpand(True)
+        box.set_vexpand(True)
+
+        heading = Gtk.Label(label="Choose a storage architecture")
+        heading.set_wrap(True)
+        heading.set_xalign(0.0)
+        if hasattr(heading, "add_css_class"):
+            heading.add_css_class("heading")
+        box.append(heading)
+
+        summary = Gtk.Label(
+            label=(
+                "Pick a PerformanceMode preset to align the conversation database, key-value cache, "
+                "and vector store, or switch to manual to mix components yourself."
+            )
+        )
+        summary.set_wrap(True)
+        summary.set_xalign(0.0)
+        box.append(summary)
+
+        preset_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        preset_box.set_hexpand(True)
+
+        presets: list[tuple[PerformanceMode, str, list[str]]] = [
+            (
+                PerformanceMode.ECO,
+                "Eco preset (SQLite)",
+                [
+                    "SQLite conversation store for simple, local deployments.",
+                    "Reuse the conversation store for the key-value cache.",
+                    "In-memory vector index for lightweight retrieval.",
+                ],
+            ),
+            (
+                PerformanceMode.BALANCED,
+                "Balanced preset (PostgreSQL)",
+                [
+                    "PostgreSQL conversation store tuned for general purpose setups.",
+                    "Reuse PostgreSQL for the key-value cache.",
+                    "In-memory vector index for quick experimentation.",
+                ],
+            ),
+            (
+                PerformanceMode.PERFORMANCE,
+                "Performance preset (PostgreSQL + MongoDB)",
+                [
+                    "PostgreSQL conversation store for durability and scale.",
+                    "Dedicated key-value cache instead of reusing PostgreSQL.",
+                    "MongoDB vector adapter for larger or distributed embeddings.",
+                ],
+            ),
+        ]
+
+        for mode, title, bullets in presets:
+            frame = Gtk.Frame()
+            frame.set_hexpand(True)
+            inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+            inner.set_margin_top(6)
+            inner.set_margin_bottom(6)
+            inner.set_margin_start(6)
+            inner.set_margin_end(6)
+
+            radio = Gtk.CheckButton(label=title)
+            radio.set_active(mode == selected_key)
+            radio.connect(
+                "toggled", lambda _btn, key=mode: self._on_storage_architecture_option_toggled(key)
+            )
+            inner.append(radio)
+
+            for bullet in bullets:
+                detail = Gtk.Label(label=f"• {bullet}")
+                detail.set_wrap(True)
+                detail.set_xalign(0.0)
+                inner.append(detail)
+
+            if hasattr(frame, "set_child"):
+                frame.set_child(inner)
+            else:  # pragma: no cover - GTK3 fallback
+                frame.add(inner)
+
+            preset_box.append(frame)
+            self._storage_architecture_radios[mode] = radio
+
+        manual_radio = Gtk.CheckButton(label="Manual configuration")
+        manual_radio.set_active(selected_key == "manual")
+        manual_radio.connect(
+            "toggled", lambda _btn: self._on_storage_architecture_option_toggled("manual")
+        )
+        self._storage_architecture_radios["manual"] = manual_radio
+        preset_box.append(manual_radio)
+
+        manual_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        manual_box.set_margin_start(24)
+        manual_box.set_hexpand(True)
+        manual_box.set_sensitive(selected_key == "manual")
+        self._storage_architecture_manual_box = manual_box
+
+        manual_mode_combo = Gtk.ComboBoxText()
+        for mode in PerformanceMode:
+            manual_mode_combo.append(mode.value, mode.value.title())
+        manual_mode_combo.set_active_id(architecture.performance_mode.value)
+        self._storage_architecture_manual_widgets["mode"] = manual_mode_combo
+
+        backend_combo = Gtk.ComboBoxText()
+        backend_combo.append("postgresql", "PostgreSQL")
+        backend_combo.append("sqlite", "SQLite")
+        backend_combo.append("mongodb", "MongoDB / Atlas")
+        backend_combo.set_active_id(architecture.conversation_backend or "postgresql")
+        self._storage_architecture_manual_widgets["conversation_backend"] = backend_combo
+
+        reuse_toggle = Gtk.CheckButton(label="Reuse conversation store for the key-value cache")
+        reuse_toggle.set_active(bool(architecture.kv_reuse_conversation_store))
+        self._storage_architecture_manual_widgets["kv_reuse"] = reuse_toggle
+
+        vector_combo = Gtk.ComboBoxText()
+        vector_adapters = ["in_memory", "mongodb", "faiss", "chroma", "pinecone"]
+        for adapter in vector_adapters:
+            vector_combo.append(adapter, adapter.replace("_", " ").title())
+        if architecture.vector_store_adapter and architecture.vector_store_adapter not in vector_adapters:
+            vector_combo.append(architecture.vector_store_adapter, architecture.vector_store_adapter)
+        vector_combo.set_active_id(architecture.vector_store_adapter or "in_memory")
+        self._storage_architecture_manual_widgets["vector_store_adapter"] = vector_combo
+
+        manual_form = Gtk.Grid(column_spacing=12, row_spacing=6)
+        manual_form.attach(Gtk.Label(label="PerformanceMode"), 0, 0, 1, 1)
+        manual_form.attach(manual_mode_combo, 1, 0, 1, 1)
+        manual_form.attach(Gtk.Label(label="Conversation backend"), 0, 1, 1, 1)
+        manual_form.attach(backend_combo, 1, 1, 1, 1)
+        manual_form.attach(Gtk.Label(label="Vector store adapter"), 0, 2, 1, 1)
+        manual_form.attach(vector_combo, 1, 2, 1, 1)
+        manual_form.attach(reuse_toggle, 0, 3, 2, 1)
+
+        manual_box.append(manual_form)
+        preset_box.append(manual_box)
+        box.append(preset_box)
+
+        for widget in (manual_mode_combo, backend_combo, vector_combo, reuse_toggle):
+            self._register_storage_architecture_manual_trigger(widget)
+
+        recommendation_context = (
+            "We preselected the recommended PerformanceMode based on the preflight scan. "
+            "Switch to manual if you want to override individual components."
+        )
+        self._append_performance_recommendation(box, recommendation_context)
+
+        self._register_instructions(
+            box,
+            (
+                "Choose a preset to quickly align the conversation database, key-value cache, and vector store. "
+                "Use manual mode to mix adapters while keeping the recommended PerformanceMode handy."
+            ),
+        )
+        return box
 
     def _build_job_scheduling_intro_page(self) -> Gtk.Widget:
         return self._create_intro_page(
@@ -4110,6 +4388,22 @@ class SetupWizardWindow(AtlasWindow):
             f"Captured {profile.tier} tier (score {profile.total_score}) with"
             f" {recommended} mode recommended."
         )
+
+    def _apply_database_intro(self) -> str:
+        return "Reviewed database options."
+
+    def _apply_storage_architecture(self) -> str:
+        architecture = self._collect_storage_architecture_state()
+        self.controller.apply_storage_architecture(architecture)
+        backend_combo = self._database_backend_combo
+        if isinstance(backend_combo, Gtk.ComboBoxText):
+            try:
+                backend_combo.set_active_id(architecture.conversation_backend)
+            except Exception:
+                pass
+
+        mode_name = architecture.performance_mode.value.title()
+        return f"Storage architecture saved using {mode_name} PerformanceMode."
 
     def _apply_database(self) -> str:
         state = self._collect_database_state(strict=True)
