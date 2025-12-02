@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import dataclasses
+import importlib
 import logging
+import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, Mapping, Optional
@@ -35,6 +37,7 @@ __all__ = [
     "MessageBusState",
     "VectorStoreState",
     "OptionalState",
+    "HardwareProfile",
     "PrivilegedCredentialState",
     "ProviderState",
     "RetryPolicyState",
@@ -198,6 +201,22 @@ class SetupTypeState:
 
 
 @dataclass
+class HardwareProfile:
+    cpu_cores: int = 0
+    cpu_score: int = 0
+    memory_gb: float = 0.0
+    memory_score: int = 0
+    disk_free_gb: float = 0.0
+    disk_score: int = 0
+    gpu_count: int = 0
+    gpu_score: int = 0
+    network_speed_mbps: float = 0.0
+    network_score: int = 0
+    total_score: int = 0
+    tier: str = "unknown"
+
+
+@dataclass
 class WizardState:
     database: DatabaseState = field(default_factory=DatabaseState)
     job_scheduling: JobSchedulingState = field(default_factory=JobSchedulingState)
@@ -210,6 +229,8 @@ class WizardState:
     user: UserState = field(default_factory=UserState)
     optional: OptionalState = field(default_factory=OptionalState)
     setup_type: SetupTypeState = field(default_factory=SetupTypeState)
+    hardware_profile: HardwareProfile = field(default_factory=HardwareProfile)
+    setup_recommended_mode: str | None = None
 
 
 def _parse_default_dsn(dsn: str, *, backend: Optional[str] = None) -> DatabaseState:
@@ -520,6 +541,160 @@ class SetupWizardController:
             data_region=residency.get("region"),
             residency_requirement=residency.get("residency_requirement"),
         )
+
+    # -- preflight ----------------------------------------------------------
+
+    def _score_metric(self, value: float, thresholds: list[tuple[float, int]]) -> int:
+        for boundary, score in thresholds:
+            if value >= boundary:
+                return score
+        return 1 if value > 0 else 0
+
+    def _determine_tier(self, total_score: int) -> str:
+        if total_score >= 18:
+            return "accelerated"
+        if total_score >= 12:
+            return "balanced"
+        if total_score > 0:
+            return "baseline"
+        return "unknown"
+
+    def _recommend_mode_for_tier(self, tier: str) -> str:
+        normalized = (tier or "").strip().lower()
+        if normalized == "accelerated":
+            return "performance"
+        if normalized == "balanced":
+            return "balanced"
+        return "eco"
+
+    def _get_psutil(self):
+        spec = importlib.util.find_spec("psutil")
+        if spec is None:
+            return None
+        return importlib.import_module("psutil")
+
+    def _detect_gpu(self) -> tuple[int, list[str]]:
+        spec = importlib.util.find_spec("torch")
+        if spec is None:
+            return 0, []
+        torch = importlib.import_module("torch")
+        try:
+            count = int(torch.cuda.device_count())
+        except Exception:
+            return 0, []
+        names: list[str] = []
+        for index in range(count):
+            try:
+                names.append(str(torch.cuda.get_device_name(index)))
+            except Exception:
+                names.append(f"GPU {index}")
+        return count, names
+
+    def _detect_network_speed(self, psutil_module: Any | None = None) -> float:
+        if psutil_module is None:
+            psutil_module = self._get_psutil()
+        if psutil_module is None:
+            return 0.0
+        try:
+            stats = psutil_module.net_if_stats()
+        except Exception:
+            return 0.0
+        max_speed = 0.0
+        for entry in stats.values():
+            try:
+                speed = float(getattr(entry, "speed", 0.0) or 0.0)
+            except Exception:
+                speed = 0.0
+            if speed > 0:
+                max_speed = max(max_speed, speed)
+        return max_speed
+
+    def _collect_preflight_metrics(self) -> Dict[str, float]:
+        psutil_module = self._get_psutil()
+        cpu_cores = (
+            psutil_module.cpu_count(logical=False) or psutil_module.cpu_count(logical=True)
+            if psutil_module is not None
+            else 0
+        )
+        memory_total = 0.0
+        if psutil_module is not None:
+            memory = psutil_module.virtual_memory()
+            memory_total = float(getattr(memory, "total", 0.0) or 0.0)
+        home = Path.home()
+        try:
+            disk = shutil.disk_usage(home)
+        except Exception:
+            disk = shutil.disk_usage("/")
+        disk_free = float(getattr(disk, "free", 0.0) or 0.0)
+        gpu_count, _ = self._detect_gpu()
+        network_speed = self._detect_network_speed(psutil_module)
+        return {
+            "cpu_cores": float(cpu_cores or 0),
+            "memory_total": memory_total,
+            "disk_free": disk_free,
+            "gpu_count": float(gpu_count or 0),
+            "network_speed": float(network_speed or 0.0),
+        }
+
+    def run_preflight(self) -> HardwareProfile:
+        """Score local hardware and recommend a performance mode."""
+
+        metrics = self._collect_preflight_metrics()
+
+        memory_gb = metrics["memory_total"] / (1024**3) if metrics["memory_total"] else 0.0
+        disk_free_gb = metrics["disk_free"] / (1024**3) if metrics["disk_free"] else 0.0
+
+        cpu_score = self._score_metric(
+            metrics["cpu_cores"],
+            [(16, 5), (12, 4), (8, 3), (4, 2)],
+        )
+        memory_score = self._score_metric(
+            memory_gb,
+            [(64, 5), (32, 4), (16, 3), (8, 2)],
+        )
+        disk_score = self._score_metric(
+            disk_free_gb,
+            [(200, 5), (100, 4), (50, 3), (20, 2)],
+        )
+        gpu_score = self._score_metric(metrics["gpu_count"], [(2, 5), (1, 4)])
+        network_score = self._score_metric(
+            metrics["network_speed"],
+            [(1000, 5), (500, 4), (200, 3), (100, 2)],
+        )
+
+        total_score = cpu_score + memory_score + disk_score + gpu_score + network_score
+        tier = self._determine_tier(total_score)
+        recommended_mode = self._recommend_mode_for_tier(tier)
+
+        profile = HardwareProfile(
+            cpu_cores=int(metrics["cpu_cores"]),
+            cpu_score=cpu_score,
+            memory_gb=round(memory_gb, 1),
+            memory_score=memory_score,
+            disk_free_gb=round(disk_free_gb, 1),
+            disk_score=disk_score,
+            gpu_count=int(metrics["gpu_count"]),
+            gpu_score=gpu_score,
+            network_speed_mbps=round(metrics["network_speed"], 1),
+            network_score=network_score,
+            total_score=total_score,
+            tier=tier,
+        )
+
+        logger.info(
+            "Preflight complete: tier=%s, recommended_mode=%s, cpu=%s, memory_gb=%.1f, disk_gb=%.1f, gpu_count=%s, network=%.1fMbps",
+            tier,
+            recommended_mode,
+            profile.cpu_cores,
+            profile.memory_gb,
+            profile.disk_free_gb,
+            profile.gpu_count,
+            profile.network_speed_mbps,
+        )
+
+        self.state.hardware_profile = profile
+        self.state.setup_recommended_mode = recommended_mode
+        return profile
 
     # -- presets ------------------------------------------------------------
 
@@ -1312,6 +1487,8 @@ class SetupWizardController:
                 ],
             },
             "user": user_summary,
+            "hardware_profile": dataclasses.asdict(self.state.hardware_profile),
+            "setup_recommended_mode": self.state.setup_recommended_mode,
             "optional": dataclasses.asdict(self.state.optional),
             "setup_type": dataclasses.asdict(self.state.setup_type),
         }

@@ -226,6 +226,30 @@ def test_apply_setup_type_switches_between_presets():
     assert controller.state.job_scheduling.queue_size == 5
 
 
+def test_run_preflight_sets_recommendation(monkeypatch):
+    controller = SetupWizardController(config_manager=_StubConfigManager())
+
+    def _fake_metrics():
+        return {
+            "cpu_cores": 12.0,
+            "memory_total": 64 * 1024**3,
+            "disk_free": 500 * 1024**3,
+            "gpu_count": 1.0,
+            "network_speed": 1000.0,
+        }
+
+    monkeypatch.setattr(controller, "_collect_preflight_metrics", _fake_metrics)
+
+    profile = controller.run_preflight()
+
+    assert profile.tier == "accelerated"
+    assert controller.state.setup_recommended_mode == "performance"
+
+    summary = controller.build_summary()
+    assert summary["hardware_profile"]["tier"] == "accelerated"
+    assert summary["setup_recommended_mode"] == "performance"
+
+
 def test_export_config_writes_and_refreshes_state(tmp_path):
     _StubConfigManager.write_calls = 0
     _StubConfigManager.export_paths.clear()
