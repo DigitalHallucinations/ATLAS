@@ -686,6 +686,10 @@ class SetupWizardWindow(AtlasWindow):
         if hasattr(self._status_label, "add_css_class"):
             self._status_label.add_css_class("error-text")
 
+        message = self._format_error_message(text, error)
+        self._log_error(message, error)
+        self._reveal_logs_for_error()
+
     # -- UI helpers -----------------------------------------------------
 
     def _set_status(self, message: str) -> None:
@@ -734,6 +738,52 @@ class SetupWizardWindow(AtlasWindow):
             self.display_error(RuntimeError(message))
         else:
             self._set_status(message)
+
+    def _format_error_message(
+        self, message: str, error: BaseException | None = None
+    ) -> str:
+        step_name = None
+        if self._steps and 0 <= self._current_index < len(self._steps):
+            step_name = self._steps[self._current_index].name
+
+        details: list[str] = []
+        if step_name:
+            details.append(step_name)
+        if message:
+            details.append(message)
+        if error is not None:
+            class_name = error.__class__.__name__
+            if class_name and class_name not in message:
+                details.append(class_name)
+
+        return " — ".join(details) if details else message
+
+    def _log_error(self, message: str, error: BaseException | None = None) -> None:
+        if not message and error is None:
+            return
+
+        self._initialize_log_handler()
+
+        log_message = message or (str(error) if error else "")
+
+        if log_message:
+            logger.getChild("wizard").error(log_message, exc_info=error)
+
+    def _reveal_logs_for_error(self) -> None:
+        try:
+            window = self._log_window
+            if window is None:
+                window = self._ensure_log_window()
+            else:
+                if hasattr(window, "present"):
+                    try:
+                        window.present()
+                    except Exception:
+                        pass
+                self._resume_log_handler(getattr(window, "text_view", None))
+                self._set_log_button_active(True)
+        except Exception:  # pragma: no cover - defensive fallback
+            self._set_log_button_active(True)
 
     def _choose_config_path(
         self,
