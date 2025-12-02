@@ -16,6 +16,7 @@ from sqlalchemy.engine.url import make_url
 
 from ATLAS.config import (
     ConfigManager,
+    StorageArchitecture,
     get_default_conversation_store_backends,
     infer_conversation_store_backend,
 )
@@ -38,6 +39,7 @@ __all__ = [
     "VectorStoreState",
     "OptionalState",
     "HardwareProfile",
+    "StorageArchitecture",
     "PrivilegedCredentialState",
     "ProviderState",
     "RetryPolicyState",
@@ -223,6 +225,9 @@ class WizardState:
     message_bus: MessageBusState = field(default_factory=MessageBusState)
     vector_store: VectorStoreState = field(default_factory=VectorStoreState)
     kv_store: KvStoreState = field(default_factory=KvStoreState)
+    storage_architecture: StorageArchitecture = field(
+        default_factory=StorageArchitecture
+    )
     providers: ProviderState = field(default_factory=ProviderState)
     speech: SpeechState = field(default_factory=SpeechState)
     users: SetupUsersState = field(default_factory=SetupUsersState)
@@ -469,6 +474,9 @@ class SetupWizardController:
             reuse_conversation_store=bool(postgres_settings.get("reuse_conversation_store", True)),
             url=postgres_settings.get("url"),
         )
+
+        storage_architecture = self.config_manager.get_storage_architecture()
+        self.state.storage_architecture = dataclasses.replace(storage_architecture)
 
         provider_keys = self.config_manager._get_provider_env_keys()
         api_key_state: Dict[str, str] = {}
@@ -1018,6 +1026,11 @@ class SetupWizardController:
         self.config_manager._persist_conversation_database_url(ensured, backend=backend)
         self.config_manager._write_yaml_config()
         self.state.database = dataclasses.replace(state, dsn=ensured)
+        architecture = dataclasses.replace(
+            self.state.storage_architecture,
+            conversation_backend=(backend or "postgresql").strip().lower(),
+        )
+        self.apply_storage_architecture(architecture)
         logger.info("Persisted conversation store configuration for backend '%s'", backend)
         return ensured
 
@@ -1027,6 +1040,25 @@ class SetupWizardController:
             default_adapter=state.adapter,
         )
         self.state.vector_store = dataclasses.replace(state)
+        architecture = dataclasses.replace(
+            self.state.storage_architecture,
+            vector_store_adapter=state.adapter,
+        )
+        self.apply_storage_architecture(architecture)
+        return settings
+
+    def apply_storage_architecture(
+        self, architecture: StorageArchitecture | Mapping[str, Any]
+    ) -> Dict[str, Any]:
+        """Persist storage architecture selections."""
+
+        if isinstance(architecture, StorageArchitecture):
+            normalized = architecture
+        else:
+            normalized = StorageArchitecture.from_mapping(architecture)
+
+        settings = self.config_manager.set_storage_architecture(normalized)
+        self.state.storage_architecture = dataclasses.replace(normalized)
         return settings
 
     # -- job scheduling ----------------------------------------------------

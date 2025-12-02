@@ -20,6 +20,7 @@ from .messaging import MessagingConfigSection, setup_message_bus
 from .persistence import PersistenceConfigSection, PersistenceConfigMixin, KV_STORE_UNSET
 from .providers import ProviderConfigSections, ProviderConfigMixin
 from .tooling import ToolingConfigSection
+from .storage import StorageArchitecture, PerformanceMode, PERFORMANCE_PRESETS
 from .ui_config import UIConfig
 
 __all__ = [
@@ -34,6 +35,9 @@ __all__ = [
     "PersistenceConfigSection",
     "ToolingConfigSection",
     "UIConfig",
+    "StorageArchitecture",
+    "PerformanceMode",
+    "PERFORMANCE_PRESETS",
     "KV_STORE_UNSET",
     "_DEFAULT_CONVERSATION_STORE_DSN_BY_BACKEND",
     "_DEFAULT_CONVERSATION_STORE_BACKENDS",
