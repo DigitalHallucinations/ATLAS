@@ -541,6 +541,38 @@ def test_setup_wizard_debug_button_opens_log_window(monkeypatch):
     window.close()
 
 
+def test_display_error_does_not_auto_open_log_window(monkeypatch):
+    application = Gtk.Application()
+    controller = FakeController()
+
+    window = SetupWizardWindow(
+        application=application,
+        atlas=None,
+        on_success=lambda: None,
+        on_error=lambda exc: None,
+        controller=controller,
+    )
+
+    def _fail_if_called(self: SetupWizardWindow):
+        raise AssertionError("log window should not open automatically")
+
+    monkeypatch.setattr(SetupWizardWindow, "_ensure_log_window", _fail_if_called)
+
+    window.display_error(RuntimeError("bootstrap failed"))
+
+    assert window._log_window is None
+
+    button = window._log_toggle_button
+    context_getter = getattr(button, "get_style_context", None)
+    if callable(context_getter):
+        context = context_getter()
+        has_class = getattr(context, "has_class", None)
+        if callable(has_class):
+            assert has_class("setup-wizard-debug-button-active")
+
+    window.close()
+
+
 def test_log_window_displays_setup_logs(monkeypatch):
     application = Gtk.Application()
     controller = FakeController()
