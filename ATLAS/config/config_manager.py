@@ -58,6 +58,7 @@ from .persistence import PersistenceConfigMixin
 from .providers import ProviderConfigSections
 from .providers import ProviderConfigMixin
 from .tooling import ToolingConfigSection
+from .storage import StorageArchitecture
 from .ui_config import UIConfig
 from modules.logging.audit_templates import get_audit_template
 from modules.orchestration.message_bus import MessageBus
@@ -247,6 +248,9 @@ class ConfigManager(ProviderConfigMixin, PersistenceConfigMixin, ConfigCore):
             write_yaml_callback=self._write_yaml_config,
         )
         self.conversation_summary.apply()
+
+        # --- Storage architecture defaults ---------------------------
+        self.storage_architecture = self._initialise_storage_architecture()
 
         # --- Local profile defaults -----------------------------------
         profile_cap = self.get_config("LOCAL_PROFILE_LIMIT", None)
@@ -496,6 +500,68 @@ class ConfigManager(ProviderConfigMixin, PersistenceConfigMixin, ConfigCore):
     def _get_provider_env_keys(self) -> Dict[str, str]:
         """Return the mapping between provider display names and environment keys."""
         return self.providers.get_env_keys()
+
+    def _initialise_storage_architecture(self) -> StorageArchitecture:
+        """Load the storage architecture block and persist defaults if missing."""
+
+        storage_block = self.yaml_config.get("storage")
+        if not isinstance(storage_block, Mapping):
+            storage_block = self.config.get("storage")
+
+        architecture_block = None
+        if isinstance(storage_block, Mapping):
+            architecture_candidate = storage_block.get("architecture")
+            if isinstance(architecture_candidate, Mapping):
+                architecture_block = architecture_candidate
+
+        architecture = StorageArchitecture.from_mapping(architecture_block)
+        self._persist_storage_architecture(architecture, write=False)
+        return architecture
+
+    def _persist_storage_architecture(
+        self, architecture: StorageArchitecture, *, write: bool = True
+    ) -> Dict[str, Any]:
+        """Write the storage architecture block to runtime and YAML config."""
+
+        storage_yaml = dict(self.yaml_config.get("storage") or {})
+        storage_config = dict(self.config.get("storage") or {})
+        block = architecture.to_dict()
+
+        storage_yaml["architecture"] = dict(block)
+        storage_config["architecture"] = dict(block)
+
+        self.yaml_config["storage"] = storage_yaml
+        self.config["storage"] = storage_config
+
+        if write:
+            self._write_yaml_config()
+
+        return dict(block)
+
+    def get_storage_architecture(self) -> StorageArchitecture:
+        """Return the normalised storage architecture definition."""
+
+        return self.storage_architecture
+
+    def get_storage_architecture_settings(self) -> Dict[str, Any]:
+        """Return the storage architecture block as a mapping."""
+
+        return self.storage_architecture.to_dict()
+
+    def set_storage_architecture(
+        self, architecture: StorageArchitecture | Mapping[str, Any]
+    ) -> Dict[str, Any]:
+        """Persist storage architecture preferences and refresh cached state."""
+
+        if isinstance(architecture, StorageArchitecture):
+            normalized = architecture
+        elif isinstance(architecture, Mapping):
+            normalized = StorageArchitecture.from_mapping(architecture)
+        else:
+            raise TypeError("storage architecture must be a StorageArchitecture or mapping")
+
+        self.storage_architecture = normalized
+        return self._persist_storage_architecture(normalized)
 
 
 
