@@ -378,6 +378,39 @@ def _complete_setup_type_step(window, mode="personal"):
     window._on_next_clicked(None)
 
 
+def test_next_button_enables_finish_on_last_step():
+    application = Gtk.Application()
+    controller = FakeController()
+
+    window = SetupWizardWindow(
+        application=application,
+        atlas=None,
+        on_success=lambda: None,
+        on_error=lambda exc: None,
+        controller=controller,
+    )
+
+    try:
+        last_index = len(window._steps) - 1
+        window._go_to_step(last_index)
+
+        total_pages = window._get_total_pages()
+        if total_pages > 1:
+            window._show_subpage(last_index, total_pages - 1)
+
+        window._update_navigation()
+
+        sensitive_getter = getattr(window._next_button, "get_sensitive", None)
+        assert callable(sensitive_getter)
+        assert sensitive_getter()
+
+        label_getter = getattr(window._next_button, "get_label", None)
+        if callable(label_getter):
+            assert label_getter() == "Finish"
+    finally:
+        window.close()
+
+
 def _populate_company_entries(window, **overrides):
     defaults = {
         "company_name": "Atlas",
