@@ -1,131 +1,115 @@
 ACTIVE_USER: null
+DEFAULT_MODEL: gpt-4o-mini
+DEFAULT_PROVIDER: openai
 DEFAULT_STT_PROVIDER: whisper
 DEFAULT_TTS_PROVIDER: eleven_labs
+LOCAL_PROFILE_LIMIT: 5
 MODEL_CACHE:
   OpenAI:
-    - chatgpt-4o-latest
-    - gpt-3.5-turbo
-    - gpt-3.5-turbo-0125
-    - gpt-3.5-turbo-1106
-    - gpt-3.5-turbo-16k
-    - gpt-3.5-turbo-instruct
-    - gpt-3.5-turbo-instruct-0914
-    - gpt-4
-    - gpt-4-0125-preview
-    - gpt-4-0613
-    - gpt-4-1106-preview
-    - gpt-4-turbo
-    - gpt-4-turbo-2024-04-09
-    - gpt-4-turbo-preview
-    - gpt-4.1
-    - gpt-4.1-2025-04-14
-    - gpt-4.1-mini
-    - gpt-4.1-mini-2025-04-14
-    - gpt-4.1-nano
-    - gpt-4.1-nano-2025-04-14
-    - gpt-4o
-    - gpt-4o-2024-05-13
-    - gpt-4o-2024-08-06
-    - gpt-4o-2024-11-20
-    - gpt-4o-audio-preview
-    - gpt-4o-audio-preview-2024-10-01
-    - gpt-4o-audio-preview-2024-12-17
-    - gpt-4o-audio-preview-2025-06-03
-    - gpt-4o-mini
-    - gpt-4o-mini-2024-07-18
-    - gpt-4o-mini-audio-preview
-    - gpt-4o-mini-audio-preview-2024-12-17
-    - gpt-4o-mini-realtime-preview
-    - gpt-4o-mini-realtime-preview-2024-12-17
-    - gpt-4o-mini-search-preview
-    - gpt-4o-mini-search-preview-2025-03-11
-    - gpt-4o-mini-transcribe
-    - gpt-4o-mini-tts
-    - gpt-4o-realtime-preview
-    - gpt-4o-realtime-preview-2024-10-01
-    - gpt-4o-realtime-preview-2024-12-17
-    - gpt-4o-realtime-preview-2025-06-03
-    - gpt-4o-search-preview
-    - gpt-4o-search-preview-2025-03-11
-    - gpt-4o-transcribe
-    - gpt-4o-transcribe-diarize
-    - gpt-5
-    - gpt-5-2025-08-07
-    - gpt-5-chat-latest
-    - gpt-5-codex
-    - gpt-5-mini
-    - gpt-5-mini-2025-08-07
-    - gpt-5-nano
-    - gpt-5-nano-2025-08-07
-    - gpt-5-pro
-    - gpt-5-pro-2025-10-06
-    - gpt-5-search-api
-    - gpt-5-search-api-2025-10-14
-    - gpt-audio
-    - gpt-audio-2025-08-28
-    - gpt-audio-mini
-    - gpt-audio-mini-2025-10-06
-    - gpt-image-1
-    - gpt-image-1-mini
-    - gpt-realtime
-    - gpt-realtime-2025-08-28
-    - gpt-realtime-mini
-    - gpt-realtime-mini-2025-10-06
-    - o1
-    - o1-2024-12-17
-    - o1-mini
-    - o1-mini-2024-09-12
-    - o1-pro
-    - o1-pro-2025-03-19
-    - o3
-    - o3-2025-04-16
-    - o3-mini
-    - o3-mini-2025-01-31
-    - omni-moderation-2024-09-26
-    - omni-moderation-latest
-    - babbage-002
-    - codex-mini-latest
-    - computer-use-preview
-    - computer-use-preview-2025-03-11
-    - dall-e-2
-    - dall-e-3
-    - davinci-002
-    - o4-mini
-    - o4-mini-2025-04-16
-    - o4-mini-deep-research
-    - o4-mini-deep-research-2025-06-26
-    - sora-2
-    - sora-2-pro
-    - text-embedding-3-large
-    - text-embedding-3-small
-    - text-embedding-ada-002
-    - tts-1
-    - tts-1-1106
-    - tts-1-hd
-    - tts-1-hd-1106
-    - whisper-1
+  - chatgpt-4o-latest
+  - gpt-3.5-turbo
+  - gpt-3.5-turbo-0125
+  - gpt-3.5-turbo-1106
+  - gpt-3.5-turbo-16k
+  - gpt-3.5-turbo-instruct
+  - gpt-3.5-turbo-instruct-0914
+  - gpt-4
+  - gpt-4-0125-preview
+  - gpt-4-0613
+  - gpt-4-1106-preview
+  - gpt-4-turbo
+  - gpt-4-turbo-2024-04-09
+  - gpt-4-turbo-preview
+  - gpt-4.1
+  - gpt-4.1-2025-04-14
+  - gpt-4.1-mini
+  - gpt-4.1-mini-2025-04-14
+  - gpt-4.1-nano
+  - gpt-4.1-nano-2025-04-14
+  - gpt-4o
+  - gpt-4o-2024-05-13
+  - gpt-4o-2024-08-06
+  - gpt-4o-2024-11-20
+  - gpt-4o-audio-preview
+  - gpt-4o-audio-preview-2024-10-01
+  - gpt-4o-audio-preview-2024-12-17
+  - gpt-4o-audio-preview-2025-06-03
+  - gpt-4o-mini
+  - gpt-4o-mini-2024-07-18
+  - gpt-4o-mini-audio-preview
+  - gpt-4o-mini-audio-preview-2024-12-17
+  - gpt-4o-mini-realtime-preview
+  - gpt-4o-mini-realtime-preview-2024-12-17
+  - gpt-4o-mini-search-preview
+  - gpt-4o-mini-search-preview-2025-03-11
+  - gpt-4o-mini-transcribe
+  - gpt-4o-mini-tts
+  - gpt-4o-realtime-preview
+  - gpt-4o-realtime-preview-2024-10-01
+  - gpt-4o-realtime-preview-2024-12-17
+  - gpt-4o-realtime-preview-2025-06-03
+  - gpt-4o-search-preview
+  - gpt-4o-search-preview-2025-03-11
+  - gpt-4o-transcribe
+  - gpt-4o-transcribe-diarize
+  - gpt-5
+  - gpt-5-2025-08-07
+  - gpt-5-chat-latest
+  - gpt-5-codex
+  - gpt-5-mini
+  - gpt-5-mini-2025-08-07
+  - gpt-5-nano
+  - gpt-5-nano-2025-08-07
+  - gpt-5-pro
+  - gpt-5-pro-2025-10-06
+  - gpt-5-search-api
+  - gpt-5-search-api-2025-10-14
+  - gpt-audio
+  - gpt-audio-2025-08-28
+  - gpt-audio-mini
+  - gpt-audio-mini-2025-10-06
+  - gpt-image-1
+  - gpt-image-1-mini
+  - gpt-realtime
+  - gpt-realtime-2025-08-28
+  - gpt-realtime-mini
+  - gpt-realtime-mini-2025-10-06
+  - o1
+  - o1-2024-12-17
+  - o1-mini
+  - o1-mini-2024-09-12
+  - o1-pro
+  - o1-pro-2025-03-19
+  - o3
+  - o3-2025-04-16
+  - o3-mini
+  - o3-mini-2025-01-31
+  - omni-moderation-2024-09-26
+  - omni-moderation-latest
+  - babbage-002
+  - codex-mini-latest
+  - computer-use-preview
+  - computer-use-preview-2025-03-11
+  - dall-e-2
+  - dall-e-3
+  - davinci-002
+  - o4-mini
+  - o4-mini-2025-04-16
+  - o4-mini-deep-research
+  - o4-mini-deep-research-2025-06-26
+  - sora-2
+  - sora-2-pro
+  - text-embedding-3-large
+  - text-embedding-3-small
+  - text-embedding-ada-002
+  - tts-1
+  - tts-1-1106
+  - tts-1-hd
+  - tts-1-hd-1106
+  - whisper-1
 TTS_ENABLED: true
-feature_flags:
-  enterprise: false
-  auth_connectors: false
-  delegated_admin: false
-data_residency:
-  region: us
-  residency_requirement: regional-primary
-dlp:
-  enabled: true
-  default:
-    enabled: true
-    replacement: "<redacted>"
-    patterns:
-      - "(?i)ssn[^0-9]*\\d{3}-\\d{2}-\\d{4}"
-      - "(?i)passport[^A-Za-z0-9]*[A-Za-z0-9]{6,9}"
-      - "(?i)secret_key\\s*[:=]\\s*\\S+"
-      - "(?i)api_key\\s*[:=]\\s*\\S+"
-      - "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}"
-      - "\\b\\d{3}[-.\\s]?\\d{2}[-.\\s]?\\d{4}\\b"
-  tenants: {}
 conversation_database:
+  backend: sqlite
   pool:
     max_overflow: 10
     size: 5
@@ -134,12 +118,69 @@ conversation_database:
     days: 30
     history_message_limit: 500
   retention_worker:
-    interval_seconds: 3600
-    min_interval_seconds: 60
-    max_interval_seconds: 7200
     backlog_high_water: 50
     backlog_low_water: 0
-    jitter_seconds: 30
     error_backoff_factor: 2.0
     error_backoff_max_seconds: 21600
-  url: postgresql+psycopg://atlas:atlas@localhost:5432/atlas
+    interval_seconds: 3600
+    jitter_seconds: 30
+    max_interval_seconds: 7200
+    min_interval_seconds: 60
+  url: sqlite:////home/jeremy/Projects/ATLAS/atlas.sqlite3
+data_residency:
+  region: us
+  residency_requirement: regional-primary
+dlp:
+  default:
+    enabled: true
+    patterns:
+    - (?i)ssn[^0-9]*\d{3}-\d{2}-\d{4}
+    - (?i)passport[^A-Za-z0-9]*[A-Za-z0-9]{6,9}
+    - (?i)secret_key\s*[:=]\s*\S+
+    - (?i)api_key\s*[:=]\s*\S+
+    - '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}'
+    - \b\d{3}[-.\s]?\d{2}[-.\s]?\d{4}\b
+    replacement: <redacted>
+  enabled: true
+  tenants: {}
+feature_flags:
+  auth_connectors: false
+  delegated_admin: false
+  enterprise: false
+job_scheduling:
+  enabled: false
+  job_store_url: postgresql+psycopg://atlas:atlas@localhost:5432/atlas
+  retry_policy:
+    backoff_multiplier: 2.0
+    backoff_seconds: 30.0
+    jitter_seconds: 5.0
+    max_attempts: 3
+messaging:
+  backend: in_memory
+storage:
+  architecture:
+    conversation_backend: sqlite
+    kv_reuse_conversation_store: true
+    performance_mode: eco
+    vector_store_adapter: in_memory
+task_queue:
+  jobstore_url: postgresql+psycopg://atlas:atlas@localhost:5432/atlas
+  retry_policy:
+    backoff_multiplier: 2.0
+    backoff_seconds: 30.0
+    jitter_seconds: 5.0
+    max_attempts: 3
+tools:
+  kv_store:
+    adapters:
+      postgres:
+        global_quota_bytes: null
+        namespace_quota_bytes: 1048576
+        pool: {}
+        reuse_conversation_store: true
+      sqlite:
+        global_quota_bytes: null
+        namespace_quota_bytes: 1048576
+        reuse_conversation_store: false
+        url: sqlite:///atlas_kv.sqlite
+    default_adapter: postgres
