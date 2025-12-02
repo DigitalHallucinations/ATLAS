@@ -3,11 +3,13 @@ from pathlib import Path
 
 import pytest
 
+from ATLAS.config import PerformanceMode, StorageArchitecture
 from ATLAS.setup import (
     AdminProfile,
     JobSchedulingState,
     KvStoreState,
     RetryPolicyState,
+    VectorStoreState,
     SetupWizardController,
 )
 from modules.conversation_store.bootstrap import BootstrapError
@@ -64,6 +66,12 @@ class _StubConfigManager:
 
     def get_vector_store_settings(self):
         return {"default_adapter": "in_memory", "adapters": {"in_memory": {}}}
+
+    def get_storage_architecture(self):
+        return StorageArchitecture()
+
+    def get_storage_architecture_settings(self):
+        return StorageArchitecture().to_dict()
 
     def _write_yaml_config(self):
         self.__class__.write_calls += 1
@@ -127,6 +135,32 @@ def test_build_summary_includes_kv_store_payload():
     assert "kv_store" in summary
     assert summary["kv_store"] == dataclasses.asdict(controller.state.kv_store)
     assert summary["setup_type"] == dataclasses.asdict(controller.state.setup_type)
+
+
+def test_build_summary_includes_storage_architecture_and_mode():
+    controller = SetupWizardController(config_manager=_StubConfigManager())
+    controller.state.database.backend = "mongodb"
+    controller.state.vector_store = VectorStoreState(adapter="qdrant")
+    controller.state.kv_store = KvStoreState(
+        reuse_conversation_store=False,
+        url="redis://cache", 
+    )
+    controller.state.storage_architecture = StorageArchitecture(
+        performance_mode=PerformanceMode.PERFORMANCE,
+        conversation_backend="mongodb",
+        kv_reuse_conversation_store=False,
+        vector_store_adapter="qdrant",
+    )
+
+    summary = controller.build_summary()
+
+    architecture = summary.get("storage_architecture")
+    assert architecture["performance_mode"] == PerformanceMode.PERFORMANCE.value
+    assert architecture["main_db"] == "mongodb"
+    assert architecture["document_db"] == "mongodb"
+    assert architecture["vector_db"] == "qdrant"
+    assert architecture["kv_store"]["reuse_conversation_store"] is False
+    assert architecture["kv_store"]["url"] == "redis://cache"
 
 
 def test_user_profile_staging_and_summary_mask_secrets():

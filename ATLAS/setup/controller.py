@@ -1475,6 +1475,7 @@ class SetupWizardController:
         user_state = self.state.user
         privileged_state = user_state.privileged_credentials
         staged_privileged = self.get_privileged_credentials()
+        architecture_state = self.state.storage_architecture
         user_summary: Dict[str, Any] = {
             "username": user_state.username,
             "email": user_state.email,
@@ -1493,6 +1494,18 @@ class SetupWizardController:
             user_summary["database_privileged_username"] = username
             user_summary["has_database_privileged_password"] = bool(password)
         return {
+            "storage_architecture": {
+                "performance_mode": architecture_state.performance_mode.value,
+                "main_db": self.state.database.backend
+                or architecture_state.conversation_backend,
+                "document_db": architecture_state.conversation_backend,
+                "vector_db": self.state.vector_store.adapter
+                or architecture_state.vector_store_adapter,
+                "kv_store": {
+                    "reuse_conversation_store": architecture_state.kv_reuse_conversation_store,
+                    "url": self.state.kv_store.url,
+                },
+            },
             "database": dataclasses.asdict(self.state.database),
             "job_scheduling": dataclasses.asdict(self.state.job_scheduling),
             "message_bus": dataclasses.asdict(self.state.message_bus),
