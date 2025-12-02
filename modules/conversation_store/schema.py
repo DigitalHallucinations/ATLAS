@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import contextlib
-from typing import Any
+import re
+from typing import Any, Iterable
 
 from ._compat import Engine, create_engine, inspect, sessionmaker, text
 from .models import Base
@@ -35,20 +36,118 @@ def resolve_engine(session_factory: sessionmaker) -> Engine:
     return engine
 
 
-def create_schema(session_factory: sessionmaker) -> None:
+def _parse_version(version: str | None) -> tuple[int, ...] | None:
+    """Parse a PostgreSQL extension version string into numeric components."""
+
+    if not version:
+        return None
+
+    parts: list[int] = []
+    for piece in re.split(r"[^0-9]+", str(version)):
+        if not piece:
+            continue
+        try:
+            parts.append(int(piece))
+        except ValueError:
+            continue
+    return tuple(parts) if parts else None
+
+
+def _supports_hnsw(version: str | None) -> bool:
+    parsed = _parse_version(version)
+    if parsed is None:
+        return False
+    return parsed >= (0, 5, 0)
+
+
+def _ensure_pgvector_extension(engine: Engine, *, logger=None) -> tuple[bool, str | None]:
+    """Ensure the pgvector extension is available and return its version."""
+
+    dialect_name = getattr(engine.dialect, "name", "")
+    if dialect_name != "postgresql":
+        return False, None
+
+    try:
+        with engine.begin() as connection:
+            version = connection.execute(
+                text("SELECT extversion FROM pg_extension WHERE extname = 'vector'")
+            ).scalar_one_or_none()
+            if version is None:
+                connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+                version = connection.execute(
+                    text("SELECT extversion FROM pg_extension WHERE extname = 'vector'")
+                ).scalar_one_or_none()
+    except Exception as exc:
+        if logger:
+            logger.warning("Unable to ensure pgvector extension is installed: %s", exc)
+        return False, None
+
+    if logger:
+        if version:
+            logger.info("pgvector extension detected (version %s)", version)
+        else:
+            logger.warning("pgvector extension could not be detected even after install attempt")
+
+    return version is not None, str(version) if version is not None else None
+
+
+def _ensure_hnsw_indexes(
+    engine: Engine,
+    *,
+    logger=None,
+    opclasses: Iterable[tuple[str, str]] | None = None,
+) -> None:
+    """Create HNSW indexes for embedding columns when supported."""
+
+    dialect_name = getattr(engine.dialect, "name", "")
+    if dialect_name != "postgresql":
+        return
+
+    inspector = inspect(engine)
+    vector_columns = {column["name"] for column in inspector.get_columns("message_vectors")}
+    if "embedding" not in vector_columns:
+        return
+
+    operations = opclasses or (
+        ("ix_message_vectors_embedding_hnsw_cosine", "vector_cosine_ops"),
+        ("ix_message_vectors_embedding_hnsw_l2", "vector_l2_ops"),
+    )
+
+    with engine.begin() as connection:
+        for index_name, opclass in operations:
+            try:
+                connection.execute(
+                    text(
+                        f"CREATE INDEX IF NOT EXISTS {index_name} "
+                        f"ON message_vectors USING hnsw (embedding {opclass})"
+                    )
+                )
+            except Exception as exc:
+                if logger:
+                    logger.warning(
+                        "Skipping creation of HNSW index %s due to error: %s", index_name, exc
+                    )
+                continue
+            if logger:
+                logger.info("Ensured HNSW index '%s' with opclass %s", index_name, opclass)
+
+
+def create_schema(session_factory: sessionmaker, *, logger=None) -> None:
     """Create conversation store tables if they do not already exist."""
 
     from modules.job_store import ensure_job_schema
     from modules.task_store import ensure_task_schema
 
     engine = resolve_engine(session_factory)
+    dialect_name = getattr(engine.dialect, "name", "")
+
+    has_pgvector, pgvector_version = _ensure_pgvector_extension(engine, logger=logger)
 
     Base.metadata.create_all(engine)
     ensure_task_schema(engine)
     ensure_job_schema(engine)
 
     inspector = inspect(engine)
-    dialect_name = getattr(engine.dialect, "name", "")
 
     with engine.begin() as connection:
         user_columns = {column["name"] for column in inspector.get_columns("users")}
@@ -142,6 +241,15 @@ def create_schema(session_factory: sessionmaker) -> None:
                         ON messages USING gin (message_text_tsv)
                     """
                 )
+            )
+
+    if dialect_name == "postgresql" and has_pgvector:
+        if _supports_hnsw(pgvector_version):
+            _ensure_hnsw_indexes(engine, logger=logger)
+        elif logger:
+            logger.warning(
+                "pgvector version %s does not support HNSW indexes; upgrade to >= 0.5.0 to enable acceleration",
+                pgvector_version or "unknown",
             )
 
 

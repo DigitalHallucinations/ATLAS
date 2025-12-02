@@ -52,8 +52,8 @@ class ConversationStoreRepository:
     # ------------------------------------------------------------------
     # Schema bootstrap
 
-    def create_schema(self) -> None:
-        _create_schema(self._session_factory)
+    def create_schema(self, *, logger=None) -> None:
+        _create_schema(self._session_factory, logger=logger)
 
     # ------------------------------------------------------------------
     # Account helpers

@@ -1269,7 +1269,7 @@ class SetupWizardController:
 
         retention = self.config_manager.get_conversation_retention_policies()
         repository = ConversationStoreRepository(factory, retention=retention)
-        repository.create_schema()
+        repository.create_schema(logger=logger)
         return repository
 
     # -- optional ----------------------------------------------------------
