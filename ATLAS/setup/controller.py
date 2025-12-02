@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, Mapping, Optional
@@ -21,6 +22,8 @@ from modules.conversation_store.repository import ConversationStoreRepository
 from modules.job_store import ensure_job_schema
 from modules.user_accounts.user_account_service import UserAccountService
 
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "BootstrapError",
@@ -350,6 +353,7 @@ class SetupWizardController:
         """Persist the active YAML configuration to ``path`` and refresh state."""
 
         destination = Path(path).expanduser()
+        logger.info("Exporting setup configuration to %s", destination)
         self.config_manager._write_yaml_config()
         exported = self.config_manager.export_yaml_config(destination)
         self._refresh_from_disk()
@@ -359,6 +363,7 @@ class SetupWizardController:
         """Load configuration from ``path`` into the managed config and refresh state."""
 
         source = Path(path).expanduser()
+        logger.info("Importing setup configuration from %s", source)
         self.config_manager.import_yaml_config(source)
         self._refresh_from_disk()
         return str(source)
@@ -366,6 +371,7 @@ class SetupWizardController:
     def _refresh_from_disk(self) -> None:
         """Reload the configuration manager and wizard state from disk."""
 
+        logger.info("Refreshing setup state from disk")
         try:
             self.config_manager = self._config_manager_factory()
         except Exception:  # pragma: no cover - fall back to default manager
@@ -384,6 +390,7 @@ class SetupWizardController:
         return 4, 100
 
     def _load_defaults(self) -> None:
+        logger.info("Loading setup defaults from configuration manager")
         conversation_config = self.config_manager.get_conversation_database_config()
         database_url = conversation_config.get("url") if isinstance(conversation_config, Mapping) else None
         backend_value = conversation_config.get("backend") if isinstance(conversation_config, Mapping) else None
@@ -398,6 +405,11 @@ class SetupWizardController:
             option_map = {option.name: option for option in options}
             selected = option_map.get(fallback_backend, options[0])
             self.state.database = _parse_default_dsn(selected.dsn, backend=selected.name)
+        logger.info(
+            "Loaded default conversation backend '%s' with database '%s'",
+            self.state.database.backend,
+            self.state.database.database,
+        )
 
         vector_settings = self.config_manager.get_vector_store_settings()
         adapter = vector_settings.get("default_adapter") if isinstance(vector_settings, Mapping) else None
@@ -515,6 +527,7 @@ class SetupWizardController:
         normalized = (mode or "").strip().lower()
         if normalized not in {"personal", "enterprise", "regulatory"}:
             fallback_mode = normalized or "custom"
+            logger.info("Unknown setup mode '%s'; falling back to custom configuration", mode)
             setup_state = SetupTypeState(mode=fallback_mode, applied=False, local_only=False)
             self.state.setup_type = setup_state
             return setup_state
@@ -525,6 +538,7 @@ class SetupWizardController:
 
         local_flag = current.local_only if local_only is None else bool(local_only)
 
+        logger.info("Applying setup profile '%s'", normalized)
         if normalized == "personal":
             self.state.message_bus = dataclasses.replace(
                 self.state.message_bus,
@@ -760,7 +774,9 @@ class SetupWizardController:
         safe_mode = (mode or "").strip().lower() or "personal"
         profile_dir = Path(__file__).resolve().parent.parent / "config" / "setup_presets"
         profile_path = profile_dir / f"{safe_mode}.yaml"
+        logger.info("Loading setup preset '%s' from %s", safe_mode, profile_path)
         if not profile_path.exists():
+            logger.info("Preset '%s' not found; skipping overrides", safe_mode)
             return {}
         try:
             with profile_path.open("r", encoding="utf-8") as handle:
@@ -768,6 +784,7 @@ class SetupWizardController:
                 if isinstance(loaded, Mapping):
                     return loaded
         except OSError:
+            logger.exception("Failed to load preset '%s' from %s", safe_mode, profile_path)
             return {}
         return {}
 
@@ -804,6 +821,7 @@ class SetupWizardController:
         *,
         privileged_credentials: tuple[str | None, str | None] | None = None,
     ) -> str:
+        logger.info("Applying database settings for backend '%s'", state.backend)
         dsn = _compose_dsn(state)
         kwargs: dict[str, Any] = {}
         if self._privileged_password_requester is not None:
@@ -813,14 +831,23 @@ class SetupWizardController:
         staged_privileged = self.get_privileged_credentials()
         if staged_privileged is not None:
             kwargs["privileged_credentials"] = staged_privileged
-        ensured = self._bootstrap(dsn, **kwargs)
+        try:
+            ensured = self._bootstrap(dsn, **kwargs)
+        except BootstrapError:
+            logger.exception("Conversation store bootstrap failed for DSN %s", dsn)
+            raise
+        except Exception:
+            logger.exception("Unexpected error bootstrapping conversation store for DSN %s", dsn)
+            raise
         backend = (state.backend or self.state.database.backend or "postgresql")
         self.config_manager._persist_conversation_database_url(ensured, backend=backend)
         self.config_manager._write_yaml_config()
         self.state.database = dataclasses.replace(state, dsn=ensured)
+        logger.info("Persisted conversation store configuration for backend '%s'", backend)
         return ensured
 
     def apply_vector_store_settings(self, state: VectorStoreState) -> Dict[str, Any]:
+        logger.info("Applying vector store settings for adapter '%s'", state.adapter)
         settings = self.config_manager.set_vector_store_settings(
             default_adapter=state.adapter,
         )
@@ -838,14 +865,18 @@ class SetupWizardController:
             staged_privileged = self.get_privileged_credentials()
             if staged_privileged is not None:
                 kwargs["privileged_credentials"] = staged_privileged
+            logger.info("Provisioning job store at %s", state.job_store_url)
             try:
                 ensured_job_store_url = self._bootstrap(state.job_store_url, **kwargs)
             except BootstrapError:
+                logger.exception("Job store bootstrap failed for URL %s", state.job_store_url)
                 raise
             except Exception as exc:
+                logger.exception("Unexpected error bootstrapping job store for URL %s", state.job_store_url)
                 raise BootstrapError(f"Failed to provision job store: {exc}") from exc
 
             if not ensured_job_store_url.startswith(("mongodb://", "mongodb+srv://")):
+                logger.info("Validating SQLAlchemy job store URL")
                 try:
                     make_url(ensured_job_store_url)
                 except Exception as exc:
@@ -855,8 +886,10 @@ class SetupWizardController:
 
                 engine = create_engine(ensured_job_store_url, future=True)
                 try:
+                    logger.info("Ensuring job store schema is initialized")
                     ensure_job_schema(engine)
                 except Exception as exc:
+                    logger.exception("Failed to initialize job store schema for URL %s", ensured_job_store_url)
                     raise BootstrapError(f"Failed to initialize job store schema: {exc}") from exc
                 finally:
                     engine.dispose()
@@ -876,11 +909,13 @@ class SetupWizardController:
             queue_size=state.queue_size if state.queue_size is not None else ConfigManager.UNSET,
         )
         self.state.job_scheduling = dataclasses.replace(state, job_store_url=ensured_job_store_url)
+        logger.info("Persisted job scheduling settings (enabled=%s)", state.enabled)
         return settings
 
     # -- messaging ---------------------------------------------------------
 
     def apply_message_bus(self, state: MessageBusState) -> Dict[str, Any]:
+        logger.info("Applying message bus settings for backend '%s'", state.backend)
         settings = self.config_manager.set_messaging_settings(
             backend=state.backend,
             redis_url=state.redis_url,
@@ -890,6 +925,7 @@ class SetupWizardController:
         return settings
 
     def apply_kv_store_settings(self, state: KvStoreState) -> Mapping[str, Any]:
+        logger.info("Applying key-value store settings (reuse=%s)", state.reuse_conversation_store)
         url_value = state.url if state.url else ConfigManager.UNSET
         settings = self.config_manager.set_kv_store_settings(
             url=url_value,
@@ -901,6 +937,11 @@ class SetupWizardController:
     # -- providers ---------------------------------------------------------
 
     def apply_provider_settings(self, state: ProviderState) -> ProviderState:
+        logger.info(
+            "Applying provider settings (default=%s, model=%s)",
+            state.default_provider,
+            state.default_model,
+        )
         provider_keys = self.config_manager._get_provider_env_keys()
         for provider, key in provider_keys.items():
             if provider in state.api_keys:
@@ -934,11 +975,17 @@ class SetupWizardController:
         self.state.providers = dataclasses.replace(
             state, api_keys=dict(state.api_keys), settings=dict(sanitized_settings)
         )
+        logger.info("Persisted %d provider configurations", len(self.state.providers.settings))
         return self.state.providers
 
     # -- speech ------------------------------------------------------------
 
     def apply_speech_settings(self, state: SpeechState) -> SpeechState:
+        logger.info(
+            "Applying speech settings (tts_enabled=%s, stt_enabled=%s)",
+            state.tts_enabled,
+            state.stt_enabled,
+        )
         self.config_manager.set_tts_enabled(bool(state.tts_enabled))
         self.config_manager.set_default_speech_providers(
             tts_provider=state.default_tts_provider,
@@ -953,6 +1000,7 @@ class SetupWizardController:
             self.config_manager.set_google_credentials(state.google_credentials)
 
         self.state.speech = dataclasses.replace(state)
+        logger.info("Speech settings persisted")
         return self.state.speech
 
     # -- user --------------------------------------------------------------
@@ -966,6 +1014,8 @@ class SetupWizardController:
             profile = self._state_to_profile(self.state.user)
 
         self.set_user_profile(profile)
+
+        logger.info("Registering initial user '%s'", profile.username)
 
         repository = self._get_conversation_repository()
         service = UserAccountService(
@@ -992,6 +1042,7 @@ class SetupWizardController:
         )
         self.config_manager.set_active_user(account.username)
         self._staged_admin_profile = dataclasses.replace(profile)
+        logger.info("Registered initial user '%s'", account.username)
         return {
             "username": account.username,
             "email": account.email,
@@ -1017,6 +1068,7 @@ class SetupWizardController:
     # -- optional ----------------------------------------------------------
 
     def apply_optional_settings(self, state: OptionalState) -> OptionalState:
+        logger.info("Applying optional settings (tenant=%s)", state.tenant_id)
         self.config_manager.set_tenant_id(state.tenant_id)
         self.config_manager.set_conversation_retention(
             days=state.retention_days,
@@ -1050,9 +1102,11 @@ class SetupWizardController:
             data_region=state.data_region,
             residency_requirement=state.residency_requirement,
         )
+        logger.info("Optional settings persisted")
         return self.state.optional
 
     def apply_company_identity(self, state: OptionalState) -> OptionalState:
+        logger.info("Applying company identity for %s", state.company_name)
         self.config_manager.set_company_identity(
             name=state.company_name,
             domain=state.company_domain,
@@ -1080,6 +1134,7 @@ class SetupWizardController:
             country=state.country,
             phone_number=state.phone_number,
         )
+        logger.info("Company identity persisted")
         return self.state.optional
 
     # -- staging helpers ----------------------------------------------------
