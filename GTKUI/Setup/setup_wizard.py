@@ -4262,8 +4262,12 @@ class SetupWizardWindow(AtlasWindow):
         if hasattr(self._back_button, "set_sensitive"):
             self._back_button.set_sensitive(has_previous_step or has_previous_page)
 
+        can_finish = bool(self._steps) and not (has_next_page or has_next_step)
+
         if hasattr(self._next_button, "set_sensitive"):
-            self._next_button.set_sensitive(has_next_page or has_next_step)
+            self._next_button.set_sensitive(
+                has_next_page or has_next_step or can_finish
+            )
 
         if hasattr(self._next_button, "set_label"):
             if has_next_page:
