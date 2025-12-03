@@ -3858,7 +3858,7 @@ class SetupWizardWindow(AtlasWindow):
         self._register_password_confirmation(password_entry, confirm_password_entry)
         row += 1
 
-        privileged_label = Gtk.Label(label="System privileged credentials")
+        privileged_label = Gtk.Label(label="Sudo privileged credentials")
         privileged_label.set_xalign(0.0)
         if hasattr(privileged_label, "add_css_class"):
             privileged_label.add_css_class("heading")
@@ -3902,7 +3902,7 @@ class SetupWizardWindow(AtlasWindow):
         self._user_advanced_widgets["sudo_confirm_entry"] = confirm_sudo_entry
         row += 1
 
-        db_label = Gtk.Label(label="Database privileged credentials")
+        db_label = Gtk.Label(label="Database service credentials")
         db_label.set_xalign(0.0)
         if hasattr(db_label, "add_css_class"):
             db_label.add_css_class("heading")
@@ -3944,7 +3944,7 @@ class SetupWizardWindow(AtlasWindow):
         self._register_linked_validation_trigger(sudo_password_entry, confirm_sudo_entry)
 
         instructions = (
-            "Collect the administrator password and privileged credentials so we can stage them for later steps."
+            "Collect the administrator password, sudo credentials, and database service account so we can stage them for later steps."
         )
 
         form = self._wrap_with_instructions(
@@ -5113,7 +5113,7 @@ class SetupWizardWindow(AtlasWindow):
 
         display_name = admin_entry.full_name or admin_entry.username
 
-        privileged_username, privileged_password = (db_username, db_password)
+        privileged_username, privileged_password = (sudo_username, sudo_password)
         self._privileged_credentials = (privileged_username, privileged_password)
         self.controller.set_privileged_credentials(self._privileged_credentials)
 
@@ -5127,8 +5127,8 @@ class SetupWizardWindow(AtlasWindow):
             date_of_birth=self.controller.state.user.date_of_birth,
             sudo_username=sudo_username,
             sudo_password=sudo_password,
-            privileged_db_username=privileged_username or "",
-            privileged_db_password=privileged_password or "",
+            privileged_db_username=db_username or "",
+            privileged_db_password=db_password or "",
         )
 
         self.controller.set_user_profile(profile)
