@@ -1799,7 +1799,7 @@ class SetupWizardWindow(AtlasWindow):
             setter = getattr(widget, "set_visible", None)
             if callable(setter):
                 try:
-                    setter(not is_personal)
+                    setter(True)
                 except Exception:  # pragma: no cover - GTK fallback
                     pass
 
