@@ -339,6 +339,7 @@ class SetupWizardWindow(AtlasWindow):
         steps_sidebar.append(steps_scroller)
 
         steps_scroller.set_child(self._step_list)
+        self._steps_scroller = steps_scroller
 
         # --- Center form container (middle) ---
         center_column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
@@ -368,6 +369,7 @@ class SetupWizardWindow(AtlasWindow):
         if hasattr(form_scroller, "set_max_content_width"):
             form_scroller.set_max_content_width(self._FORM_COLUMN_WIDTH)
         center_column.append(form_scroller)
+        self._form_scroller = form_scroller
 
         form_frame = Gtk.Frame()
         form_frame.set_vexpand(True)
@@ -387,6 +389,7 @@ class SetupWizardWindow(AtlasWindow):
         guidance_scroller.set_propagate_natural_height(False)
         guidance_scroller.set_propagate_natural_width(False)
         content.append(guidance_scroller)
+        self._guidance_scroller = guidance_scroller
 
         guidance_column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         guidance_column.set_hexpand(True)
@@ -1182,6 +1185,22 @@ class SetupWizardWindow(AtlasWindow):
         stack.set_vexpand(True)
         stack.connect("notify::visible-child", self._on_stack_visible_child_changed)
         return stack
+
+    def _scroll_scroller_to_top(self, scroller: Gtk.ScrolledWindow | None) -> None:
+        if not isinstance(scroller, Gtk.ScrolledWindow):
+            return
+
+        def _reset_scroll() -> None:
+            vadj = scroller.get_vadjustment()
+            if vadj is not None:
+                vadj.set_value(vadj.get_lower())
+            return False
+
+        GLib.idle_add(_reset_scroll)
+
+    def _reset_scroll_positions(self) -> None:
+        self._scroll_scroller_to_top(getattr(self, "_form_scroller", None))
+        self._scroll_scroller_to_top(getattr(self, "_guidance_scroller", None))
 
     def _create_step_container(
         self, index: int, step: WizardStep
@@ -4237,6 +4256,7 @@ class SetupWizardWindow(AtlasWindow):
             except Exception:  # pragma: no cover - defensive
                 pass
         if step_index == self._current_index:
+            self._reset_scroll_positions()
             self._update_guidance_for_widget(pages[page_index])
             self._update_navigation()
             self._update_step_status()
