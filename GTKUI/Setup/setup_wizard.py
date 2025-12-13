@@ -3907,18 +3907,6 @@ class SetupWizardWindow(AtlasWindow):
         admin_combo.connect("changed", lambda *_: self._apply_admin_selection_to_form())
         grid.attach(admin_combo, 1, row, 1, 1)
         row += 1
-        cap_hint = Gtk.Label(
-            label=(
-                "Personal mode supports up to 5 local profiles. Upgrade to Enterprise to add "
-                "more seats and unlock tenancy controls."
-            )
-        )
-        cap_hint.set_wrap(True)
-        cap_hint.set_xalign(0.0)
-        cap_hint.set_visible(False)
-        grid.attach(cap_hint, 0, row, 2, 1)
-        self._personal_cap_hint = cap_hint
-        row += 1
         self._user_entries["password"] = self._create_labeled_entry(
             grid, row, "Password", state.password, visibility=False
         )

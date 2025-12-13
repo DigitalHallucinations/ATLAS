@@ -128,6 +128,20 @@ def build_setup_type_page(wizard: "SetupWizardWindow") -> Gtk.Widget:
 
     box.append(table)
 
+    personal_cap_hint = Gtk.Label(
+        label=(
+            "Personal mode supports up to 5 local profiles. Upgrade to Enterprise to add "
+            "more seats and unlock tenancy controls."
+        )
+    )
+    personal_cap_hint.set_wrap(True)
+    personal_cap_hint.set_xalign(0.0)
+    personal_cap_hint.set_visible(False)
+    if hasattr(personal_cap_hint, "add_css_class"):
+        personal_cap_hint.add_css_class("dim-label")
+    box.append(personal_cap_hint)
+    wizard._personal_cap_hint = personal_cap_hint
+
     local_only_toggle = Gtk.CheckButton(
         label="Keep data on this device (SQLite and in-memory queues)"
     )
