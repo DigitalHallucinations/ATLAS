@@ -2082,7 +2082,7 @@ class SetupWizardWindow(AtlasWindow):
                 return
             has_starter = bool(self.controller.state.users.entries)
             field_label = "Temporary password" if has_starter else "Password"
-            password_required = has_starter and password_entry.get_sensitive()
+            password_required = True
             if password_required and not password:
                 self.display_error(ValueError(f"{field_label} is required"))
                 return
@@ -2184,7 +2184,7 @@ class SetupWizardWindow(AtlasWindow):
 
     def _update_user_password_labels(self) -> None:
         has_existing_user = bool(self.controller.state.users.entries)
-        allow_passwords = has_existing_user
+        allow_passwords = True
         label_map = {
             "password": "Temporary password" if has_existing_user else "Password",
             "confirm_password": "Confirm temporary password"
