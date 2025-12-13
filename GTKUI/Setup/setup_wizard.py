@@ -686,8 +686,13 @@ class SetupWizardWindow(AtlasWindow):
         if hasattr(self._status_label, "add_css_class"):
             self._status_label.add_css_class("error-text")
 
-        message = self._format_error_message(text, error)
-        self._log_error(message, error)
+        suppress_traceback = self._should_suppress_traceback(error)
+        formatted_error = error if not suppress_traceback else None
+
+        message = self._format_error_message(
+            text, formatted_error, include_details=not suppress_traceback
+        )
+        self._log_error(message, formatted_error)
         self._reveal_logs_for_error()
 
     # -- UI helpers -----------------------------------------------------
@@ -740,8 +745,15 @@ class SetupWizardWindow(AtlasWindow):
             self._set_status(message)
 
     def _format_error_message(
-        self, message: str, error: BaseException | None = None
+        self,
+        message: str,
+        error: BaseException | None = None,
+        *,
+        include_details: bool = True,
     ) -> str:
+        if not include_details:
+            return message
+
         step_name = None
         if self._steps and 0 <= self._current_index < len(self._steps):
             step_name = self._steps[self._current_index].name
@@ -757,6 +769,11 @@ class SetupWizardWindow(AtlasWindow):
                 details.append(class_name)
 
         return " — ".join(details) if details else message
+
+    def _should_suppress_traceback(self, error: BaseException) -> bool:
+        return isinstance(error, RuntimeError) and (
+            str(error).strip() == "ATLAS setup is incomplete."
+        )
 
     def _log_error(self, message: str, error: BaseException | None = None) -> None:
         if not message and error is None:
