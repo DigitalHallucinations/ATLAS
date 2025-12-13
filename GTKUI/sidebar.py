@@ -472,6 +472,7 @@ class MainWindow(AtlasWindow):
 
         widget.set_hexpand(True)
         widget.set_vexpand(True)
+        self._reset_page_scroll(widget)
         tab_label = self._create_tab_header(title, page_id)
         page_index = self.notebook.append_page(widget, tab_label)
         self.notebook.set_tab_reorderable(widget, True)
@@ -480,6 +481,35 @@ class MainWindow(AtlasWindow):
         if controller is not None:
             self._page_controllers[page_id] = controller
         return widget
+
+    def _reset_page_scroll(self, widget: Gtk.Widget) -> None:
+        scrollers: list[Gtk.ScrolledWindow] = []
+
+        def _collect_scrollers(root: Gtk.Widget | None) -> None:
+            if root is None:
+                return
+            if isinstance(root, Gtk.ScrolledWindow):
+                scrollers.append(root)
+                return
+            get_first_child = getattr(root, "get_first_child", None)
+            get_next_sibling = getattr(root, "get_next_sibling", None)
+            if not callable(get_first_child) or not callable(get_next_sibling):
+                return
+            child = get_first_child()
+            while child is not None:
+                _collect_scrollers(child)
+                child = get_next_sibling()
+
+        _collect_scrollers(widget)
+
+        for scroller in scrollers:
+            def _reset_scroll(sc=scroller) -> None:
+                vadj = sc.get_vadjustment()
+                if vadj is not None:
+                    vadj.set_value(vadj.get_lower())
+                return False
+
+            GLib.idle_add(_reset_scroll)
 
     def _focus_page(self, widget: Gtk.Widget) -> None:
         page_index = self.notebook.page_num(widget)
