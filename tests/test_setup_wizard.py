@@ -149,6 +149,7 @@ class FakeController:
             username=profile.username or "",
             email=profile.email or "",
             password=profile.password or "",
+            admin_password=getattr(profile, "admin_password", "") or "",
             display_name=profile.display_name or "",
             full_name=profile.full_name or "",
             domain=profile.domain or "",
@@ -351,6 +352,8 @@ def _populate_user_entries(window, **overrides):
         "date_of_birth": "1990-01-01",
         "password": "changeme",
         "confirm_password": "changeme",
+        "admin_password": "AdminSecret!",
+        "admin_confirm_password": "AdminSecret!",
         "sudo_username": "atlas-admin",
         "sudo_password": "SudoPass!",
         "confirm_sudo_password": "SudoPass!",
@@ -720,6 +723,7 @@ def test_setup_wizard_happy_path(monkeypatch):
     assert staged_profile.email == "admin@example.com"
     assert staged_profile.full_name == "Atlas Admin"
     assert staged_profile.domain == "example.com"
+    assert staged_profile.admin_password == "AdminSecret!"
     assert staged_profile.sudo_username == "atlas-admin"
     assert staged_profile.sudo_password == "SudoPass!"
     assert window._database_entries["user"].get_text() == "admin"

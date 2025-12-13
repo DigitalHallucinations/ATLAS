@@ -65,6 +65,7 @@ config_module = types.ModuleType("ATLAS.config")
 config_module.__path__ = []
 _real_config_module = importlib.import_module("ATLAS.config")
 config_module.ConfigManager = type("ConfigManager", (), {"UNSET": object()})
+config_module.StorageArchitecture = _real_config_module.StorageArchitecture
 config_module._DEFAULT_CONVERSATION_STORE_DSN_BY_BACKEND = {
     "postgresql": "postgresql+psycopg://atlas@localhost:5432/atlas",
 }
@@ -393,6 +394,7 @@ class DummyController:
             username=profile.username or "",
             email=profile.email or "",
             password=profile.password or "",
+            admin_password=getattr(profile, "admin_password", "") or "",
             display_name=profile.display_name or "",
             full_name=profile.full_name or "",
             domain=profile.domain or "",
@@ -645,6 +647,8 @@ def test_configure_user_stages_profile_and_normalizes_date():
     passwords_iter = iter([
         "P@ssw0rd!",  # account password
         "P@ssw0rd!",  # account confirm
+        "Adm1nP@ss",  # admin password
+        "Adm1nP@ss",  # admin confirm
         "S3cret!",  # sudo password
         "S3cret!",  # sudo confirm
     ])
@@ -678,8 +682,10 @@ def test_configure_user_stages_profile_and_normalizes_date():
         "Privileged sudo username: ",
     ]
     assert password_prompts == [
-        "Administrator password: ",
-        "Confirm password: ",
+        "Administrator login password: ",
+        "Confirm login password: ",
+        "Administrative password: ",
+        "Confirm administrative password: ",
         "Privileged sudo password: ",
         "Confirm privileged sudo password: ",
     ]
@@ -690,6 +696,7 @@ def test_configure_user_stages_profile_and_normalizes_date():
     assert staged_profile.domain == "example.com"
     assert staged_profile.sudo_username == "root"
     assert staged_profile.sudo_password == "S3cret!"
+    assert staged_profile.admin_password == "Adm1nP@ss"
     assert staged_profile.privileged_db_username == "dbadmin"
     assert staged_profile.privileged_db_password == "dbpass"
     assert controller.set_privileged_credentials_calls == [
@@ -700,6 +707,7 @@ def test_configure_user_stages_profile_and_normalizes_date():
     assert result["domain"] == "example.com"
     assert result["privileged_credentials"]["sudo_username"] == "root"
     assert result["privileged_credentials"]["sudo_password"] == "S3cret!"
+    assert result.get("admin_password") == "Adm1nP@ss"
 
 
 def test_install_postgresql_reuses_staged_sudo_password(monkeypatch):
@@ -826,6 +834,7 @@ def test_run_non_interactive_consumes_environment(monkeypatch, tmp_path):
         "ATLAS_ADMIN_USERNAME": "admin",
         "ATLAS_ADMIN_EMAIL": "admin@example.com",
         "ATLAS_ADMIN_PASSWORD": "secret",
+        "ATLAS_ADMIN_PRIVILEGED_PASSWORD": "admin-secret",
         "ATLAS_ADMIN_FULL_NAME": "Admin User",
         "ATLAS_ADMIN_DISPLAY_NAME": "Administrator",
         "ATLAS_ADMIN_DOMAIN": "example.com",
@@ -865,6 +874,8 @@ def test_run_non_interactive_consumes_environment(monkeypatch, tmp_path):
     assert result == sentinel
     assert controller.applied_setup_modes == ["enterprise"]
     assert controller.registered_users and controller.registered_users[0].username == "admin"
+    assert controller.registered_users[0].password == "secret"
+    assert controller.registered_users[0].admin_password == "admin-secret"
 
     db_state = controller.applied_database_states[-1]
     assert db_state.host == "db.example.com"
@@ -873,6 +884,8 @@ def test_run_non_interactive_consumes_environment(monkeypatch, tmp_path):
     assert db_state.user == "atlas_user"
     assert db_state.password == "db-pass"
     assert controller.privileged_credentials[-1] == ("postgres", "pg-pass")
+
+    assert controller.state.user.admin_password == "admin-secret"
 
     provider_state = controller.state.providers
     assert provider_state.default_provider == "openai"

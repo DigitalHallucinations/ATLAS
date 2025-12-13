@@ -132,6 +132,7 @@ class UserState:
     username: str = ""
     email: str = ""
     password: str = ""
+    admin_password: str = ""
     display_name: str = ""
     full_name: str = ""
     domain: str = ""
@@ -146,6 +147,7 @@ class AdminProfile:
     username: str = ""
     email: str = ""
     password: str = ""
+    admin_password: str = ""
     display_name: str = ""
     full_name: str = ""
     domain: str = ""
@@ -1359,6 +1361,7 @@ class SetupWizardController:
             username=state.username,
             email=state.email,
             password=state.password,
+            admin_password=state.admin_password,
             display_name=state.display_name,
             full_name=state.full_name,
             domain=state.domain,
@@ -1379,6 +1382,7 @@ class SetupWizardController:
             username=profile.username or "",
             email=profile.email or "",
             password=profile.password or "",
+            admin_password=profile.admin_password or "",
             display_name=profile.display_name or "",
             full_name=profile.full_name or "",
             domain=profile.domain or "",
@@ -1484,6 +1488,7 @@ class SetupWizardController:
             "domain": user_state.domain,
             "date_of_birth": user_state.date_of_birth,
             "has_password": bool(user_state.password),
+            "has_admin_password": bool(getattr(user_state, "admin_password", "")),
             "privileged_credentials": {
                 "sudo_username": privileged_state.sudo_username,
                 "has_sudo_password": bool(privileged_state.sudo_password),
