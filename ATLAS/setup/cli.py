@@ -181,6 +181,12 @@ class SetupUtility:
         if not password_candidate:
             raise RuntimeError("Missing required configuration: ATLAS_ADMIN_PASSWORD")
 
+        admin_password_candidate = self._env_get("ATLAS_ADMIN_PRIVILEGED_PASSWORD")
+        if admin_password_candidate is None:
+            admin_password_candidate = getattr(state, "admin_password", "").strip()
+        if not admin_password_candidate:
+            admin_password_candidate = password_candidate
+
         full_name = self._env_get("ATLAS_ADMIN_FULL_NAME")
         if full_name is None:
             full_name = state.full_name
@@ -222,6 +228,7 @@ class SetupUtility:
             username=username,
             email=email,
             password=password_candidate,
+            admin_password=admin_password_candidate,
             display_name=display_name or "",
             full_name=full_name or "",
             domain=domain or "",
@@ -903,13 +910,22 @@ class SetupUtility:
             except ValueError:
                 self._print("Invalid date format. Please enter as YYYY-MM-DD or MM/DD/YYYY.")
                 continue
-            password_prompt = "Administrator password"
+            password_prompt = "Administrator login password"
             if state.password:
                 password_prompt += " (leave blank to keep existing, type !clear! to remove)"
             password = self._ask_password(password_prompt, state.password)
-            confirm = self._ask_password("Confirm password", password)
+            confirm = self._ask_password("Confirm login password", password)
             if password != confirm:
                 self._print("Passwords do not match. Try again.")
+                continue
+
+            admin_password_prompt = "Administrative password"
+            if getattr(state, "admin_password", ""):
+                admin_password_prompt += " (leave blank to keep existing, type !clear! to remove)"
+            admin_password = self._ask_password(admin_password_prompt, getattr(state, "admin_password", ""))
+            admin_confirm = self._ask_password("Confirm administrative password", admin_password)
+            if admin_password != admin_confirm:
+                self._print("Admin passwords do not match. Try again.")
                 continue
             display_name = self._ask("Display name", state.display_name)
             sudo_username = self._ask(
@@ -938,6 +954,7 @@ class SetupUtility:
                 username=username,
                 email=email,
                 password=password,
+                admin_password=admin_password,
                 display_name=display_name,
                 full_name=full_name,
                 domain=domain,
