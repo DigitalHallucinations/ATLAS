@@ -343,9 +343,9 @@ class SetupWizardWindow(AtlasWindow):
 
         # --- Center form container (middle) ---
         center_column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        center_column.set_hexpand(False)
+        center_column.set_hexpand(True)
         center_column.set_vexpand(True)
-        center_column.set_halign(Gtk.Align.CENTER)
+        center_column.set_halign(Gtk.Align.FILL)
         center_column.set_size_request(self._FORM_COLUMN_WIDTH, -1)
         if hasattr(center_column, "add_css_class"):
             center_column.add_css_class("setup-wizard-main")
@@ -366,8 +366,8 @@ class SetupWizardWindow(AtlasWindow):
         form_scroller.set_size_request(self._FORM_COLUMN_WIDTH, -1)
         if hasattr(form_scroller, "set_min_content_width"):
             form_scroller.set_min_content_width(self._FORM_COLUMN_WIDTH)
-        if hasattr(form_scroller, "set_max_content_width"):
-            form_scroller.set_max_content_width(self._FORM_COLUMN_WIDTH)
+        if hasattr(form_scroller, "set_hexpand"):
+            form_scroller.set_hexpand(True)
         center_column.append(form_scroller)
         self._form_scroller = form_scroller
 
