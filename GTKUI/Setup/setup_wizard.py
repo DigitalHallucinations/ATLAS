@@ -2115,7 +2115,7 @@ class SetupWizardWindow(AtlasWindow):
         box.append(list_heading)
 
         list_box = Gtk.ListBox()
-        list_box.set_selection_mode(Gtk.SelectionMode.NONE)
+        list_box.set_selection_mode(Gtk.SelectionMode.SINGLE)
         list_box.set_hexpand(True)
         list_box.set_vexpand(True)
         self._user_list_box = list_box
@@ -2155,6 +2155,19 @@ class SetupWizardWindow(AtlasWindow):
             label = Gtk.Label(label=self._format_user_display(entry))
             label.set_xalign(0.0)
             label.set_wrap(True)
+            click_controller = Gtk.GestureClick()
+
+            def _repopulate_fields(
+                _gesture: Gtk.GestureClick,
+                _n_press: int,
+                _x: float,
+                _y: float,
+                current_entry: SetupUserEntry = entry,
+            ) -> None:
+                self._populate_user_collection_fields(current_entry)
+
+            click_controller.connect("pressed", _repopulate_fields)
+            label.add_controller(click_controller)
             remove_button = Gtk.Button(label="Remove")
 
             def _remove_user(_: Gtk.Widget, username: str = entry.username) -> None:
@@ -2194,6 +2207,22 @@ class SetupWizardWindow(AtlasWindow):
         if getattr(entry, "requires_password_reset", False):
             return f"{base} — temporary password (reset required)"
         return f"{base} — permanent password"
+
+    def _populate_user_collection_fields(self, entry: SetupUserEntry) -> None:
+        field_map = {
+            "full_name": entry.full_name,
+            "username": entry.username,
+            "email": getattr(entry, "email", ""),
+            "password": entry.password,
+            "confirm_password": entry.password,
+        }
+        for key, value in field_map.items():
+            widget = self._user_collection_entries.get(key)
+            if isinstance(widget, Gtk.Entry):
+                widget.set_text(value)
+        username_entry = self._user_collection_entries.get("username")
+        if isinstance(username_entry, Gtk.Entry):
+            username_entry.grab_focus()
 
     def _seed_personal_admin_user(self) -> None:
         mode = getattr(self.controller.state.setup_type, "mode", "")
