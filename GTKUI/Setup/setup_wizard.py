@@ -141,17 +141,33 @@ class SetupWizardWindow(AtlasWindow):
             if monitors is not None and monitors.get_n_items() > 0:
                 monitor = monitors.get_item(0)
                 if monitor is not None:
-                    workarea = monitor.get_workarea()
-                    available_width = max(320, workarea.width - margin)
-                    available_height = max(320, workarea.height - margin)
+                    workarea = None
+                    geometry = None
 
-                    desired_width = min(preferred_width, available_width)
-                    desired_height = min(preferred_height, available_height)
+                    if hasattr(monitor, "get_workarea"):
+                        try:
+                            workarea = monitor.get_workarea()
+                        except Exception:  # pragma: no cover - backend differences
+                            workarea = None
 
-                    if available_width >= fallback_width:
-                        desired_width = max(desired_width, fallback_width)
-                    if available_height >= fallback_height:
-                        desired_height = max(desired_height, fallback_height)
+                    if workarea is None and hasattr(monitor, "get_geometry"):
+                        try:
+                            geometry = monitor.get_geometry()
+                        except Exception:  # pragma: no cover - backend differences
+                            geometry = None
+
+                    bounds = workarea or geometry
+                    if bounds is not None:
+                        available_width = max(320, bounds.width - margin)
+                        available_height = max(320, bounds.height - margin)
+
+                        desired_width = min(preferred_width, available_width)
+                        desired_height = min(preferred_height, available_height)
+
+                        if available_width >= fallback_width:
+                            desired_width = max(desired_width, fallback_width)
+                        if available_height >= fallback_height:
+                            desired_height = max(desired_height, fallback_height)
 
         super().__init__(
             title="ATLAS Setup — Guided Configuration",
