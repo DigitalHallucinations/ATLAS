@@ -4236,11 +4236,24 @@ class SetupWizardWindow(AtlasWindow):
         set_tooltip = getattr(widget, "set_tooltip_text", None)
         set_description = getattr(widget, "set_accessible_description", None)
 
+        style_context = None
+        getter = getattr(widget, "get_style_context", None)
+        if callable(getter):
+            try:
+                style_context = getter()
+            except Exception:  # pragma: no cover - GTK stubs
+                style_context = None
+
         if is_valid:
             if callable(remove_class):
                 try:
                     remove_class(css_class)
                 except Exception:  # pragma: no cover - GTK stubs
+                    pass
+            elif style_context is not None:
+                try:
+                    style_context.remove_class(css_class)
+                except Exception:  # pragma: no cover - GTK fallback
                     pass
             base_tooltip = self._validation_base_tooltips.get(widget)
             if callable(set_tooltip):
@@ -4259,6 +4272,11 @@ class SetupWizardWindow(AtlasWindow):
                 try:
                     add_class(css_class)
                 except Exception:  # pragma: no cover - GTK stubs
+                    pass
+            elif style_context is not None:
+                try:
+                    style_context.add_class(css_class)
+                except Exception:  # pragma: no cover - GTK fallback
                     pass
             if callable(set_tooltip):
                 try:
