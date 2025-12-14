@@ -178,12 +178,23 @@ class NoopSetupWindow:
         NoopSetupWindow.created = True
 
 
+class FactoryAtlasProvider:
+    def __init__(self, factory):
+        self.factory = factory
+        self.calls = 0
+
+    def get_atlas(self):
+        self.calls += 1
+        return self.factory()
+
+
 def test_coordinator_launches_main_window_on_success():
     RecordingMainWindow.instances.clear()
     NoopSetupWindow.created = False
+    provider = FactoryAtlasProvider(DummyAtlas)
     coordinator = FirstRunCoordinator(
         application=object(),
-        atlas_factory=DummyAtlas,
+        atlas_provider=provider,
         main_window_cls=RecordingMainWindow,
         setup_window_cls=NoopSetupWindow,
         loop_runner=run_coroutine,
@@ -199,6 +210,7 @@ def test_coordinator_launches_main_window_on_success():
 
 def test_coordinator_shows_setup_when_initialize_fails():
     atlas = DummyAtlas()
+    provider = FactoryAtlasProvider(lambda: atlas)
 
     class FailingRunner:
         def __init__(self):
@@ -211,7 +223,7 @@ def test_coordinator_shows_setup_when_initialize_fails():
     runner = FailingRunner()
     coordinator = FirstRunCoordinator(
         application=object(),
-        atlas_factory=lambda: atlas,
+        atlas_provider=provider,
         main_window_cls=RecordingMainWindow,
         setup_window_cls=RecordingSetupWindow,
         loop_runner=runner,
@@ -229,6 +241,7 @@ def test_coordinator_shows_setup_when_initialize_fails():
 
 def test_setup_retry_closes_wizard_after_success():
     atlas = DummyAtlas()
+    provider = FactoryAtlasProvider(lambda: atlas)
 
     class ToggleRunner:
         def __init__(self):
@@ -243,7 +256,7 @@ def test_setup_retry_closes_wizard_after_success():
     runner = ToggleRunner()
     coordinator = FirstRunCoordinator(
         application=object(),
-        atlas_factory=lambda: atlas,
+        atlas_provider=provider,
         main_window_cls=RecordingMainWindow,
         setup_window_cls=RecordingSetupWindow,
         loop_runner=runner,
@@ -277,9 +290,10 @@ def test_setup_retry_recreates_atlas_on_factory_failure():
             return atlas
 
     factory = Factory()
+    provider = FactoryAtlasProvider(factory)
     coordinator = FirstRunCoordinator(
         application=object(),
-        atlas_factory=factory,
+        atlas_provider=provider,
         main_window_cls=RecordingMainWindow,
         setup_window_cls=RecordingSetupWindow,
         loop_runner=run_coroutine,
