@@ -3898,7 +3898,7 @@ class SetupWizardWindow(AtlasWindow):
         grid.set_vexpand(True)
 
         row = 0
-        admin_label = Gtk.Label(label="Initial admin")
+        admin_label = Gtk.Label(label="Admin(s)")
         admin_label.set_xalign(0.0)
         grid.attach(admin_label, 0, row, 1, 1)
         admin_combo = Gtk.ComboBoxText()
@@ -3938,9 +3938,17 @@ class SetupWizardWindow(AtlasWindow):
             visibility=False,
         )
         admin_confirm_password_entry = self._user_entries["admin_confirm_password"]
+        admin_confirm_password_label = grid.get_child_at(0, row)
         self._register_password_confirmation(
             admin_password_entry, admin_confirm_password_entry
         )
+        admin_password_entry.connect(
+            "changed",
+            lambda entry: admin_confirm_password_entry.set_text(entry.get_text()),
+        )
+        admin_confirm_password_entry.set_visible(False)
+        if isinstance(admin_confirm_password_label, Gtk.Widget):
+            admin_confirm_password_label.set_visible(False)
         row += 1
 
         privileged_label = Gtk.Label(label="Sudo privileged credentials")
