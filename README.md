@@ -158,6 +158,7 @@ Tool discovery endpoints (e.g., `/tools`) and capability registries feed downstr
 * [User Account Management](docs/user-accounts.md) – credentials, lockouts, and operator flows
 * [Shared Blackboard](docs/blackboard.md) – collaborative API surfaces
 * [AtlasServer API Reference](docs/server/api.md) – REST endpoints and semantics
+* [Architecture & Codebase Tour](docs/architecture-overview.md) – deeper walkthrough of runtime, personas, and orchestration
 * [Operations Runbooks](docs/ops/README.md) – dev environment and bus deployment guides
 * [GTK UI Overview](docs/ui/gtk-overview.md) – workspace controllers and extensions
 
