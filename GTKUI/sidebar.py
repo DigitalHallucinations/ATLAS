@@ -52,6 +52,9 @@ class MainWindow(AtlasWindow):
         self.tool_management.on_open_in_persona = self._open_tool_in_persona
         self.skill_management.on_open_in_persona = self._open_skill_in_persona
 
+        self._page_factories: Dict[str, Callable[[], Gtk.Widget | Tuple[Gtk.Widget, Any]]] = {}
+        self._register_page_factories()
+
         layout = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         layout.set_hexpand(True)
         layout.set_vexpand(True)
@@ -71,6 +74,58 @@ class MainWindow(AtlasWindow):
         self.notebook.set_scrollable(True)
         layout.append(self.notebook)
 
+    def _register_page_factories(self) -> None:
+        self._page_factories = {
+            "chat": self._build_chat_page,
+            "providers": self.provider_management.get_embeddable_widget,
+            "personas": self.persona_management.get_embeddable_widget,
+            "tools": self.tool_management.get_embeddable_widget,
+            "tasks": self.task_management.get_embeddable_widget,
+            "jobs": self.job_management.get_embeddable_widget,
+            "skills": self.skill_management.get_embeddable_widget,
+            "speech": self._build_speech_settings_page,
+            "settings": self._build_backup_settings_page,
+            "conversation-history": self._build_conversation_history_page,
+            "accounts": self._build_accounts_page,
+        }
+
+    def _build_chat_page(self) -> Gtk.Widget:
+        return ChatPage(self.ATLAS)
+
+    def _build_conversation_history_page(self) -> Gtk.Widget:
+        return ConversationHistoryPage(self.ATLAS)
+
+    def _build_speech_settings_page(self) -> Gtk.Widget:
+        return SpeechSettings(self.ATLAS)
+
+    def _build_backup_settings_page(self) -> Gtk.Widget:
+        return BackupSettings(self.ATLAS)
+
+    def _build_accounts_page(self) -> Tuple[Gtk.Widget, AccountDialog]:
+        dialog = AccountDialog(
+            self.ATLAS,
+            parent=self,
+            on_close=lambda: self._close_page("accounts"),
+        )
+        content = dialog.get_child()
+        if content is None:
+            fallback = Gtk.Label(label="Account management is unavailable.")
+            fallback.set_hexpand(True)
+            fallback.set_vexpand(True)
+            return fallback, dialog
+
+        dialog.set_child(None)
+        content.set_hexpand(True)
+        content.set_vexpand(True)
+
+        scroller = Gtk.ScrolledWindow()
+        scroller.set_hexpand(True)
+        scroller.set_vexpand(True)
+        scroller.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        scroller.set_child(content)
+
+        return scroller, dialog
+
     # ------------------------------------------------------------------
     # Navigation actions
     # ------------------------------------------------------------------
@@ -78,10 +133,7 @@ class MainWindow(AtlasWindow):
         if not self._ensure_initialized():
             return
 
-        def factory() -> Gtk.Widget:
-            return ChatPage(self.ATLAS)
-
-        page = self._open_or_focus_page("chat", "Chat", factory)
+        page = self._open_or_focus_page("chat", "Chat")
         if page is not None:
             self.sidebar.set_active_item("chat")
 
@@ -89,10 +141,7 @@ class MainWindow(AtlasWindow):
         if not self._ensure_initialized():
             return
 
-        def factory() -> Gtk.Widget:
-            return self.provider_management.get_embeddable_widget()
-
-        page = self._open_or_focus_page("providers", "Providers", factory)
+        page = self._open_or_focus_page("providers", "Providers")
         if page is not None:
             self.sidebar.set_active_item("providers")
 
@@ -100,10 +149,7 @@ class MainWindow(AtlasWindow):
         if not self._ensure_initialized():
             return
 
-        def factory() -> Gtk.Widget:
-            return self.persona_management.get_embeddable_widget()
-
-        page = self._open_or_focus_page("personas", "Personas", factory)
+        page = self._open_or_focus_page("personas", "Personas")
         if page is not None:
             self.sidebar.set_active_item("personas")
 
@@ -111,40 +157,28 @@ class MainWindow(AtlasWindow):
         if not self._ensure_initialized():
             return
 
-        def factory() -> Gtk.Widget:
-            return self.tool_management.get_embeddable_widget()
-
-        page = self._open_or_focus_page("tools", "Tools", factory)
+        page = self._open_or_focus_page("tools", "Tools")
         if page is not None:
             self.sidebar.set_active_item("tools")
-            if tool_name:
-                GLib.idle_add(self._focus_tool_in_manager, tool_name)
+            self._focus_tool_if_requested(tool_name)
 
     def show_task_workspace(self, task_id: str | None = None) -> None:
         if not self._ensure_initialized():
             return
 
-        def factory() -> Gtk.Widget:
-            return self.task_management.get_embeddable_widget()
-
-        page = self._open_or_focus_page("tasks", "Tasks", factory)
+        page = self._open_or_focus_page("tasks", "Tasks")
         if page is not None:
             self.sidebar.set_active_item("tasks")
-            if task_id:
-                GLib.idle_add(self._focus_task_in_manager, task_id)
+            self._focus_task_if_requested(task_id)
 
     def show_job_workspace(self, job_id: str | None = None) -> None:
         if not self._ensure_initialized():
             return
 
-        def factory() -> Gtk.Widget:
-            return self.job_management.get_embeddable_widget()
-
-        page = self._open_or_focus_page("jobs", "Jobs", factory)
+        page = self._open_or_focus_page("jobs", "Jobs")
         if page is not None:
             self.sidebar.set_active_item("jobs")
-            if job_id:
-                GLib.idle_add(self._focus_job_in_manager, job_id)
+            self._focus_job_if_requested(job_id)
 
     def create_new_job(self) -> None:
         if not self._ensure_initialized():
@@ -158,31 +192,21 @@ class MainWindow(AtlasWindow):
         if not self._ensure_initialized():
             return
 
-        def factory() -> Gtk.Widget:
-            return self.skill_management.get_embeddable_widget()
-
-        page = self._open_or_focus_page("skills", "Skills", factory)
+        page = self._open_or_focus_page("skills", "Skills")
         if page is not None:
             self.sidebar.set_active_item("skills")
-            if skill_name:
-                GLib.idle_add(self._focus_skill_in_manager, skill_name)
+            self._focus_skill_if_requested(skill_name)
 
     def show_speech_settings(self) -> None:
         if not self._ensure_initialized():
             return
 
-        def factory() -> Gtk.Widget:
-            return SpeechSettings(self.ATLAS)
-
-        page = self._open_or_focus_page("speech", "Speech", factory)
+        page = self._open_or_focus_page("speech", "Speech")
         if page is not None:
             self.sidebar.set_active_item("speech")
 
     def show_settings_page(self) -> None:
-        def factory() -> Gtk.Widget:
-            return BackupSettings(self.ATLAS)
-
-        page = self._open_or_focus_page("settings", "Settings", factory)
+        page = self._open_or_focus_page("settings", "Settings")
         if page is not None:
             self.sidebar.set_active_item("settings")
 
@@ -192,14 +216,9 @@ class MainWindow(AtlasWindow):
         if not self._ensure_initialized():
             return
 
-        def factory() -> Gtk.Widget:
-            return ConversationHistoryPage(self.ATLAS)
-
-        page = self._open_or_focus_page("conversation-history", "History", factory)
-        if page is not None and conversation_id:
-            focus = getattr(page, "focus_conversation", None)
-            if callable(focus):
-                GLib.idle_add(focus, conversation_id)
+        page = self._open_or_focus_page("conversation-history", "History")
+        if page is not None:
+            self._focus_conversation_if_requested(page, conversation_id)
 
     def handle_history_button(self) -> None:
         if not self._ensure_initialized():
@@ -379,32 +398,7 @@ class MainWindow(AtlasWindow):
         if not self._ensure_initialized():
             return
 
-        def factory() -> Tuple[Gtk.Widget, AccountDialog]:
-            dialog = AccountDialog(
-                self.ATLAS,
-                parent=self,
-                on_close=lambda: self._close_page("accounts"),
-            )
-            content = dialog.get_child()
-            if content is None:
-                fallback = Gtk.Label(label="Account management is unavailable.")
-                fallback.set_hexpand(True)
-                fallback.set_vexpand(True)
-                return fallback, dialog
-
-            dialog.set_child(None)
-            content.set_hexpand(True)
-            content.set_vexpand(True)
-
-            scroller = Gtk.ScrolledWindow()
-            scroller.set_hexpand(True)
-            scroller.set_vexpand(True)
-            scroller.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-            scroller.set_child(content)
-
-            return scroller, dialog
-
-        result = self._open_or_focus_page("accounts", "Account", factory)
+        result = self._open_or_focus_page("accounts", "Account")
         if result is not None:
             self.sidebar.set_active_item("accounts")
 
@@ -442,16 +436,17 @@ class MainWindow(AtlasWindow):
     # ------------------------------------------------------------------
     # Page management helpers
     # ------------------------------------------------------------------
-    def _open_or_focus_page(
-        self,
-        page_id: str,
-        title: str,
-        factory: Callable[[], Gtk.Widget | Tuple[Gtk.Widget, Any]],
-    ) -> Gtk.Widget | None:
+    def _open_or_focus_page(self, page_id: str, title: str) -> Gtk.Widget | None:
         widget = self._pages.get(page_id)
         if widget is not None:
             self._focus_page(widget)
             return widget
+
+        factory = self._page_factories.get(page_id)
+        if not callable(factory):
+            logger.error("No factory registered for %s", page_id)
+            self.show_error_dialog(f"Unable to open {title} page")
+            return None
 
         try:
             result = factory()
@@ -564,6 +559,31 @@ class MainWindow(AtlasWindow):
             return True
         self.show_error_dialog("ATLAS is not fully initialized. Please try again later.")
         return False
+
+    def _focus_tool_if_requested(self, tool_name: str | None) -> None:
+        if tool_name:
+            GLib.idle_add(self._focus_tool_in_manager, tool_name)
+
+    def _focus_task_if_requested(self, task_id: str | None) -> None:
+        if task_id:
+            GLib.idle_add(self._focus_task_in_manager, task_id)
+
+    def _focus_job_if_requested(self, job_id: str | None) -> None:
+        if job_id:
+            GLib.idle_add(self._focus_job_in_manager, job_id)
+
+    def _focus_skill_if_requested(self, skill_name: str | None) -> None:
+        if skill_name:
+            GLib.idle_add(self._focus_skill_in_manager, skill_name)
+
+    def _focus_conversation_if_requested(
+        self, page: Gtk.Widget, conversation_id: str | None
+    ) -> None:
+        if not conversation_id:
+            return
+        focus = getattr(page, "focus_conversation", None)
+        if callable(focus):
+            GLib.idle_add(focus, conversation_id)
 
     def _focus_tool_in_manager(self, tool_name: str) -> bool:
         if not self.tool_management.focus_tool(tool_name):
