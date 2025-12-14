@@ -2331,12 +2331,6 @@ class SetupWizardWindow(AtlasWindow):
             if isinstance(widget, Gtk.Entry):
                 widget.set_text(value)
 
-        admin_password = getattr(self.controller.state.user, "admin_password", "")
-        for key in ("admin_password", "admin_confirm_password"):
-            widget = self._user_entries.get(key)
-            if isinstance(widget, Gtk.Entry):
-                widget.set_text(admin_password)
-
     def _build_database_intro_page(self) -> Gtk.Widget:
         page = self._create_intro_page(
             "About the Database",
@@ -3936,37 +3930,6 @@ class SetupWizardWindow(AtlasWindow):
         self._register_password_confirmation(password_entry, confirm_password_entry)
         row += 1
 
-        self._user_entries["admin_password"] = self._create_labeled_entry(
-            grid,
-            row,
-            "Admin password",
-            getattr(state, "admin_password", ""),
-            visibility=False,
-        )
-        admin_password_entry = self._user_entries["admin_password"]
-        self._register_required_text(admin_password_entry, "Admin password", strip=False)
-        row += 1
-        self._user_entries["admin_confirm_password"] = self._create_labeled_entry(
-            grid,
-            row,
-            "Confirm admin password",
-            getattr(state, "admin_password", ""),
-            visibility=False,
-        )
-        admin_confirm_password_entry = self._user_entries["admin_confirm_password"]
-        admin_confirm_password_label = grid.get_child_at(0, row)
-        self._register_password_confirmation(
-            admin_password_entry, admin_confirm_password_entry
-        )
-        admin_password_entry.connect(
-            "changed",
-            lambda entry: admin_confirm_password_entry.set_text(entry.get_text()),
-        )
-        admin_confirm_password_entry.set_visible(False)
-        if isinstance(admin_confirm_password_label, Gtk.Widget):
-            admin_confirm_password_label.set_visible(False)
-        row += 1
-
         privileged_label = Gtk.Label(label="Sudo privileged credentials")
         privileged_label.set_xalign(0.0)
         if hasattr(privileged_label, "add_css_class"):
@@ -4074,8 +4037,6 @@ class SetupWizardWindow(AtlasWindow):
         mapping = {
             "password": state.password,
             "confirm_password": state.password,
-            "admin_password": getattr(state, "admin_password", ""),
-            "admin_confirm_password": getattr(state, "admin_password", ""),
             "sudo_username": privileged_state.sudo_username,
             "sudo_password": privileged_state.sudo_password,
             "confirm_sudo_password": privileged_state.sudo_password,
@@ -5203,8 +5164,6 @@ class SetupWizardWindow(AtlasWindow):
         )
         password = self._user_entries["password"].get_text()
         confirm = self._user_entries["confirm_password"].get_text()
-        admin_password = self._user_entries["admin_password"].get_text()
-        admin_confirm = self._user_entries["admin_confirm_password"].get_text()
         sudo_username = self._user_entries["sudo_username"].get_text().strip()
         sudo_password = self._user_entries["sudo_password"].get_text()
         confirm_sudo = self._user_entries["confirm_sudo_password"].get_text()
@@ -5222,10 +5181,6 @@ class SetupWizardWindow(AtlasWindow):
             raise ValueError("Password is required")
         if password != confirm:
             raise ValueError("Passwords do not match")
-        if not admin_password:
-            raise ValueError("Admin password is required")
-        if admin_password != admin_confirm:
-            raise ValueError("Admin passwords do not match")
         if not sudo_username:
             raise ValueError("Sudo username is required")
         if not sudo_password:
@@ -5272,7 +5227,7 @@ class SetupWizardWindow(AtlasWindow):
             username=admin_entry.username,
             email=getattr(admin_entry, "email", "").strip(),
             password=password,
-            admin_password=admin_password,
+            admin_password=password,
             display_name=display_name,
             full_name=admin_entry.full_name.strip(),
             domain=normalized_domain,
