@@ -11,6 +11,7 @@ from ATLAS.ATLAS import ATLAS
 from ATLAS.setup_marker import is_setup_complete
 from GTKUI.Setup.first_run import FirstRunCoordinator
 from GTKUI.sidebar import MainWindow
+from atlas_provider import AtlasProvider
 
 logger = logging.getLogger(__name__)
 
@@ -19,23 +20,10 @@ def main() -> None:
     app = Gtk.Application(application_id='com.example.atlas')
 
     def on_activate(app: Gtk.Application) -> None:
-        atlas_instance: ATLAS | None = None
-
-        def atlas_factory() -> ATLAS:
-            nonlocal atlas_instance
-            if not is_setup_complete():
-                logger.error(
-                    "ATLAS setup is incomplete. Launching the setup wizard."
-                )
-                raise RuntimeError("ATLAS setup is incomplete.")
-
-            if atlas_instance is None:
-                atlas_instance = ATLAS()
-            return atlas_instance
-
+        atlas_provider = AtlasProvider(atlas_cls=ATLAS, setup_check=is_setup_complete)
         coordinator = FirstRunCoordinator(
             application=app,
-            atlas_factory=atlas_factory,
+            atlas_provider=atlas_provider,
             main_window_cls=MainWindow,
         )
 
@@ -46,6 +34,7 @@ def main() -> None:
         app._atlas_instance = coordinator.atlas  # type: ignore[attr-defined]
         app._main_window = coordinator.main_window  # type: ignore[attr-defined]
         app._setup_window = coordinator.setup_window  # type: ignore[attr-defined]
+        app._atlas_provider = atlas_provider  # type: ignore[attr-defined]
 
     app.connect('activate', on_activate)
     app.run()

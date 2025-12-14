@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Protocol
 
 import gi
 
@@ -12,8 +12,14 @@ from gi.repository import Gtk
 
 from .setup_wizard import SetupWizardWindow
 
-AtlasFactory = Callable[[], Any]
 LoopRunner = Callable[[Any], Any]
+
+
+class AtlasProvider(Protocol):
+    """Protocol describing an object that can provide an ATLAS instance."""
+
+    def get_atlas(self) -> Any:
+        ...
 
 
 class FirstRunCoordinator:
@@ -23,13 +29,13 @@ class FirstRunCoordinator:
         self,
         *,
         application: Gtk.Application,
-        atlas_factory: AtlasFactory,
+        atlas_provider: AtlasProvider,
         main_window_cls: type,
         setup_window_cls: type | None = None,
         loop_runner: LoopRunner = asyncio.run,
     ) -> None:
         self._application = application
-        self._atlas_factory = atlas_factory
+        self._atlas_provider = atlas_provider
         self._main_window_cls = main_window_cls
         self._setup_window_cls = setup_window_cls or SetupWizardWindow
         self._loop_runner = loop_runner
@@ -53,7 +59,7 @@ class FirstRunCoordinator:
 
     def _ensure_atlas(self) -> Any:
         if self.atlas is None:
-            self.atlas = self._atlas_factory()
+            self.atlas = self._atlas_provider.get_atlas()
         return self.atlas
 
     def _initialize_or_present_setup(self) -> None:
@@ -114,7 +120,7 @@ class FirstRunCoordinator:
     def _handle_setup_success(self) -> None:
         try:
             if self.atlas is None:
-                self.atlas = self._atlas_factory()
+                self.atlas = self._atlas_provider.get_atlas()
         except RuntimeError as exc:
             self._present_setup(error=exc)
             return
