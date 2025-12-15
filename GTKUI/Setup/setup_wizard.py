@@ -2229,13 +2229,15 @@ class SetupWizardWindow(AtlasWindow):
             "full_name": entry.full_name,
             "username": entry.username,
             "email": getattr(entry, "email", ""),
-            "password": entry.password,
-            "confirm_password": entry.password,
         }
         for key, value in field_map.items():
             widget = self._user_collection_entries.get(key)
             if isinstance(widget, Gtk.Entry):
                 widget.set_text(value)
+        for key in ("password", "confirm_password"):
+            widget = self._user_collection_entries.get(key)
+            if isinstance(widget, Gtk.Entry):
+                widget.set_text("")
         username_entry = self._user_collection_entries.get("username")
         if isinstance(username_entry, Gtk.Entry):
             username_entry.grab_focus()
@@ -2323,13 +2325,6 @@ class SetupWizardWindow(AtlasWindow):
         entry = next((user for user in self.controller.state.users.entries if user.username == username), None)
         if entry is None:
             return
-        for key, value in (
-            ("password", entry.password),
-            ("confirm_password", entry.password),
-        ):
-            widget = self._user_entries.get(key)
-            if isinstance(widget, Gtk.Entry):
-                widget.set_text(value)
 
     def _build_database_intro_page(self) -> Gtk.Widget:
         page = self._create_intro_page(
