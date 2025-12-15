@@ -2954,6 +2954,29 @@ class SetupWizardWindow(AtlasWindow):
         stack.set_visible_child_name("postgresql")
         container.append(stack)
 
+        privileged_grid = Gtk.Grid(column_spacing=12, row_spacing=6)
+        privileged_label = Gtk.Label(label="Provisioning credentials")
+        privileged_label.set_xalign(0.0)
+        if hasattr(privileged_label, "add_css_class"):
+            privileged_label.add_css_class("heading")
+        privileged_grid.attach(privileged_label, 0, 0, 2, 1)
+
+        self._database_entries["privileged.user"] = self._create_labeled_entry(
+            privileged_grid, 1, "DB privileged user", ""
+        )
+        self._database_entries["privileged.password"] = self._create_labeled_entry(
+            privileged_grid, 2, "DB privileged password", "", visibility=False
+        )
+        self._database_entries["privileged.confirm"] = self._create_labeled_entry(
+            privileged_grid,
+            3,
+            "Confirm DB privileged password",
+            "",
+            visibility=False,
+        )
+
+        container.append(privileged_grid)
+
         backend_combo.connect("changed", self._on_database_backend_changed, stack)
 
         self._database_backend_combo = backend_combo
@@ -2975,6 +2998,9 @@ class SetupWizardWindow(AtlasWindow):
         self._set_database_entry_text("mongodb.user", "")
         self._set_database_entry_text("mongodb.password", "")
         self._set_database_entry_text("mongodb.options", "")
+        self._set_database_entry_text("privileged.user", "")
+        self._set_database_entry_text("privileged.password", "")
+        self._set_database_entry_text("privileged.confirm", "")
 
         self._populate_database_form(state)
         self._database_user_suggestion = self._get_database_entry_text("postgresql.user")
@@ -2988,6 +3014,8 @@ class SetupWizardWindow(AtlasWindow):
             " PostgreSQL suits production clusters, SQLite is handy for local demos,"
             " and MongoDB/Atlas works with managed or SRV-based deployments."
             f" {DATABASE_LOCAL_TIP} {DATABASE_MANAGED_TIP}"
+            " Provide privileged database credentials here so we can provision the"
+            " conversation store when needed."
         )
 
         return self._wrap_with_instructions(container, instructions, "Configure Database")
@@ -3034,6 +3062,21 @@ class SetupWizardWindow(AtlasWindow):
             self._set_database_entry_text("mongodb.user", state.user or "")
             self._set_database_entry_text("mongodb.password", state.password or "")
             self._set_database_entry_text("mongodb.options", state.options or "")
+
+        privileged_credentials = self.controller.get_privileged_credentials()
+        if privileged_credentials is None:
+            privileged_credentials = (
+                self.controller.state.user.privileged_db_username or "",
+                self.controller.state.user.privileged_db_password or "",
+            )
+        privileged_username, privileged_password = privileged_credentials
+        self._set_database_entry_text("privileged.user", privileged_username or "")
+        self._set_database_entry_text(
+            "privileged.password", privileged_password or ""
+        )
+        self._set_database_entry_text(
+            "privileged.confirm", privileged_password or ""
+        )
 
         if self._database_stack is not None:
             try:
@@ -3969,33 +4012,6 @@ class SetupWizardWindow(AtlasWindow):
         self._user_advanced_widgets["sudo_confirm_entry"] = confirm_sudo_entry
         row += 1
 
-        db_label = Gtk.Label(label="Database service credentials")
-        db_label.set_xalign(0.0)
-        if hasattr(db_label, "add_css_class"):
-            db_label.add_css_class("heading")
-        grid.attach(db_label, 0, row, 2, 1)
-        row += 1
-
-        self._user_entries["db_username"] = self._create_labeled_entry(
-            grid, row, "DB username", self.controller.state.user.privileged_db_username
-        )
-        row += 1
-        self._user_entries["db_password"] = self._create_labeled_entry(
-            grid,
-            row,
-            "DB password",
-            self.controller.state.user.privileged_db_password,
-            visibility=False,
-        )
-        row += 1
-        self._user_entries["db_confirm_password"] = self._create_labeled_entry(
-            grid,
-            row,
-            "Confirm DB password",
-            self.controller.state.user.privileged_db_password,
-            visibility=False,
-        )
-
         def _sudo_validator() -> tuple[bool, str | None]:
             sudo_password = sudo_password_entry.get_text()
             confirm_sudo = confirm_sudo_entry.get_text()
@@ -4011,7 +4027,7 @@ class SetupWizardWindow(AtlasWindow):
         self._register_linked_validation_trigger(sudo_password_entry, confirm_sudo_entry)
 
         instructions = (
-            "Collect the administrator password, sudo credentials, and database service account so we can stage them for later steps."
+            "Collect the administrator password and sudo credentials so we can stage them for later steps."
         )
 
         form = self._wrap_with_instructions(
@@ -4019,8 +4035,6 @@ class SetupWizardWindow(AtlasWindow):
         )
         self._register_required_text(self._user_entries["sudo_username"], "Sudo username")
         self._register_required_text(self._user_entries["sudo_password"], "Sudo password", strip=False)
-        self._register_required_text(self._user_entries["db_username"], "DB username")
-        self._register_required_text(self._user_entries["db_password"], "DB password", strip=False)
         self._sync_user_entries_from_state()
         self._update_user_field_visibility()
         self._refresh_admin_candidates()
@@ -4035,9 +4049,6 @@ class SetupWizardWindow(AtlasWindow):
             "sudo_username": privileged_state.sudo_username,
             "sudo_password": privileged_state.sudo_password,
             "confirm_sudo_password": privileged_state.sudo_password,
-            "db_username": state.privileged_db_username,
-            "db_password": state.privileged_db_password,
-            "db_confirm_password": state.privileged_db_password,
         }
         for key, value in mapping.items():
             entry = self._user_entries.get(key)
@@ -4587,6 +4598,32 @@ class SetupWizardWindow(AtlasWindow):
 
     def _apply_database(self) -> str:
         state = self._collect_database_state(strict=True)
+
+        privileged_username = self._get_database_entry_text("privileged.user")
+        privileged_password = self._get_database_entry_text(
+            "privileged.password", strip=False
+        )
+        privileged_confirm = self._get_database_entry_text(
+            "privileged.confirm", strip=False
+        )
+
+        password_text = privileged_password if isinstance(privileged_password, str) else ""
+        confirm_text = privileged_confirm if isinstance(privileged_confirm, str) else ""
+        if password_text != confirm_text:
+            raise ValueError("Database privileged passwords do not match")
+
+        has_password = bool(password_text)
+        has_username = bool(privileged_username)
+        require_privileged = state.backend == "postgresql" or has_password or has_username
+        if require_privileged:
+            if not privileged_username:
+                raise ValueError("Database privileged username is required")
+            if not password_text:
+                raise ValueError("Database privileged password is required")
+            self._privileged_credentials = (privileged_username, password_text)
+        else:
+            self._privileged_credentials = None
+        self.controller.set_privileged_credentials(self._privileged_credentials)
 
         try:
             self.controller.apply_database_settings(
@@ -5162,9 +5199,6 @@ class SetupWizardWindow(AtlasWindow):
         sudo_username = self._user_entries["sudo_username"].get_text().strip()
         sudo_password = self._user_entries["sudo_password"].get_text()
         confirm_sudo = self._user_entries["confirm_sudo_password"].get_text()
-        db_username = self._user_entries["db_username"].get_text().strip()
-        db_password = self._user_entries["db_password"].get_text()
-        confirm_db_password = self._user_entries["db_confirm_password"].get_text()
 
         self._seed_personal_admin_user()
         if not self.controller.state.users.entries:
@@ -5182,12 +5216,6 @@ class SetupWizardWindow(AtlasWindow):
             raise ValueError("Sudo password is required")
         if sudo_password != confirm_sudo:
             raise ValueError("Sudo passwords do not match")
-        if not db_username:
-            raise ValueError("Database privileged username is required")
-        if not db_password:
-            raise ValueError("Database privileged password is required")
-        if db_password != confirm_db_password:
-            raise ValueError("Database privileged passwords do not match")
 
         normalized_domain = (
             (self.controller.state.optional.tenant_id or self.controller.state.user.domain)
@@ -5198,10 +5226,7 @@ class SetupWizardWindow(AtlasWindow):
         normalized_domain = normalized_domain.lower()
 
         display_name = admin_entry.full_name or admin_entry.username
-
-        privileged_username, privileged_password = (sudo_username, sudo_password)
-        self._privileged_credentials = (privileged_username, privileged_password)
-        self.controller.set_privileged_credentials(self._privileged_credentials)
+        self._privileged_credentials = self.controller.get_privileged_credentials()
 
         updated_entries: list[SetupUserEntry] = []
         for entry in self.controller.state.users.entries:
@@ -5229,8 +5254,6 @@ class SetupWizardWindow(AtlasWindow):
             date_of_birth=self.controller.state.user.date_of_birth,
             sudo_username=sudo_username,
             sudo_password=sudo_password,
-            privileged_db_username=db_username or "",
-            privileged_db_password=db_password or "",
         )
 
         self.controller.set_user_profile(profile)
