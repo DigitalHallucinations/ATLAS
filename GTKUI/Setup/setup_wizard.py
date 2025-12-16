@@ -1101,7 +1101,7 @@ class SetupWizardWindow(AtlasWindow):
                     apply=self._apply_storage_architecture,
                 ),
                 WizardStep(
-                    name="Database Details",
+                    name="Configure Database",
                     widget=database_form,
                     subpages=[database_form],
                     apply=self._apply_database,
