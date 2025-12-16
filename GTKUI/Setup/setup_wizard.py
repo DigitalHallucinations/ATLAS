@@ -2871,6 +2871,14 @@ class SetupWizardWindow(AtlasWindow):
         container.set_hexpand(True)
         container.set_vexpand(True)
 
+        privileged_frame = Gtk.Frame()
+        privileged_frame.set_hexpand(True)
+        privileged_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        privileged_box.set_margin_top(6)
+        privileged_box.set_margin_bottom(6)
+        privileged_box.set_margin_start(12)
+        privileged_box.set_margin_end(12)
+
         privileged_grid = Gtk.Grid(column_spacing=12, row_spacing=6)
         privileged_label = Gtk.Label(label="Provisioning credentials")
         privileged_label.set_xalign(0.0)
@@ -2892,7 +2900,13 @@ class SetupWizardWindow(AtlasWindow):
             visibility=False,
         )
 
-        container.append(privileged_grid)
+        privileged_box.append(privileged_grid)
+        if hasattr(privileged_frame, "set_child"):
+            privileged_frame.set_child(privileged_box)
+        else:  # pragma: no cover - GTK3 fallback
+            privileged_frame.add(privileged_box)
+
+        container.append(privileged_frame)
 
         pg_grid = Gtk.Grid(column_spacing=12, row_spacing=6)
         self._database_entries["postgresql.host"] = self._create_labeled_entry(
