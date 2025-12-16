@@ -15,7 +15,12 @@ from urllib.parse import urlparse
 
 from sqlalchemy.engine.url import URL, make_url
 
-from .mongo_repository import MongoConversationStoreRepository
+# Allow importing this module directly (e.g., via importlib.util.spec_from_file_location)
+# by falling back to an absolute import when the package context is missing.
+try:  # pragma: no cover - exercised indirectly via importlib-based tests
+    from .mongo_repository import MongoConversationStoreRepository
+except ImportError:  # pragma: no cover - defensive fallback for direct imports
+    from modules.conversation_store.mongo_repository import MongoConversationStoreRepository
 
 
 class BootstrapError(RuntimeError):
