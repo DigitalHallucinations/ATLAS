@@ -2920,6 +2920,19 @@ class SetupWizardWindow(AtlasWindow):
             placeholder="atlas.sqlite3 or an absolute path",
         )
 
+        sqlite_frame = Gtk.Frame()
+        sqlite_frame.set_hexpand(True)
+        sqlite_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        sqlite_box.set_margin_top(6)
+        sqlite_box.set_margin_bottom(6)
+        sqlite_box.set_margin_start(12)
+        sqlite_box.set_margin_end(12)
+        sqlite_box.append(sqlite_grid)
+        if hasattr(sqlite_frame, "set_child"):
+            sqlite_frame.set_child(sqlite_box)
+        else:  # pragma: no cover - GTK3 fallback
+            sqlite_frame.add(sqlite_box)
+
         mongo_grid = Gtk.Grid(column_spacing=12, row_spacing=6)
         self._database_entries["mongodb.uri"] = self._create_labeled_entry(
             mongo_grid,
@@ -2954,7 +2967,7 @@ class SetupWizardWindow(AtlasWindow):
         stack = Gtk.Stack()
         stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
         stack.add_named(pg_grid, "postgresql")
-        stack.add_named(sqlite_grid, "sqlite")
+        stack.add_named(sqlite_frame, "sqlite")
         stack.add_named(mongo_grid, "mongodb")
         stack.set_visible_child_name("postgresql")
         container.append(stack)
