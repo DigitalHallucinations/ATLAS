@@ -2974,6 +2974,19 @@ class SetupWizardWindow(AtlasWindow):
             pg_grid, 4, "Password", "", visibility=False
         )
 
+        pg_frame = Gtk.Frame()
+        pg_frame.set_hexpand(True)
+        pg_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        pg_box.set_margin_top(6)
+        pg_box.set_margin_bottom(6)
+        pg_box.set_margin_start(12)
+        pg_box.set_margin_end(12)
+        pg_box.append(pg_grid)
+        if hasattr(pg_frame, "set_child"):
+            pg_frame.set_child(pg_box)
+        else:  # pragma: no cover - GTK3 fallback
+            pg_frame.add(pg_box)
+
         sqlite_grid = Gtk.Grid(column_spacing=12, row_spacing=6)
         self._database_entries["sqlite.path"] = self._create_labeled_entry(
             sqlite_grid,
@@ -3027,11 +3040,24 @@ class SetupWizardWindow(AtlasWindow):
             placeholder="retryWrites=true&w=majority",
         )
 
+        mongo_frame = Gtk.Frame()
+        mongo_frame.set_hexpand(True)
+        mongo_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        mongo_box.set_margin_top(6)
+        mongo_box.set_margin_bottom(6)
+        mongo_box.set_margin_start(12)
+        mongo_box.set_margin_end(12)
+        mongo_box.append(mongo_grid)
+        if hasattr(mongo_frame, "set_child"):
+            mongo_frame.set_child(mongo_box)
+        else:  # pragma: no cover - GTK3 fallback
+            mongo_frame.add(mongo_box)
+
         stack = Gtk.Stack()
         stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
-        stack.add_named(pg_grid, "postgresql")
+        stack.add_named(pg_frame, "postgresql")
         stack.add_named(sqlite_frame, "sqlite")
-        stack.add_named(mongo_grid, "mongodb")
+        stack.add_named(mongo_frame, "mongodb")
         stack.set_visible_child_name("postgresql")
         container.append(stack)
         container.append(privileged_frame)
