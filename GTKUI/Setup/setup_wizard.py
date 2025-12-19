@@ -2871,6 +2871,57 @@ class SetupWizardWindow(AtlasWindow):
         container.set_hexpand(True)
         container.set_vexpand(True)
 
+        advanced_frame = Gtk.Frame()
+        advanced_frame.set_hexpand(True)
+        advanced_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        advanced_box.set_margin_top(6)
+        advanced_box.set_margin_bottom(6)
+        advanced_box.set_margin_start(12)
+        advanced_box.set_margin_end(12)
+
+        advanced_label = Gtk.Label(label="Advanced Configuration")
+        advanced_label.set_wrap(True)
+        advanced_label.set_xalign(0.0)
+        if hasattr(advanced_label, "add_css_class"):
+            advanced_label.add_css_class("heading")
+        advanced_box.append(advanced_label)
+
+        backend_grid = Gtk.Grid(column_spacing=12, row_spacing=6)
+        backend_label = Gtk.Label(label="Configure backend")
+        backend_label.set_xalign(0.0)
+        backend_grid.attach(backend_label, 0, 0, 1, 1)
+
+        backend_combo = Gtk.ComboBoxText()
+        backend_combo.append("postgresql", "PostgreSQL")
+        backend_combo.append("sqlite", "SQLite")
+        backend_combo.append("mongodb", "MongoDB / Atlas")
+        backend_combo.set_hexpand(False)
+        backend_combo.set_halign(Gtk.Align.START)
+        backend_combo.set_size_request(self._get_entry_pixel_width(), -1)
+        backend_tooltip = database_recommendation_for_state(self.controller.state.database)
+        if hasattr(backend_combo, "set_tooltip_text"):
+            backend_combo.set_tooltip_text(backend_tooltip)
+        backend_grid.attach(backend_combo, 1, 0, 1, 1)
+        advanced_box.append(backend_grid)
+
+        backend_hint = Gtk.Label(
+            label=(
+                "Point the database to the right location for your deployment. "
+                "SQLite uses the database file path in the connection details, while PostgreSQL "
+                "and MongoDB/Atlas rely on the host, port, and authentication you configure below."
+            )
+        )
+        backend_hint.set_wrap(True)
+        backend_hint.set_xalign(0.0)
+        advanced_box.append(backend_hint)
+
+        if hasattr(advanced_frame, "set_child"):
+            advanced_frame.set_child(advanced_box)
+        else:  # pragma: no cover - GTK3 fallback
+            advanced_frame.add(advanced_box)
+
+        container.append(advanced_frame)
+
         privileged_frame = Gtk.Frame()
         privileged_frame.set_hexpand(True)
         privileged_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -2905,8 +2956,6 @@ class SetupWizardWindow(AtlasWindow):
             privileged_frame.set_child(privileged_box)
         else:  # pragma: no cover - GTK3 fallback
             privileged_frame.add(privileged_box)
-
-        container.append(privileged_frame)
 
         pg_grid = Gtk.Grid(column_spacing=12, row_spacing=6)
         self._database_entries["postgresql.host"] = self._create_labeled_entry(
@@ -2985,57 +3034,7 @@ class SetupWizardWindow(AtlasWindow):
         stack.add_named(mongo_grid, "mongodb")
         stack.set_visible_child_name("postgresql")
         container.append(stack)
-
-        advanced_frame = Gtk.Frame()
-        advanced_frame.set_hexpand(True)
-        advanced_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        advanced_box.set_margin_top(6)
-        advanced_box.set_margin_bottom(6)
-        advanced_box.set_margin_start(12)
-        advanced_box.set_margin_end(12)
-
-        advanced_label = Gtk.Label(label="Advanced Configuration")
-        advanced_label.set_wrap(True)
-        advanced_label.set_xalign(0.0)
-        if hasattr(advanced_label, "add_css_class"):
-            advanced_label.add_css_class("heading")
-        advanced_box.append(advanced_label)
-
-        backend_grid = Gtk.Grid(column_spacing=12, row_spacing=6)
-        backend_label = Gtk.Label(label="Configure backend")
-        backend_label.set_xalign(0.0)
-        backend_grid.attach(backend_label, 0, 0, 1, 1)
-
-        backend_combo = Gtk.ComboBoxText()
-        backend_combo.append("postgresql", "PostgreSQL")
-        backend_combo.append("sqlite", "SQLite")
-        backend_combo.append("mongodb", "MongoDB / Atlas")
-        backend_combo.set_hexpand(False)
-        backend_combo.set_halign(Gtk.Align.START)
-        backend_combo.set_size_request(self._get_entry_pixel_width(), -1)
-        backend_tooltip = database_recommendation_for_state(self.controller.state.database)
-        if hasattr(backend_combo, "set_tooltip_text"):
-            backend_combo.set_tooltip_text(backend_tooltip)
-        backend_grid.attach(backend_combo, 1, 0, 1, 1)
-        advanced_box.append(backend_grid)
-
-        backend_hint = Gtk.Label(
-            label=(
-                "Point the database to the right location for your deployment. "
-                "SQLite uses the file path above, while PostgreSQL and MongoDB/Atlas "
-                "rely on the host, port, and authentication you configure."
-            )
-        )
-        backend_hint.set_wrap(True)
-        backend_hint.set_xalign(0.0)
-        advanced_box.append(backend_hint)
-
-        if hasattr(advanced_frame, "set_child"):
-            advanced_frame.set_child(advanced_box)
-        else:  # pragma: no cover - GTK3 fallback
-            advanced_frame.add(advanced_box)
-
-        container.append(advanced_frame)
+        container.append(privileged_frame)
 
         backend_combo.connect("changed", self._on_database_backend_changed, stack)
 
@@ -3070,9 +3069,9 @@ class SetupWizardWindow(AtlasWindow):
             self._register_hosting_summary_trigger(entry)
 
         instructions = (
-            "Start with provisioning credentials so ATLAS can create or update the conversation store."
-            " Fill in the connection details above, then use Advanced Configuration to switch the backend"
-            " or point the database to a different location."
+            "Use Advanced Configuration to pick the right backend and location, then fill in the matching"
+            " connection details and provisioning credentials so ATLAS can create or update the conversation"
+            " store."
             f" {DATABASE_LOCAL_TIP} {DATABASE_MANAGED_TIP}"
         )
 
