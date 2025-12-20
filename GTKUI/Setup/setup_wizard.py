@@ -2482,16 +2482,25 @@ class SetupWizardWindow(AtlasWindow):
             preset_box.append(frame)
             self._storage_architecture_radios[mode] = radio
 
+        manual_frame = Gtk.Frame()
+        manual_frame.set_hexpand(True)
+        manual_frame_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        manual_frame_box.set_margin_top(6)
+        manual_frame_box.set_margin_bottom(6)
+        manual_frame_box.set_margin_start(6)
+        manual_frame_box.set_margin_end(6)
+
         manual_radio = Gtk.CheckButton(label="Manual configuration")
         manual_radio.set_active(selected_key == "manual")
         manual_radio.connect(
             "toggled", lambda _btn: self._on_storage_architecture_option_toggled("manual")
         )
         self._storage_architecture_radios["manual"] = manual_radio
-        preset_box.append(manual_radio)
+        manual_frame_box.append(manual_radio)
 
         manual_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        manual_box.set_margin_start(24)
+        manual_box.set_margin_top(6)
+        manual_box.set_margin_start(12)
         manual_box.set_hexpand(True)
         manual_box.set_sensitive(selected_key == "manual")
         self._storage_architecture_manual_box = manual_box
@@ -2532,7 +2541,14 @@ class SetupWizardWindow(AtlasWindow):
         manual_form.attach(reuse_toggle, 0, 3, 2, 1)
 
         manual_box.append(manual_form)
-        preset_box.append(manual_box)
+        manual_frame_box.append(manual_box)
+
+        if hasattr(manual_frame, "set_child"):
+            manual_frame.set_child(manual_frame_box)
+        else:  # pragma: no cover - GTK3 fallback
+            manual_frame.add(manual_frame_box)
+
+        preset_box.append(manual_frame)
         box.append(preset_box)
 
         for widget in (manual_mode_combo, backend_combo, vector_combo, reuse_toggle):
@@ -2974,6 +2990,19 @@ class SetupWizardWindow(AtlasWindow):
             pg_grid, 4, "Password", "", visibility=False
         )
 
+        pg_frame = Gtk.Frame()
+        pg_frame.set_hexpand(True)
+        pg_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        pg_box.set_margin_top(6)
+        pg_box.set_margin_bottom(6)
+        pg_box.set_margin_start(12)
+        pg_box.set_margin_end(12)
+        pg_box.append(pg_grid)
+        if hasattr(pg_frame, "set_child"):
+            pg_frame.set_child(pg_box)
+        else:  # pragma: no cover - GTK3 fallback
+            pg_frame.add(pg_box)
+
         sqlite_grid = Gtk.Grid(column_spacing=12, row_spacing=6)
         self._database_entries["sqlite.path"] = self._create_labeled_entry(
             sqlite_grid,
@@ -3027,11 +3056,24 @@ class SetupWizardWindow(AtlasWindow):
             placeholder="retryWrites=true&w=majority",
         )
 
+        mongo_frame = Gtk.Frame()
+        mongo_frame.set_hexpand(True)
+        mongo_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        mongo_box.set_margin_top(6)
+        mongo_box.set_margin_bottom(6)
+        mongo_box.set_margin_start(12)
+        mongo_box.set_margin_end(12)
+        mongo_box.append(mongo_grid)
+        if hasattr(mongo_frame, "set_child"):
+            mongo_frame.set_child(mongo_box)
+        else:  # pragma: no cover - GTK3 fallback
+            mongo_frame.add(mongo_box)
+
         stack = Gtk.Stack()
         stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
-        stack.add_named(pg_grid, "postgresql")
+        stack.add_named(pg_frame, "postgresql")
         stack.add_named(sqlite_frame, "sqlite")
-        stack.add_named(mongo_grid, "mongodb")
+        stack.add_named(mongo_frame, "mongodb")
         stack.set_visible_child_name("postgresql")
         container.append(stack)
         container.append(privileged_frame)
