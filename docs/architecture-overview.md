@@ -8,7 +8,7 @@ This guide expands on the README with a deeper walkthrough of the runtime, files
 - **Configuration sources** come from `config.yaml` plus environment variables (see `docs/configuration.md`). `ConfigManager` also verifies the PostgreSQL conversation store before the runtime proceeds.
 
 ## Runtime Composition
-- **Messaging**: `ConfigManager.configure_message_bus()` wires Redis streams or in-memory queues depending on the environment. Tool events can still flow through the legacy `modules/Tools/tool_event_system` adapters.
+- **Messaging**: `ConfigManager.configure_message_bus()` builds Redis stream or in-memory backends without automatically bridging into `modules/Tools/tool_event_system`. Tool-event publishing needs explicit wiring (for example, an opt-in bridge or direct calls to the `tool_event_system` adapters from `ATLAS/ToolManager` or related orchestration entry points) wherever you want those events forwarded.
 - **Conversation store**: `modules/conversation_store/` holds the SQLAlchemy models and `ConversationStoreRepository` that enforces retention policies and backs conversations, tasks, and job metadata.
 - **Speech**: `modules/Speech_Services/` contains the `SpeechManager` plus TTS/STT integrations. The runtime exposes a `SpeechService` facade so the UI and APIs can request status or streaming updates.
 - **Personas & providers**: persona manifests and schemas live under `modules/Personas/`. The `PersonaManager` loads persona definitions, while `ProviderManager` resolves which LLM provider/model is active and dispatches tool calls through the shared tooling service.
