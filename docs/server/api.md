@@ -1,8 +1,8 @@
 ---
-audience: Backend developers and integrators
+audience: integrators, contributors, operators/admins
 status: in_review
 last_verified: 2025-12-21
-source_of_truth: modules/Server/api_reference.py; modules/Server/routes.py; AtlasServer
+source_of_truth: server/http_gateway.py; modules/Server/routes.py; modules/Server/conversation_routes.py; modules/Server/task_routes.py; modules/Server/job_routes.py
 ---
 
 # AtlasServer API Reference
@@ -12,7 +12,10 @@ route classes. Each endpoint description calls out the HTTP verb, resource path,
 required payload fields or query parameters, and expected response structure.
 Internally every handler translates requests into `ConversationRoutes`,
 `TaskRoutes`, `JobRoutes`, or persona/blackboard helpers inside
-`modules/Server/routes.py`.
+`modules/Server/routes.py`. The concrete route implementations live alongside
+their helpers in `modules/Server/conversation_routes.py`, `modules/Server/task_routes.py`,
+and `modules/Server/job_routes.py`, which are assembled into the gateway from
+`server/http_gateway.py`.
 
 ## Running the standalone HTTP gateway
 
@@ -347,4 +350,3 @@ responses:
 
 Translate these into JSON API error payloads consistent with your gateway or web
 framework.
-

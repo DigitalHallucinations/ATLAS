@@ -1,8 +1,8 @@
 ---
-audience: Persona authors and backend developers
+audience: contributors, integrators
 status: in_review
-last_verified: 2025-05-09
-source_of_truth: modules.Jobs.manifest_loader.load_job_metadata; modules/Jobs/schema.json; CapabilityRegistry
+last_verified: 2025-12-21
+source_of_truth: modules/Jobs/manifest_loader.py; modules/Jobs/schema.json; modules/orchestration/capability_registry.py
 ---
 
 # Job manifests

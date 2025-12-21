@@ -1,7 +1,7 @@
 ---
-audience: Readers navigating job docs
+audience: contributors, integrators, UI engineers
 status: in_review
-last_verified: 2025-05-09
+last_verified: 2025-12-21
 source_of_truth: Internal links within jobs docs
 ---
 
