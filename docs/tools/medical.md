@@ -2,7 +2,7 @@
 audience: Persona authors
 status: in_review
 last_verified: 2025-12-21
-source_of_truth: Medical tool entries in tool maps
+source_of_truth: modules/Personas/MEDIC/Toolbox/medical_tools/PubMedCentral/ENTREZ_API.py; modules/Personas/MEDIC/Toolbox/medical_tools/_client.py; config.yaml
 ---
 
 # Medical research tools
@@ -24,6 +24,10 @@ NCBI's fair-use policy. Configure the credentials in one of the following ways:
 
 The optional `NCBI_API_EMAIL` value is used to populate the `User-Agent`
 contact field recommended by NCBI.
+Default behaviour throttles calls to approximately 0.34 seconds apart when no
+API key is supplied (0.11 seconds with a key) and caps per-request timeouts at
+15 seconds. Requests return the sanitized Entrez JSON payload, including query
+translations and warning lists when present.
 
 ## Safety considerations
 

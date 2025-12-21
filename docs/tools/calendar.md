@@ -2,7 +2,7 @@
 audience: Persona authors and operators
 status: in_review
 last_verified: 2025-12-21
-source_of_truth: modules/Personas/ATLAS/Persona/ATLAS.json; modules/Tools/Base_Tools/debian12_calendar.py
+source_of_truth: modules/Tools/Base_Tools/debian12_calendar.py; ATLAS/config/config_manager.py; config.yaml
 ---
 
 # Debian 12 Calendar Tool
@@ -38,6 +38,16 @@ paths through the `ConfigManager` overrides used in automated tests.  When
 `DEBIAN12_CALENDAR_BACKEND` is set to `dbus` the tool relies entirely on the
 DBus client returned by the configured factory (or one supplied directly to
 `Debian12CalendarTool`) and ignores the `.ics` path settings.
+
+### Defaults and fallbacks
+
+* Backend defaults to `ics` with UTC timezone and no preconfigured calendar
+  paths; when no paths are supplied the tool falls back to the null backend.
+* `DEBIAN12_CALENDAR_DBUS_FACTORY` must resolve to a callable; when missing or
+  failing to load, the tool logs a warning and returns a null backend instead of
+  attempting DBus operations.
+* Write operations acquire advisory locks for `.ics` files; DBus writes defer to
+  the desktop service.
 
 Write operations acquire an exclusive advisory lock around the targeted
 `.ics` file before applying modifications so concurrent tool invocations do
@@ -89,4 +99,3 @@ persona has the appropriate policy permissions.
 See `modules/Tools/Base_Tools/debian12_calendar.py` for the runtime entry
 point and `tests/test_calendar_tool.py` for concrete examples of invoking
 the tool with mocked Debian 12 calendar data and writable `.ics` fixtures.
-

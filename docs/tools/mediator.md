@@ -2,7 +2,7 @@
 audience: Persona authors
 status: in_review
 last_verified: 2025-12-21
-source_of_truth: Mediation tool entries in tool maps
+source_of_truth: modules/Tools/Base_Tools/tone_analyzer.py; modules/Tools/Base_Tools/reflective_prompt.py; modules/Tools/Base_Tools/memory_recall.py; modules/Tools/Base_Tools/conflict_resolver.py
 ---
 
 # Mediation support tools
@@ -48,9 +48,11 @@ without performing network or filesystem operations.
   and an optional `limit` for the number of matches to return.
 * **Returns:** Ranked memory matches with the original payload, the number of
   evaluated memories, and guidance when nothing matches.
-* **Usage tips:** Run before proposing actions so Echo can remind participants of
-  earlier commitments or risks. Pair with `context_tracker` so new agreements are
-  stored for future sessions.
+* **Defaults and limits:** Caps results to `limit` (defaults to `5`) and requires
+  at least one memory candidate; empty inputs raise a validation error.
+* **Usage tips:** Run before proposing actions so Echo can remind participants
+  of earlier commitments or risks. Pair with `context_tracker` so new agreements
+  are stored for future sessions.
 
 ## `conflict_resolver`
 
@@ -64,3 +66,10 @@ without performing network or filesystem operations.
 * **Usage tips:** Reserve for moments when the group needs structure. Echo uses
   the output to summarise shared intent, catalog constraints, and document the
   follow-up cadence.
+
+## Operational notes
+
+These mediation tools avoid external side effects (no network or filesystem
+access) and do not rely on environment configuration. Inputs are validated to
+require non-empty queries or message lists, and defaults (such as the five-item
+memory recall cap) are applied inside the Base_Tools implementations.

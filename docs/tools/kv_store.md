@@ -80,6 +80,13 @@ configuration entries are omitted:
 Values are JSON-serialized before storage which means the byte quotas account
 for the serialized representation.  When a write would exceed a quota the
 operation fails with `NamespaceQuotaExceededError` or `GlobalQuotaExceededError`.
+Default settings enforce a 1 MiB per-namespace quota, reuse the conversation
+store connection, and disable the global quota unless it is explicitly set.
+SQLite deployments inherit the namespace quota from the PostgreSQL block and
+default to `sqlite:///atlas_kv.sqlite`.
+
+TTL values must be positive. The service rejects zero/negative TTL inputs and
+returns remaining TTLs for reads via `ttl_seconds` in the response payload.
 
 ## Providers and Extensibility
 
