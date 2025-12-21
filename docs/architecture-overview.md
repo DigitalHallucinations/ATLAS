@@ -8,8 +8,8 @@ This guide expands on the README with a deeper walkthrough of the runtime, files
 - **Configuration sources** come from `config.yaml` plus environment variables (see `docs/configuration.md`). `ConfigManager` also verifies the PostgreSQL conversation store before the runtime proceeds.
 
 ## Runtime Composition
-- **Messaging**: `ConfigManager.configure_message_bus()` builds Redis stream or in-memory backends without automatically bridging into `modules/Tools/tool_event_system`. Tool-event publishing needs explicit wiring (for example, an opt-in bridge or direct calls to the `tool_event_system` adapters from `ATLAS/ToolManager` or related orchestration entry points) wherever you want those events forwarded.
-- **Conversation store**: `modules/conversation_store/` holds the SQLAlchemy models and `ConversationStoreRepository` that enforces retention policies and backs conversations, tasks, and job metadata.
+- **Messaging**: `ConfigManager.configure_message_bus()` wires Redis streams or in-memory queues depending on the environment. Tool events can still flow through the legacy `modules/Tools/tool_event_system` adapters.
+- **Conversation store**: `modules/conversation_store/` holds the SQLAlchemy models and `ConversationStoreRepository` that enforces retention policies for conversations, user/account relationships, and vector embeddings. Task and job records live in the dedicated repositories under `modules/task_store/` and `modules/job_store/`, not in the conversation store.
 - **Speech**: `modules/Speech_Services/` contains the `SpeechManager` plus TTS/STT integrations. The runtime exposes a `SpeechService` facade so the UI and APIs can request status or streaming updates.
 - **Personas & providers**: persona manifests and schemas live under `modules/Personas/`. The `PersonaManager` loads persona definitions, while `ProviderManager` resolves which LLM provider/model is active and dispatches tool calls through the shared tooling service.
 - **User accounts**: `modules/user_accounts/` adds login and lockout flows. `UserAccountFacade` links auth state to the conversation repository so multi-tenant data stays isolated via `tenant_id`.
@@ -29,7 +29,7 @@ This guide expands on the README with a deeper walkthrough of the runtime, files
 - **Access control**: Persona manifests enumerate allowed tools/skills and can toggle collaboration protocols, which the tooling service enforces during request execution.
 
 ## Data & Persistence
-- **Database**: PostgreSQL backs conversations, tasks, jobs, and retention. The runtime will abort startup if `ConfigManager.is_conversation_store_verified()` fails.
+- **Database**: PostgreSQL backs conversations, user accounts, and vector embeddings retained by the conversation store. Task and job data are persisted via the dedicated task/job repositories (`modules/task_store/`, `modules/job_store/`), separate from the conversation store. The runtime will abort startup if `ConfigManager.is_conversation_store_verified()` fails.
 - **Audit & logging**: `modules/logging/` provides the structured logger and persona-aware audit log hooks so automation and UI actions share consistent telemetry.
 - **Key-value helpers**: Support utilities in `docs/tools/kv_store.md` and the queue helpers in `docs/tools/task_queue.md` describe the supporting data-plane utilities used by orchestration services.
 
