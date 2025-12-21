@@ -2,7 +2,7 @@
 audience: Backend/audio developers
 status: in_review
 last_verified: 2025-12-21
-source_of_truth: modules/audio/interface.py; modules/audio/engine.py
+source_of_truth: modules/audio/interface.py; modules/audio/engine.py; modules/Speech_Services/base.py; modules/Speech_Services/elevenlabs_tts.py; modules/Speech_Services/Google_tts.py
 ---
 
 # Audio engine for playback and mixing
@@ -89,6 +89,20 @@ engine.play(request)
 `PlaybackRequest` and delegates to `AudioEngine.play`. Tests can stub
 `PlaybackHandle` interfaces without relying on `pygame` globals, or inject a
 fake engine that satisfies `AudioEngine`.
+
+## UI and provider adapters
+- **Shared playback path for the UI** – `BaseTTS.play_audio_file` resolves a
+  process-wide `AudioEngine` when GTK flows trigger speech playback, so UI
+  actions reuse the same mixer and device selection logic that provider calls
+  see.【F:modules/Speech_Services/base.py†L8-L87】
+- **Provider injection points** – TTS providers such as ElevenLabs and Google
+  accept an optional `audio_engine` parameter, letting tests or headless runs
+  swap in a fake engine while production continues to use `SoundDeviceEngine`
+  for actual playback.【F:modules/Speech_Services/elevenlabs_tts.py†L36-L80】【F:modules/Speech_Services/Google_tts.py†L1-L54】
+- **Legacy context** – The legacy speech stack remains documented separately in
+  [speech-services-legacy.md](../ops/speech-services-legacy.md); those modules
+  now route through the shared audio interface for playback, keeping newer
+  mixer semantics available even when maintaining older provider hooks.
 
 ## Implementation notes
 - **Backend selection**: The default `SoundDeviceEngine` wraps a
