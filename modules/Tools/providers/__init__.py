@@ -13,6 +13,7 @@ from . import ncbi_entrez  # noqa: F401 - ensure medical provider registration
 from . import task_queue_default  # noqa: F401 - ensure task queue provider registration
 from . import debian12_local  # noqa: F401 - ensure calendar provider registration
 from . import kv_store  # noqa: F401 - ensure KV store provider registration
+from . import mcp  # noqa: F401 - ensure MCP provider registration
 from .vector_store import in_memory  # noqa: F401 - ensure vector store providers register
 
 __all__ = [
