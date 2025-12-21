@@ -2,6 +2,7 @@
 audience: QA engineers
 status: in_review
 last_verified: 2025-12-21
+last_updated_hint: Added prerequisite links and verified references to the GTK setup wizard.
 source_of_truth: GTK shell setup wizard; main.py
 ---
 
@@ -11,6 +12,7 @@ These manual checks confirm the new GTK setup wizard preflight workflow on Debia
 
 ## Prerequisites
 
+- Developer workstation prepared per the [developer environment setup runbook](developer-setup.md).
 - GNOME dependencies for the GTK wizard installed (`python3-gi`, `gir1.2-gtk-4.0`).
 - The `atlas` repository cloned and `python3 -m venv .venv` created in the project root.
 - PostgreSQL (`postgresql` package) and Redis (`redis-server` package) installed locally, both managed through `systemd`.

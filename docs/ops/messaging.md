@@ -2,6 +2,7 @@
 audience: Operators and backend developers
 status: in_review
 last_verified: 2025-12-21
+last_updated_hint: Documented Redis vs in-memory defaults and clarified fallback behavior.
 source_of_truth: modules/orchestration/message_bus.py
 ---
 
@@ -33,6 +34,14 @@ messaging:
 
 Changes take effect on the next application start. The bus is configured during
 `ATLAS` initialization via `ConfigManager.configure_message_bus()`.
+
+## Default backends
+
+- **Local development** defaults to `in_memory` to avoid external dependencies. Events remain in-process and clear on restart.
+- **Wizard “Enterprise” preset** enables `redis` automatically so background workers and schedulers can persist queues across service restarts.
+- **Missing Redis dependency** triggers a warning and forces the in-memory fallback even if `backend: redis` is set. Install `redis` Python bindings and confirm the server is reachable to return to Redis Streams.
+
+Use Redis when you need durability, multiple worker processes, or cross-host messaging. Prefer the in-memory backend for single-user laptops and short-lived demos where state loss is acceptable.
 
 ## Redis Backend Deployment
 

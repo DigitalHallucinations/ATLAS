@@ -1,7 +1,8 @@
 ---
 audience: Developers maintaining legacy speech stack
-status: in_review
+status: legacy
 last_verified: 2025-12-21
+last_updated_hint: Flagged the page as legacy context and pointed readers to the current audio engine docs.
 source_of_truth: modules/Speech_Services/base.py; modules/Speech_Services/elevenlabs_tts.py; modules/Speech_Services/Google_tts.py; modules/Speech_Services/Google_stt.py; modules/Speech_Services/gpt4o_tts.py; modules/Speech_Services/gpt4o_stt.py; modules/Speech_Services/whisper_stt.py; modules/Speech_Services/speech_manager.py
 ---
 
@@ -12,7 +13,8 @@ examples of the speech interfaces and provider implementations that now live in
 individual modules. That aggregate file no longer carries runnable code; the
 production-ready providers continue to be maintained under
 `modules/Speech_Services/`. This page keeps the useful historical context
-without duplicating code.
+without duplicating code. Refer to [audio/interface.md](../audio/interface.md)
+for the current audio engine, playback, and mixer guidance used in production.
 
 ## Shared abstractions
 
