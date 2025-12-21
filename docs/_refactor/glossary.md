@@ -1,3 +1,10 @@
+---
+audience: All readers
+status: draft
+last_verified: 2025-12-21
+source_of_truth: docs/_refactor/style-guide.md
+---
+
 # ATLAS Glossary
 
 Standardized definitions for recurring ATLAS terms. Each entry points to the primary code location and the audience doc that should own deeper guidance.

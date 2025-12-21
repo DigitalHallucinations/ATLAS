@@ -1,3 +1,10 @@
+---
+audience: Documentation maintainers and contributors
+status: draft
+last_verified: 2025-12-21
+source_of_truth: docs/_refactor/style-guide.md
+---
+
 # Architecture Alignment Report
 
 This report compares key architectural claims in the documentation against the current implementation. Each section lists notable claims, whether they match code behavior, and recommended follow-ups.
