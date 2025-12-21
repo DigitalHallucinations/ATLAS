@@ -3,11 +3,12 @@ import os
 import time
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import pytest
 
 from modules.orchestration.capability_registry import CapabilityRegistry
+
 
 class _DummyConfig:
     def __init__(self, root: Path) -> None:
@@ -134,6 +135,57 @@ def _minimal_job(name: str, *, personas: list[str]) -> dict:
             "contact": "alerts@example.com",
         },
     }
+
+
+def test_mcp_payloads_are_merged_and_cached(monkeypatch, capability_root: Path) -> None:
+    class _McpConfig(_DummyConfig):
+        def __init__(self, root: Path, settings: Mapping[str, Any]) -> None:
+            super().__init__(root)
+            self._settings = settings
+
+        def get_mcp_settings(self) -> Mapping[str, Any]:
+            return self._settings
+
+    settings: Mapping[str, Any] = {
+        "enabled": True,
+        "health_check_interval": 1000.0,
+        "server": "default",
+        "servers": {
+            "default": {
+                "transport": "stdio",
+                "command": "echo",
+                "allow_tools": ["kept"],
+                "deny_tools": ["skip_me"],
+                "persona": "Atlas",
+            }
+        },
+    }
+
+    registry = CapabilityRegistry(config_manager=_McpConfig(capability_root, settings))
+
+    call_count = {"value": 0}
+
+    async def _fake_discover(provider, server_name: str):
+        call_count["value"] += 1
+        return [
+            {"name": "kept", "description": "from mcp", "input_schema": {"type": "object"}},
+            {"name": "skip_me", "description": "denied", "input_schema": {"type": "object"}},
+        ]
+
+    monkeypatch.setattr(registry, "_discover_mcp_server_tools", _fake_discover)
+
+    registry.refresh(force=True)
+    assert call_count["value"] == 1
+
+    atlas_tools = registry.query_tools(persona_filters=["atlas"])
+    assert {view.manifest.name for view in atlas_tools} == {"kept"}
+
+    other_tools = registry.query_tools(persona_filters=["nova"])
+    assert other_tools == []
+
+    registry.refresh(force=True)
+    assert call_count["value"] == 1
+    assert registry.persona_has_tool_manifest("atlas") is True
 
 
 def test_registry_filters_invalid_entries(capability_root: Path) -> None:
