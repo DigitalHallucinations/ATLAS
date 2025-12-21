@@ -1,8 +1,8 @@
 ---
-audience: Backend developers
+audience: integrators, contributors
 status: in_review
-last_verified: 2025-05-09
-source_of_truth: modules.job_store.service.JobService; modules/Server/job_routes.py
+last_verified: 2025-12-21
+source_of_truth: modules/job_store/service.py; modules/Server/job_routes.py
 ---
 
 # Job APIs

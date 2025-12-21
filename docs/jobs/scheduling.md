@@ -1,8 +1,8 @@
 ---
-audience: Backend developers
+audience: integrators, contributors, operators/admins
 status: in_review
-last_verified: 2025-05-09
-source_of_truth: modules.orchestration.job_scheduler; modules.job_store.service.JobService.transition_job
+last_verified: 2025-12-21
+source_of_truth: modules/orchestration/job_scheduler.py; modules/job_store/service.py
 ---
 
 # Job scheduling

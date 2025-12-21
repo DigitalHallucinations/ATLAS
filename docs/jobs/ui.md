@@ -1,8 +1,8 @@
 ---
-audience: UI engineers and operators
+audience: UI engineers, operators/admins, contributors
 status: in_review
-last_verified: 2025-05-09
-source_of_truth: CapabilityRegistry.summary; get_task_lifecycle_metrics; get_job_lifecycle_metrics
+last_verified: 2025-12-21
+source_of_truth: modules/orchestration/capability_registry.py; modules/analytics/persona_metrics.py; modules/Server/job_routes.py
 ---
 
 # Job dashboards and UI workflows

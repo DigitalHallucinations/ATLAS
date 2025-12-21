@@ -1,8 +1,8 @@
 ---
-audience: Backend developers and SREs
+audience: contributors, integrators, operators/admins
 status: in_review
-last_verified: 2025-05-09
-source_of_truth: modules.job_store.service.JobService.transition_job; modules.analytics.persona_metrics
+last_verified: 2025-12-21
+source_of_truth: modules/job_store/service.py; modules/analytics/persona_metrics.py
 ---
 
 # Job lifecycle
