@@ -5216,5 +5216,56 @@
                 "positions"
             ]
         }
+    },
+    {
+        "name": "mcp.default.search",
+        "version": "1.0.0",
+        "side_effects": "network",
+        "default_timeout": 30,
+        "auth": {
+            "required": false
+        },
+        "allow_parallel": false,
+        "idempotency_key": false,
+        "requires_consent": true,
+        "capabilities": [
+            "mcp_search",
+            "knowledge_lookup"
+        ],
+        "providers": [
+            {
+                "name": "mcp",
+                "priority": 0,
+                "health_check_interval": 300,
+                "config": {
+                    "server": "default",
+                    "tool": "search"
+                }
+            }
+        ],
+        "description": "Proxy to the default MCP server's search tool for querying indexed content or remote data sources.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search expression to pass through to the MCP search tool."
+                },
+                "top_k": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 50,
+                    "default": 10,
+                    "description": "Maximum number of results to request from the server."
+                },
+                "filters": {
+                    "type": "object",
+                    "description": "Optional structured filter block forwarded to the MCP server."
+                }
+            },
+            "required": [
+                "query"
+            ]
+        }
     }
 ]
