@@ -7,7 +7,10 @@ can be queried by routers or UI layers.
 
 from __future__ import annotations
 
+import asyncio
 import copy
+import hashlib
+import inspect
 import threading
 import json
 import time
@@ -356,6 +359,13 @@ class CapabilityRegistry:
         self._job_records: List[_JobRecord] = []
         self._job_lookup: Dict[Tuple[Optional[str], str], _JobRecord] = {}
         self._job_metrics: Dict[Tuple[Optional[str], str], RollingMetricWindow] = {}
+        self._mcp_cache_signature: Optional[str] = None
+        self._mcp_cache_timestamp: float = 0.0
+        self._mcp_cache_payloads: Dict[Optional[str], List[Mapping[str, Any]]] = {}
+        self._mcp_cache_lookup: Dict[Optional[str], Dict[str, Mapping[str, Any]]] = {}
+        self._mcp_cache_persona_sources: Dict[Optional[str], bool] = {}
+        self._mcp_cache_manifests: List[ToolManifestEntry] = []
+        self._mcp_manifest_entries: List[ToolManifestEntry] = []
 
     # ------------------------------------------------------------------
     # Configuration helpers
@@ -380,11 +390,17 @@ class CapabilityRegistry:
                 return False
 
             manifest_state = self._compute_manifest_state(app_root)
-            if not force and manifest_state == self._manifest_state:
+            mcp_signature, mcp_interval = self._compute_mcp_config_signature()
+            mcp_stale = (
+                self._mcp_cache_signature != mcp_signature
+                or (time.time() - self._mcp_cache_timestamp) >= mcp_interval
+            )
+            if not force and manifest_state == self._manifest_state and not mcp_stale:
                 return False
 
             tool_payloads, payload_lookup, persona_sources = self._load_tool_payloads(app_root)
             tool_entries = load_manifest_entries(config_manager=self._config_manager)
+            tool_entries.extend(self._mcp_manifest_entries)
             tool_lookup: Dict[Tuple[Optional[str], str], _ToolRecord] = {}
             tool_records: List[_ToolRecord] = []
 
@@ -1134,6 +1150,8 @@ class CapabilityRegistry:
                 state[str(path)] = path.stat().st_mtime
             except FileNotFoundError:
                 state[str(path)] = None
+        mcp_signature, _ = self._compute_mcp_config_signature()
+        state["__mcp_config__"] = mcp_signature
         return state
 
     def _iter_manifest_paths(self, app_root: Path) -> Iterator[Path]:
@@ -1148,6 +1166,26 @@ class CapabilityRegistry:
         yield app_root / "modules" / "Skills" / "skills.json"
         yield app_root / "modules" / "Tasks" / "tasks.json"
         yield app_root / "modules" / "Jobs" / "jobs.json"
+
+    def _compute_mcp_config_signature(self) -> Tuple[str, float]:
+        settings: Mapping[str, Any] = {}
+        if self._config_manager is not None:
+            getter = getattr(self._config_manager, "get_mcp_settings", None)
+            if callable(getter):
+                try:
+                    raw_settings = getter()
+                    if isinstance(raw_settings, Mapping):
+                        settings = raw_settings
+                except Exception:  # pragma: no cover - defensive config access
+                    logger.debug("Capability registry failed to read MCP settings", exc_info=True)
+        refresh_interval_value = settings.get("health_check_interval", 300.0) if isinstance(settings, Mapping) else 300.0
+        try:
+            refresh_interval = float(refresh_interval_value)
+        except (TypeError, ValueError):
+            refresh_interval = 300.0
+        payload = json.dumps(settings or {}, sort_keys=True, default=str).encode("utf-8")
+        signature = hashlib.sha256(payload).hexdigest()
+        return signature, refresh_interval
 
     def _load_tool_payloads(
         self, app_root: Path
@@ -1182,6 +1220,16 @@ class CapabilityRegistry:
                         if isinstance(entry, Mapping) and entry.get("name")
                     }
                 persona_sources[persona_key] = exists
+
+        mcp_payloads, mcp_lookup, mcp_sources = self._load_mcp_payloads()
+        for persona_key, entries in mcp_payloads.items():
+            existing = payloads.setdefault(persona_key, [])
+            existing.extend(entries)
+            persona_sources[persona_key] = persona_sources.get(persona_key, False) or mcp_sources.get(persona_key, False)
+        for persona_key, entries in mcp_lookup.items():
+            target = lookup.setdefault(persona_key, {})
+            for name, entry in entries.items():
+                target.setdefault(name, entry)
         return payloads, lookup, persona_sources
 
     def _read_tool_manifest(self, path: Path) -> Tuple[List[Mapping[str, Any]], bool]:
@@ -1211,6 +1259,220 @@ class CapabilityRegistry:
         else:
             logger.warning("Capability registry expected manifest %s to be list or object", path)
         return entries, True
+
+    def _load_mcp_payloads(
+        self,
+    ) -> Tuple[
+        Dict[Optional[str], List[Mapping[str, Any]]],
+        Dict[Optional[str], Dict[str, Mapping[str, Any]]],
+        Dict[Optional[str], bool],
+    ]:
+        signature, refresh_interval = self._compute_mcp_config_signature()
+        now = time.time()
+        if (
+            self._mcp_cache_signature == signature
+            and (now - self._mcp_cache_timestamp) < refresh_interval
+        ):
+            self._mcp_manifest_entries = list(self._mcp_cache_manifests)
+            return (
+                copy.deepcopy(self._mcp_cache_payloads),
+                copy.deepcopy(self._mcp_cache_lookup),
+                dict(self._mcp_cache_persona_sources),
+            )
+
+        settings: Mapping[str, Any] = {}
+        if self._config_manager is not None:
+            getter = getattr(self._config_manager, "get_mcp_settings", None)
+            if callable(getter):
+                try:
+                    raw_settings = getter()
+                    if isinstance(raw_settings, Mapping):
+                        settings = raw_settings
+                except Exception:  # pragma: no cover - defensive guard
+                    logger.warning("Capability registry unable to read MCP settings", exc_info=True)
+
+        if not isinstance(settings, Mapping) or not settings.get("enabled"):
+            self._mcp_cache_signature = signature
+            self._mcp_cache_timestamp = now
+            self._mcp_cache_payloads = {}
+            self._mcp_cache_lookup = {}
+            self._mcp_cache_persona_sources = {}
+            self._mcp_cache_manifests = []
+            self._mcp_manifest_entries = []
+            return {}, {}, {}
+
+        from modules.Tools.providers.base import ToolProviderSpec
+        from modules.Tools.providers.mcp import McpToolProvider
+
+        provider: Optional[McpToolProvider] = None
+        try:
+            spec = ToolProviderSpec(
+                name="mcp",
+                priority=0,
+                config=MappingProxyType(dict(settings)),
+                health_check_interval=float(settings.get("health_check_interval", 300.0)),
+            )
+            provider = McpToolProvider(spec, tool_name="__discovery__")
+        except Exception as exc:  # pragma: no cover - defensive guard for MCP import/instantiation
+            logger.warning("Capability registry failed to initialize MCP provider for discovery: %s", exc)
+            self._mcp_manifest_entries = []
+            return {}, {}, {}
+
+        payloads: Dict[Optional[str], List[Mapping[str, Any]]] = {}
+        lookup: Dict[Optional[str], Dict[str, Mapping[str, Any]]] = {}
+        persona_sources: Dict[Optional[str], bool] = {}
+        manifest_entries: List[ToolManifestEntry] = []
+
+        async def _discover() -> None:
+            for server_name, server_config in provider._servers.items():  # type: ignore[attr-defined]
+                if not isinstance(server_config, Mapping):
+                    continue
+                persona_value = server_config.get("persona")
+                persona_key = normalize_persona_identifier(persona_value)
+                allow_tools = server_config.get("allow_tools") or settings.get("allow_tools")
+                deny_tools = server_config.get("deny_tools") or settings.get("deny_tools")
+
+                try:
+                    tools = await self._discover_mcp_server_tools(provider, server_name)
+                except Exception as exc:
+                    logger.warning("Capability registry failed MCP discovery for server '%s': %s", server_name, exc)
+                    continue
+
+                persona_sources[persona_key] = True
+                for tool in tools:
+                    name = str(tool.get("name", "")).strip()
+                    if not name:
+                        continue
+
+                    if isinstance(allow_tools, Iterable) and not isinstance(allow_tools, (str, bytes)):
+                        if name not in allow_tools:
+                            continue
+                    if isinstance(deny_tools, Iterable) and not isinstance(deny_tools, (str, bytes)):
+                        if name in deny_tools:
+                            continue
+
+                    entry = self._build_mcp_manifest_payload(tool, server_name)
+                    payloads.setdefault(persona_key, []).append(entry)
+                    lookup.setdefault(persona_key, {})[name] = entry
+                    manifest_entries.append(
+                        self._build_mcp_manifest_entry(
+                            entry,
+                            persona=persona_value if persona_key is not None else None,
+                            server_name=server_name,
+                        )
+                    )
+
+        loop = asyncio.new_event_loop()
+        try:
+            loop.run_until_complete(_discover())
+        finally:
+            try:
+                sessions = list(getattr(provider, "_sessions", {}).values()) if provider is not None else []
+                for handle in sessions:
+                    disconnect = getattr(handle.session, "disconnect", None)
+                    if disconnect is None:
+                        disconnect = getattr(handle.session, "close", None)
+                    if disconnect is None:
+                        continue
+                    result = disconnect()
+                    if inspect.isawaitable(result):
+                        try:
+                            loop.run_until_complete(result)
+                        except Exception:  # pragma: no cover - defensive cleanup
+                            logger.debug("Failed to close MCP session for '%s'", handle.name, exc_info=True)
+            except Exception:  # pragma: no cover - defensive guard
+                logger.debug("Error while cleaning up MCP discovery sessions", exc_info=True)
+            try:
+                loop.run_until_complete(loop.shutdown_asyncgens())
+            except Exception:  # pragma: no cover - defensive cleanup
+                pass
+            loop.close()
+
+        self._mcp_cache_signature = signature
+        self._mcp_cache_timestamp = now
+        self._mcp_cache_payloads = copy.deepcopy(payloads)
+        self._mcp_cache_lookup = copy.deepcopy(lookup)
+        self._mcp_cache_persona_sources = dict(persona_sources)
+        self._mcp_cache_manifests = list(manifest_entries)
+        self._mcp_manifest_entries = list(manifest_entries)
+        return payloads, lookup, persona_sources
+
+    async def _discover_mcp_server_tools(
+        self,
+        provider: McpToolProvider,
+        server_name: str,
+    ) -> List[Mapping[str, Any]]:
+        session_handle = await provider._get_or_create_session(server_name)
+        session = session_handle.session
+        list_tools = getattr(session, "list_tools", None)
+        if list_tools is None:
+            return []
+        result = list_tools()
+        if inspect.isawaitable(result):
+            result = await result
+        tools = []
+        if isinstance(result, Mapping):
+            candidate = result.get("tools") if "tools" in result else None
+            if isinstance(candidate, Iterable):
+                result = candidate
+        if isinstance(result, Iterable) and not isinstance(result, (str, bytes)):
+            for item in result:
+                if isinstance(item, Mapping):
+                    tools.append(item)
+        return tools
+
+    def _build_mcp_manifest_payload(self, tool: Mapping[str, Any], server_name: str) -> Mapping[str, Any]:
+        name = str(tool.get("name", "")).strip()
+        description = str(tool.get("description", "")).strip()
+        parameters = tool.get("input_schema") or tool.get("inputSchema") or tool.get("parameters") or {}
+        version = tool.get("version")
+        return {
+            "name": name,
+            "description": description,
+            "parameters": parameters if isinstance(parameters, Mapping) else {},
+            "version": version,
+            "providers": [
+                {
+                    "name": "mcp",
+                    "config": {
+                        "server": server_name,
+                        "tool": name,
+                    },
+                }
+            ],
+        }
+
+    def _build_mcp_manifest_entry(
+        self,
+        entry: Mapping[str, Any],
+        *,
+        persona: Optional[str],
+        server_name: str,
+    ) -> ToolManifestEntry:
+        name = str(entry.get("name", "")).strip()
+        description = str(entry.get("description", "")).strip()
+        version = entry.get("version")
+        providers = entry.get("providers") if isinstance(entry.get("providers"), list) else []
+        return ToolManifestEntry(
+            name=name,
+            persona=persona,
+            description=description,
+            version=version,
+            capabilities=[],
+            auth={},
+            safety_level=None,
+            requires_consent=None,
+            allow_parallel=None,
+            idempotency_key=None,
+            default_timeout=None,
+            side_effects=None,
+            cost_per_call=None,
+            cost_unit=None,
+            persona_allowlist=[],
+            requires_flags={},
+            providers=providers,
+            source=f"mcp:{server_name}",
+        )
 
 
 _registry_lock = threading.Lock()
