@@ -2,7 +2,7 @@
 audience: Operators and backend developers
 status: in_review
 last_verified: 2025-12-21
-source_of_truth: modules/background_tasks/retention.py; modules/background_tasks/conversation_summary.py; modules/Tools/Base_Tools/memory_episodic.py; modules/conversation_store/conversations.py; modules/orchestration/followups.py
+source_of_truth: modules/background_tasks/retention.py; ATLAS/config/persistence.py; ATLAS/config/conversation_summary.py; modules/background_tasks/conversation_summary.py; modules/conversation_store/conversations.py; modules/orchestration/followups.py; modules/Server/routes.py
 ---
 
 # Conversation store retention
@@ -24,6 +24,38 @@ recognized:
 
 All durations are interpreted as whole days. Values that cannot be coerced to an
 integer are ignored.
+
+## Worker configuration examples
+
+Retention scheduling parameters live under the `conversation_database.retention_worker`
+block in `config.yaml`. The values map directly to `RetentionWorker` and
+`ConfigManager.get_retention_worker_settings`, allowing operators to tune how
+aggressively the worker reacts to backlogs.【F:ATLAS/config/persistence.py†L1258-L1280】【F:ATLAS/config/persistence.py†L1486-L1536】【F:modules/background_tasks/retention.py†L14-L126】
+
+**Default cadence (hourly with jitter)**
+```yaml
+conversation_database:
+  retention_worker:
+    interval_seconds: 3600    # base wait between passes
+    min_interval_seconds: 60  # never wait less than one minute
+    jitter_seconds: 30        # random +/- jitter to avoid thundering herd
+```
+
+**Catch-up profile for busy tenants**
+```yaml
+conversation_database:
+  retention_worker:
+    interval_seconds: 1800
+    backlog_high_water: 100      # switch to catch-up cadence sooner
+    catchup_multiplier: 0.35     # shrink waits when backlog stays high
+    recovery_growth: 2.0         # relax once backlog returns to normal
+    error_backoff_factor: 2.0    # exponential backoff on failures
+    error_backoff_max_seconds: 21600
+```
+
+These settings bound the sleep intervals the worker uses between calls to
+`ConversationStoreRepository.run_retention`, which means retention still runs
+with a monotonic timer even when the HTTP server is idle.【F:modules/background_tasks/retention.py†L63-L129】【F:modules/Server/routes.py†L3143-L3230】
 
 ## Background worker
 

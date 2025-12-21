@@ -29,3 +29,12 @@ default behaviour is preserved.
 After updating the configuration, restart ATLAS to apply the new policy. The UI
 will automatically refresh its password guidance text the next time the account
 dialog is opened.
+
+## Scope and enforcement
+- The rules are enforced inside `UserAccountService` for local account
+  registration, password updates, and authentication; GTK flows and HTTP
+  handlers reuse the same service so the policy is applied consistently across
+  UI and API entry points.【F:modules/user_accounts/user_account_service.py†L1129-L1177】【F:modules/user_accounts/user_account_service.py†L1421-L1555】
+- ATLAS does not ship a separate SSO or external identity provider path; if you
+  integrate one downstream, keep local accounts disabled or mirror these
+  requirements at the identity provider layer.
