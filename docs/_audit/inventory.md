@@ -2,14 +2,14 @@
 audience: Documentation maintainers and contributors
 status: draft
 last_verified: 2025-12-21
-source_of_truth: docs/_refactor/style-guide.md
+source_of_truth: docs/_audit/style-guide.md
 ---
 
 # Documentation refactor inventory
 
 | current_path | title | topic | intended_audience | refs_to_code | last_updated_hint | rewrite_needed? | alignment_risk |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| docs/_refactor/glossary.md | ATLAS Glossary | Canonical term definitions and code anchors for key ATLAS concepts. | All audiences | `modules/Personas/schema.json`; `modules/Tools/manifest_loader.py`; `modules/Skills/manifest_loader.py`; `modules/orchestration/capability_registry.py`; `modules/conversation_store/models.py`; `ATLAS/config/config_manager.py`; `ATLAS/setup/controller.py` | 2025-12-21 | No | Medium (touches many evolving subsystems) |
+| docs/_audit/glossary.md | ATLAS Glossary | Canonical term definitions and code anchors for key ATLAS concepts. | All audiences | `modules/Personas/schema.json`; `modules/Tools/manifest_loader.py`; `modules/Skills/manifest_loader.py`; `modules/orchestration/capability_registry.py`; `modules/conversation_store/models.py`; `ATLAS/config/config_manager.py`; `ATLAS/setup/controller.py` | 2025-12-21 | No | Medium (touches many evolving subsystems) |
 | docs/Personas.md | Persona definitions | High-traffic (README map). Persona schema, allowed tool lists, exports/imports, and validation workflow. | Persona authors and backend developers | `modules/Personas/schema.json`; `modules/Personas/__init__.py`; `modules/Tools/tool_maps/functions.json`; `scripts/persona_tools.py`; `tests/test_persona_schema.py` | 2025-12-21 | No | Medium (schema and tool map change frequently) |
 | docs/architecture-overview.md | ATLAS Architecture & Codebase Tour | High-traffic (README map). Runtime entry points, subsystem layout, and navigation map. | New contributors and maintainers | `main.py`; `ATLAS/ATLAS.py`; `modules/conversation_store/`; `modules/orchestration/`; `modules/Speech_Services/`; `modules/Server/` | 2025-12-21 | No | Medium (architecture evolves alongside orchestration changes) |
 | docs/audio/interface.md | Audio engine for playback and mixing | Audio interface contracts, playback examples, and mixer notes. | Backend/audio developers | `modules/audio/interface.py`; `modules/audio/engine.py`; `modules/Speech_Services/base.py`; `modules/Speech_Services/elevenlabs_tts.py`; `modules/Speech_Services/Google_tts.py` | 2025-12-21 – Added UI adapter notes and legacy context. | No | Low |
