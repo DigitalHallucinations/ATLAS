@@ -147,6 +147,14 @@ Tool discovery endpoints (e.g., `/tools`) and capability registries feed downstr
 
 ## 🧾 Documentation Map
 
+Start with the audience-specific landing pages, then drill into topic guides:
+
+* [User docs](docs/user/README.md) – setup wizard, GTK UI navigation, and day-to-day workflows
+* [Developer docs](docs/developer/README.md) – environment setup, configuration references, personas, tools, and API surfaces
+* [Enterprise docs](docs/enterprise/README.md) – retention, password policies, export controls, and backups
+
+Topic deep-dives:
+
 * [Setup Wizard](docs/setup-wizard.md) – guided configuration and bootstrap flow
 * [Persona Definitions](docs/Personas.md) – schema, validation, and persona-specific tooling
 * [Task Lifecycle Overview](docs/tasks/overview.md) – routing, analytics, and UI integration
