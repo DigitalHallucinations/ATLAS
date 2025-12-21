@@ -52,7 +52,12 @@ Additional keys continue to control runtime behaviour:
 | `task_queue.misfire_grace_time` | float | Seconds a job is allowed to run late before being considered missed (default: `60`). |
 | `task_queue.coalesce` | bool | Whether to coalesce missed runs for recurring jobs (default: `false`). |
 | `task_queue.max_instances` | int | Maximum concurrent executions per job (default: `1`). |
-| `task_queue.retry_policy` | object | Mapping with `max_attempts`, `backoff_seconds`, `backoff_multiplier`, and `jitter_seconds` fields. |
+| `task_queue.retry_policy` | object | Mapping with `max_attempts`, `backoff_seconds`, `backoff_multiplier`, and `jitter_seconds` fields. Defaults: 3 attempts, 30s base backoff, 2x multiplier, 5s jitter. |
+
+If no job store URL is supplied, the queue resolves one from `ConfigManager`
+(`job_scheduling.job_store_url` or `task_queue.jobstore_url`) and enforces that
+the scheme is PostgreSQL or SQLite before starting. Timezone values default to
+UTC when unrecognised.
 
 ## Manifest Operations
 

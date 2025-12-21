@@ -2,7 +2,7 @@
 audience: Tool users and ops
 status: in_review
 last_verified: 2025-12-21
-source_of_truth: modules/Tools/Base_Tools/browser_lite.py; modules/Tools/Base_Tools/webpage_fetch.py
+source_of_truth: modules/Tools/Base_Tools/browser_lite.py; modules/Tools/Base_Tools/webpage_fetch.py; ATLAS/config/tooling.py
 ---
 
 # Browser Lite Tool
@@ -21,6 +21,31 @@ assistant unrestricted access to the open web.
   flags the action as safe.
 - Can return sanitized page text and, when headless browser support is available, attach a PNG
   screenshot for every visited page.
+
+## Configuration and defaults
+
+Browser Lite reads its safety settings from `tool_safety.network_allowlist` (via
+`ConfigManager` and `ATLAS/config/tooling.py`). If no allowlist entries are configured the tool
+rejects every navigation attempt. Defaults for the execution budget come directly from
+`BrowserLite.from_config`:
+
+- `max_pages_per_session`: 5
+- `throttle_seconds`: 0.5 seconds between requests
+- `request_timeout`: 20 seconds per HTTP request
+- `user_agent`: `ATLASBrowserLite/1.0` when none is supplied
+
+Example allowlist configuration:
+
+```yaml
+tool_safety:
+  network_allowlist:
+    - example.com
+    - docs.example.org
+```
+
+The allowlist may also be provided through environment-backed `ConfigManager` overrides. Form
+submission remains disabled unless the tool request sets `allow_forms: true` **and** the persona
+enables `browser_high_risk_enabled`, keeping high-risk actions opt-in.
 
 ## Usage
 

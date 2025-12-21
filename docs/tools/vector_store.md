@@ -18,6 +18,10 @@ embeddings across different providers via a common adapter layer:
 
 Vector store settings are read from the `tools.vector_store` block in
 `config.yaml` (or environment overrides managed by `ConfigManager`).
+Defaults derive from `ATLAS/config/tooling.py`: the adapter defaults to
+`in_memory` unless overridden, MongoDB database/collection/index names default
+to `atlas_vector_store`, `embeddings`, and `vector_index`, and MongoDB
+connection URIs inherit `ATLAS_VECTOR_STORE_MONGODB_URI` when set.
 
 ```yaml
 tools:
@@ -123,4 +127,3 @@ Idempotency is achieved via namespace-aware keys:
 * `delete_namespace` – namespace identifier.
 
 These keys help ToolManager safely retry operations without duplicating work.
-
