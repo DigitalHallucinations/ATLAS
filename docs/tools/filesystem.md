@@ -1,3 +1,10 @@
+---
+audience: Tool users and operators
+status: in_review
+last_verified: 2025-12-21
+source_of_truth: modules/Tools/Base_Tools/filesystem_io.py; modules/Tools/tool_maps/functions.json
+---
+
 # Filesystem Sandbox Tools
 
 The filesystem tool suite provides read, write, and directory listing helpers for

@@ -1,3 +1,10 @@
+---
+audience: Developers maintaining legacy speech stack
+status: in_review
+last_verified: 2025-12-21
+source_of_truth: modules/Speech_Services/base.py; modules/Speech_Services/elevenlabs_tts.py; modules/Speech_Services/Google_tts.py; modules/Speech_Services/Google_stt.py; modules/Speech_Services/gpt4o_tts.py; modules/Speech_Services/gpt4o_stt.py; modules/Speech_Services/whisper_stt.py; modules/Speech_Services/speech_manager.py
+---
+
 # Speech Services legacy snapshot
 
 The former `modules/Speech_Services/complete speech services` file stitched together

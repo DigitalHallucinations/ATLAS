@@ -1,3 +1,10 @@
+---
+audience: Persona authors and operators
+status: in_review
+last_verified: 2025-12-21
+source_of_truth: modules/Personas/ATLAS/Persona/ATLAS.json; modules/Tools/Base_Tools/debian12_calendar.py
+---
+
 # Debian 12 Calendar Tool
 
 The Debian 12 calendar tool exposes the desktop calendar so personas can

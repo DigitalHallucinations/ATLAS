@@ -1,3 +1,10 @@
+---
+audience: Operators and backend developers
+status: in_review
+last_verified: 2025-12-21
+source_of_truth: modules/background_tasks/retention.py; modules/background_tasks/conversation_summary.py; modules/Tools/Base_Tools/memory_episodic.py; modules/conversation_store/conversations.py; modules/orchestration/followups.py
+---
+
 # Conversation store retention
 
 The conversation store supports automated cleanup of messages and conversations

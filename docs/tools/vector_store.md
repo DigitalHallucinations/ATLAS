@@ -1,3 +1,10 @@
+---
+audience: Backend developers and operators
+status: in_review
+last_verified: 2025-12-21
+source_of_truth: modules/Tools/Base_Tools/vector_store.py; modules/Tools/providers/vector_store/; ATLAS/config/tooling.py
+---
+
 # Vector Store Tool
 
 The vector store tool exposes three operations for managing and querying

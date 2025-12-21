@@ -1,3 +1,10 @@
+---
+audience: Backend/audio developers
+status: in_review
+last_verified: 2025-12-21
+source_of_truth: modules/audio/interface.py; modules/audio/engine.py
+---
+
 # Audio engine for playback and mixing
 
 This document describes the backend-neutral audio surface now implemented in

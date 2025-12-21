@@ -1,3 +1,10 @@
+---
+audience: Security, compliance, and platform teams
+status: in_review
+last_verified: 2025-12-21
+source_of_truth: export-controls.md; password-policy.md; conversation_retention.md; backups.md
+---
+
 # Enterprise Docs Landing
 
 **Audience:** Security, compliance, and platform teams responsible for policy enforcement, data governance, and operational resilience.

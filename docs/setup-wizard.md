@@ -1,3 +1,10 @@
+---
+audience: New operators and admins
+status: in_review
+last_verified: 2025-12-21
+source_of_truth: scripts/setup_atlas.py; ATLAS/setup/controller.py; modules/Server/routes.py; modules/logging/audit.py; modules/user_accounts/user_account_service.py
+---
+
 # ATLAS Setup Wizard
 
 ATLAS ships with a guided GTK experience for first-time configuration. The

@@ -1,3 +1,10 @@
+---
+audience: Operators and backend developers
+status: in_review
+last_verified: 2025-12-21
+source_of_truth: modules/Tools/Base_Tools/task_queue.py; worker configs under ATLAS/config/
+---
+
 # Background worker health and redundancy
 
 ATLAS relies on background services for scheduled jobs, message dispatch, and

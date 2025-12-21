@@ -1,3 +1,10 @@
+---
+audience: Persona authors and backend developers
+status: in_review
+last_verified: 2025-12-21
+source_of_truth: modules.Jobs.manifest_loader.load_job_metadata; modules/Jobs/; CapabilityRegistry
+---
+
 # Job manifests
 
 Job manifests live alongside persona tool and task manifests under `modules/Jobs/` and extend the scheduling layer with persona assignments, linked tasks, and required capabilities. Each manifest entry is loaded by `modules.Jobs.manifest_loader.load_job_metadata`, cached in the [`CapabilityRegistry`](../tasks/overview.md#ui-and-dashboards), and surfaced to orchestrators through the `CapabilityRegistry.summary` payload.

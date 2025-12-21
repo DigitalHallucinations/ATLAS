@@ -1,3 +1,10 @@
+---
+audience: Contributors building features, extending personas or tools, and maintaining local environments
+status: in_review
+last_verified: 2025-12-21
+source_of_truth: README.md; scripts/install_environment.py; docs/architecture-overview.md
+---
+
 # Developer Docs Landing
 
 **Audience:** Contributors building features, extending personas or tools, and maintaining local environments.

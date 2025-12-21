@@ -1,3 +1,10 @@
+---
+audience: Persona authors
+status: in_review
+last_verified: 2025-12-21
+source_of_truth: Mediation tool entries in tool maps
+---
+
 # Mediation support tools
 
 Echo introduces a focused set of mediation utilities that help mirror emotional

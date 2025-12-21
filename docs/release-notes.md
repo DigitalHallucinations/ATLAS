@@ -1,3 +1,10 @@
+---
+audience: All users
+status: in_review
+last_verified: 2025-12-21
+source_of_truth: Release notes source only
+---
+
 # Release Notes
 
 ## Unreleased

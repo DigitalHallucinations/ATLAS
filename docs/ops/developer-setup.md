@@ -1,3 +1,10 @@
+---
+audience: Contributors and developers
+status: in_review
+last_verified: 2025-12-21
+source_of_truth: scripts/install_environment.py; scripts/setup_atlas.py; main.py
+---
+
 # Developer Environment Setup
 
 This runbook walks through preparing a local development environment for ATLAS. It covers creating the Python virtual environment, installing dependencies, provisioning configuration through the CLI helper, and choosing when to rely on the GTK setup wizard instead.

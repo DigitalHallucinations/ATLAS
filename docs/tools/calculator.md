@@ -1,3 +1,10 @@
+---
+audience: Persona authors
+status: in_review
+last_verified: 2025-12-21
+source_of_truth: Calculator tool implementation (Base_Tools)
+---
+
 # Calculator Tool
 
 The calculator tool evaluates mathematical expressions using Python's `decimal` module so that

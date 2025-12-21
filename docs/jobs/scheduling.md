@@ -1,3 +1,10 @@
+---
+audience: Backend developers
+status: in_review
+last_verified: 2025-12-21
+source_of_truth: modules.orchestration.job_scheduler; modules.job_store.service.JobService.transition_job
+---
+
 # Job scheduling
 
 Job schedules coordinate recurring automation through `modules.orchestration.job_scheduler`. Schedules are defined in job manifests (`schedule` block) and persisted on the job record. When `JobService.transition_job` moves a job into `scheduled` or `running`, validation ensures the schedule is present if required.

@@ -1,3 +1,10 @@
+---
+audience: Operators and workspace members using the ATLAS desktop shell
+status: in_review
+last_verified: 2025-12-21
+source_of_truth: GTK desktop shell workflows; setup wizard runbooks
+---
+
 # User Docs Landing
 
 **Audience:** Operators and workspace members using the ATLAS desktop shell and its built-in workflows.

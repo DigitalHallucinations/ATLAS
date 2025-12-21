@@ -1,3 +1,10 @@
+---
+audience: Persona authors and ops
+status: in_review
+last_verified: 2025-12-21
+source_of_truth: modules/Tools/Base_Tools/terminal_command.py
+---
+
 # Terminal Command Tool
 
 The shared `terminal_command` tool executes carefully sandboxed commands inside the ATLAS runtime. It
