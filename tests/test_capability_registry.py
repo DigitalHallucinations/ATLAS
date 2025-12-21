@@ -4,11 +4,18 @@ import time
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Optional
+from types import MappingProxyType
 
 import pytest
 
+try:
+    import jsonschema
+except Exception:  # pragma: no cover - fallback when jsonschema is stubbed
+    jsonschema = None
+
 from ATLAS.tools.manifests import _get_tool_manifest_validator
 from modules.orchestration.capability_registry import CapabilityRegistry
+from modules.Tools.providers.mcp_manifest import translate_mcp_tool_to_manifest
 
 
 class _DummyConfig:
@@ -85,7 +92,7 @@ def _minimal_tool(name: str) -> dict:
         "auth": {"required": False},
         "allow_parallel": True,
         "capabilities": ["sample"],
-        "providers": [{"name": "primary"}],
+        "providers": [{"name": "primary", "config": {}}],
     }
 
 
@@ -252,6 +259,135 @@ def test_mcp_manifest_translation_validates(monkeypatch, capability_root: Path) 
     validator = _get_tool_manifest_validator(config_manager=registry._config_manager)
     assert validator is not None
     validator.validate(payload)
+
+
+def test_mcp_manifest_translation_defaults_and_schema(capability_root: Path) -> None:
+    settings = MappingProxyType(
+        {
+            "enabled": True,
+            "health_check_interval": 1.0,
+            "server": "edge",
+            "servers": {"edge": {"transport": "stdio", "command": "echo"}},
+        }
+    )
+
+    tool_metadata = {
+        "name": "translate_me",
+        "description": "",
+        "input_schema": {"type": "object", "properties": {"msg": {"type": "string"}}},
+    }
+
+    entry = translate_mcp_tool_to_manifest(
+        tool_metadata,
+        server_name="edge",
+        server_config=dict(settings["servers"]["edge"]),
+        defaults=dict(settings),
+    )
+
+    assert entry["name"] == "mcp.edge.translate_me"
+    assert entry["side_effects"] == "network"
+    assert entry["allow_parallel"] is False
+    assert entry["idempotency_key"] is False
+    assert entry["requires_consent"] is True
+    assert entry["auth"] == {"required": False}
+
+    validator = _get_tool_manifest_validator(config_manager=_DummyConfig(capability_root))
+    assert validator is not None
+    validator.validate([entry])
+
+
+def test_mcp_manifest_translation_rejects_invalid_schema(capability_root: Path) -> None:
+    invalid_entry = {
+        "name": "mcp.edge.invalid",
+        "description": "Missing parameters",
+        "version": "1.0.0",
+        "side_effects": "network",
+        "default_timeout": 10,
+        "auth": {"required": False},
+        "allow_parallel": False,
+        "idempotency_key": False,
+        "providers": [{"name": "mcp", "config": {"server": "edge", "tool": "invalid"}}],
+    }
+
+    validator = _get_tool_manifest_validator(config_manager=_DummyConfig(capability_root))
+    assert validator is not None
+
+    validation_error = getattr(jsonschema, "ValidationError", Exception) if jsonschema else Exception
+    with pytest.raises(validation_error):
+        validator.validate([invalid_entry])
+
+
+def test_mcp_payloads_merge_filters_and_cache(monkeypatch, capability_root: Path) -> None:
+    class _McpConfig(_DummyConfig):
+        def __init__(self, root: Path, settings: Mapping[str, Any]) -> None:
+            super().__init__(root)
+            self._settings = settings
+
+        def get_mcp_settings(self) -> Mapping[str, Any]:
+            return self._settings
+
+    shared_tool = _minimal_tool("shared_tool")
+    _write_shared_manifests(capability_root, [shared_tool], [_minimal_skill("skill")], [_minimal_task("task")])
+
+    settings: Mapping[str, Any] = {
+        "enabled": True,
+        "health_check_interval": 1000.0,
+        "server": "edge",
+        "servers": {
+            "edge": {
+                "transport": "stdio",
+                "command": "echo",
+                "allow_tools": ["alpha"],
+                "deny_tools": ["skip"],
+                "persona": "Nova",
+            }
+        },
+    }
+
+    registry = CapabilityRegistry(config_manager=_McpConfig(capability_root, settings))
+    current_time = {"value": 100.0}
+    monkeypatch.setattr("modules.orchestration.capability_registry.time.time", lambda: current_time["value"])
+
+    call_count = {"value": 0}
+
+    async def _fake_discover(provider, server_name: str):
+        call_count["value"] += 1
+        return [
+            {"name": "alpha", "description": "kept", "input_schema": {"type": "object"}},
+            {"name": "skip", "description": "denied", "input_schema": {"type": "object"}},
+        ]
+
+    monkeypatch.setattr(registry, "_discover_mcp_server_tools", _fake_discover)
+
+    registry.refresh(force=True)
+    assert call_count["value"] == 1
+
+    nova_tools = registry.query_tools(persona_filters=["nova"])
+    nova_names = {view.manifest.name for view in nova_tools}
+    assert "mcp.edge.alpha" in nova_names
+    assert "shared_tool" in nova_names
+
+    persona_only = registry.query_tools(persona_filters=["nova", "-shared"])
+    assert {view.manifest.name for view in persona_only} == {"mcp.edge.alpha"}
+
+    registry.record_provider_metrics(
+        persona="Nova",
+        tool_name="mcp.edge.alpha",
+        summary={
+            "tool": "mcp.edge.alpha",
+            "selected": "mcp",
+            "success": True,
+            "latency_ms": 50.0,
+            "timestamp": current_time["value"],
+            "providers": {"mcp": {"successes": 1, "failures": 0, "consecutive_failures": 0, "failure_rate": 0.0}},
+        },
+    )
+    provider_metrics = registry.query_tools(persona_filters=["nova", "-shared"])[0].health["providers"]["mcp"]["metrics"]
+    assert provider_metrics["success"] == 1
+
+    current_time["value"] = 150.0
+    registry.refresh(force=True)
+    assert call_count["value"] == 1
 
 
 def test_registry_filters_invalid_entries(capability_root: Path) -> None:
