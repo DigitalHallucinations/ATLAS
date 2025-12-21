@@ -1,3 +1,10 @@
+---
+audience: Operators and platform engineers
+status: in_review
+last_verified: 2025-12-21
+source_of_truth: ATLAS/config/tooling.py; ATLAS/config/persistence.py; modules/Tools/Base_Tools/kv_store.py; modules/Tools/Base_Tools/vector_store.py; modules/Tools/providers/mcp.py; modules/background_tasks/conversation_summary.py
+---
+
 # Configuration reference
 
 ATLAS centralises runtime configuration in `ConfigManager`, which merges `.env` values with `atlas_config.yaml` and normalises well-known blocks before the GTK shell or automation services start.【F:ATLAS/config/core.py†L30-L73】【F:ATLAS/config/config_manager.py†L78-L193】 Use this guide to understand each configuration block, the expected data types, defaults, environment variable overrides, and the runtime components that consume them. For subsystem-specific deep dives, see the [documentation map](../README.md#documentation-map) and the focused articles linked below.【F:README.md†L29-L37】
