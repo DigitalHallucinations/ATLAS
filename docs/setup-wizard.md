@@ -2,23 +2,29 @@
 
 ATLAS ships with a guided GTK experience for first-time configuration. The
 desktop shell launches a multi-step window that walks through the key decisions
-required to bring the platform online. The administrator profile now opens the
-wizard so that environment-specific defaults can be staged before any
-infrastructure settings are applied.
+required to bring the platform online. The flow begins with an overview and a
+setup type selection, then immediately runs the hardware preflight so the
+recommended performance mode is available before any identities are staged.
+Enterprise runs insert **Company** and **Policies** pages after preflight, while
+personal setups jump straight to the **Users** roster. The roster allows you to
+stage the initial admin alongside other local users, and the dedicated **Admin**
+identity page collects the privileged credentials that the controller reuses
+across the later infrastructure steps.【F:GTKUI/Setup/setup_wizard.py†L994-L1088】【F:ATLAS/setup/controller.py†L555-L707】【F:ATLAS/setup/controller.py†L1375-L1429】
 
 ### Introduction and branching
 
-The wizard opens with an introduction followed by a setup type choice. Picking
-**User (Personal)** advances directly to the **Admin** step, where you stage the
-first account. Choosing **Company (Enterprise)** routes you through a combined
-company step: tenancy, retention, and scheduler defaults are captured first,
-then the initial administrative account is staged. Either path retains the
-staged credentials so the remaining infrastructure pages can reuse them without
-repeated prompts. Once the environment is ready, the staged profile is
-registered and the setup marker written. Review the
+The wizard opens with an introduction followed by a setup type choice, then
+preflight hardware scoring so the suggested performance tier can steer storage
+and hosting decisions. Choosing **User (Personal)** proceeds to the **Users**
+roster and **Admin** identity pages, while **Company (Enterprise)** inserts
+**Company** and **Policies** steps between preflight and the roster so tenancy,
+retention, scheduler, and residency defaults are captured first. Either path
+stages the admin profile and privileged credentials so later pages can reuse the
+details without repeated prompts. Once the environment is ready, the staged
+profile is registered and the setup marker written. Review the
 [user account management guide](./user-accounts.md) and the
 [developer setup runbook](./ops/developer-setup.md) for the onboarding material
-that follows this branching step.
+that follows this branching step.【F:GTKUI/Setup/setup_wizard.py†L1031-L1140】【F:ATLAS/setup/controller.py†L711-L810】【F:ATLAS/setup/controller.py†L1280-L1399】
 
 ### Step-by-step configuration
 
@@ -28,28 +34,42 @@ that follows this branching step.
 > administrator in the GTK flow—see the [Standalone CLI utility](#standalone-cli-utility)
 > section for the full walkthrough.
 
-1. **Admin or Company** – Personal setups land on the admin page to collect a
-   full name, username, email address, organization domain, date of birth,
-   password, and privileged sudo credentials. Enterprise setups route through a
-   company overview that captures tenant, retention, scheduler, and HTTP
-   defaults before presenting the same admin credentials form. The wizard stages
-   this information instead of registering the account immediately. Subsequent
-   pages reuse the staged data; for example the database user defaults to the
-   staged username and the tenant field inherits the normalized domain from the
-   earlier company page. Privileged database credentials captured later in the
-   flow are also stored so they can be reused by the CLI and GTK flows.
-2. **Database** – Collect PostgreSQL connection details and run the conversation
-   store bootstrap helpers.
-3. **Job scheduling** – Enable durable scheduling, configure retry policy, and
-   provide job store details when needed.
-4. **Message bus** – Choose between the in-memory or Redis backends and supply
-   any Redis connection details.
-5. **Key-value store** – Decide whether to reuse the conversation store and set
-   an alternate DSN when required.
-6. **Providers** – Store default model/provider selections along with any API
-   keys that should be written to the configuration.
-7. **Speech** – Toggle text-to-speech and speech-to-text integrations and record
-   provider defaults and API keys.
+1. **Introduction** – A short overview of the GTK flow and the configuration it
+   will apply.
+2. **Setup Type** – Select the personal, enterprise, or regulatory preset; the
+   controller applies profile defaults immediately so later pages start from
+   the correct hosting and retention baseline.【F:GTKUI/Setup/setup_wizard.py†L1031-L1049】【F:ATLAS/setup/controller.py†L711-L783】
+3. **Preflight** – Run hardware checks and store the recommended performance
+   tier before any identities or storage choices are staged.【F:GTKUI/Setup/setup_wizard.py†L994-L1049】【F:ATLAS/setup/controller.py†L555-L707】
+4. **Company (enterprise only)** – Capture company identity and tenancy context
+   ahead of the user roster.【F:GTKUI/Setup/setup_wizard.py†L1052-L1068】【F:ATLAS/setup/controller.py†L1317-L1347】
+5. **Policies (enterprise only)** – Record retention, residency, scheduler, and
+   HTTP defaults so downstream services inherit the enterprise constraints before
+   user creation.【F:GTKUI/Setup/setup_wizard.py†L1052-L1068】【F:ATLAS/setup/controller.py†L1280-L1315】
+6. **Users** – Build the roster and pick the initial admin; the controller keeps
+   the first unique entry out of the reset flow so it can seed the admin
+   profile later.【F:GTKUI/Setup/setup_wizard.py†L1070-L1078】【F:ATLAS/setup/controller.py†L1400-L1429】
+7. **Admin identity** – Collect the admin’s credentials, profile metadata, and
+   privileged database credentials; the wizard stages this data for reuse across
+   every remaining page before finally registering the account.【F:GTKUI/Setup/setup_wizard.py†L1079-L1088】【F:ATLAS/setup/controller.py†L1217-L1255】【F:ATLAS/setup/controller.py†L1375-L1399】
+8. **Database** – An intro page that outlines backend expectations for the
+   conversation store before you pick concrete settings.
+9. **Storage Architecture** – Choose the conversation and vector storage hosting
+   model, including preset backends and whether to reuse local services or
+   managed options.【F:GTKUI/Setup/setup_wizard.py†L1089-L1103】【F:ATLAS/setup/controller.py†L1031-L1050】
+10. **Configure Database** – Provide the DSN and optional privileged credentials
+    so the controller can bootstrap the conversation store and persist the final
+    URL.【F:GTKUI/Setup/setup_wizard.py†L1103-L1108】【F:ATLAS/setup/controller.py†L1001-L1037】
+11. **Job scheduling** – Enable durable scheduling, configure retry policy, and
+    provide job store details when needed.【F:GTKUI/Setup/setup_wizard.py†L1109-L1114】【F:ATLAS/setup/controller.py†L1068-L1120】
+12. **Message bus** – Choose between the in-memory or Redis backends and supply
+    any Redis connection details.【F:GTKUI/Setup/setup_wizard.py†L1115-L1120】【F:ATLAS/setup/controller.py†L1124-L1134】
+13. **Key-value store** – Decide whether to reuse the conversation store and set
+    an alternate DSN when required.【F:GTKUI/Setup/setup_wizard.py†L1121-L1126】【F:ATLAS/setup/controller.py†L1136-L1144】
+14. **Providers** – Store default model/provider selections along with any API
+    keys that should be written to the configuration.【F:GTKUI/Setup/setup_wizard.py†L1127-L1133】【F:ATLAS/setup/controller.py†L1146-L1188】
+15. **Speech** – Toggle text-to-speech and speech-to-text integrations and
+    record provider defaults and API keys.【F:GTKUI/Setup/setup_wizard.py†L1134-L1138】【F:ATLAS/setup/controller.py†L1190-L1213】
 
 Progress and any validation errors are surfaced inline, and the wizard invokes
 the same controller methods used by the CLI to persist settings. The final step
