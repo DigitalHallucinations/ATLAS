@@ -2,6 +2,7 @@
 audience: Contributors and developers
 status: in_review
 last_verified: 2025-12-21
+last_updated_hint: Refreshed OS prerequisites, clarified installer flags, and added non-interactive setup guidance.
 source_of_truth: scripts/install_environment.py; scripts/setup_atlas.py; main.py
 ---
 
@@ -10,26 +11,28 @@ source_of_truth: scripts/install_environment.py; scripts/setup_atlas.py; main.py
 This runbook walks through preparing a local development environment for ATLAS. It covers creating the Python virtual environment, installing dependencies, provisioning configuration through the CLI helper, and choosing when to rely on the GTK setup wizard instead.
 
 ## Prerequisites
-- Python 3.10 or newer available on your path.
-- GTK build headers and introspection libraries installed locally.
+- Python 3.10 or newer on your path. Ensure `python3-venv`, `pip`, and compiler headers are installed so wheels can build.
   - **Debian/Ubuntu**
     ```bash
-    sudo apt install libgtk-4-dev libadwaita-1-dev gobject-introspection gir1.2-gtk-4.0
+    sudo apt install python3-venv python3-pip build-essential pkg-config \
+      libffi-dev libssl-dev libgtk-4-dev libadwaita-1-dev \
+      gobject-introspection gir1.2-gtk-4.0
     ```
   - **Fedora**
     ```bash
-    sudo dnf install gtk4-devel libadwaita-devel gobject-introspection-devel
+    sudo dnf install python3-virtualenv python3-pip gcc pkgconf-pkg-config \
+      libffi-devel openssl-devel gtk4-devel libadwaita-devel gobject-introspection-devel
     ```
   - **macOS (Homebrew)**
     ```bash
-    brew install gtk4 libadwaita gobject-introspection
+    brew install python gtk4 libadwaita gobject-introspection pkg-config
     ```
-  - Verify the bindings are visible to Python:
+  - Verify the GTK bindings are visible to Python:
     ```bash
     python -c "import gi"
     ```
-- Access to the PostgreSQL instance you intend to use for development (local or remote).
-- Optional: Redis if you plan to exercise the Redis-backed message bus.
+- Access to PostgreSQL (local or remote) for persistence.
+- Optional: Redis if you plan to exercise the Redis-backed message bus or high-volume task queues.
 
 ## Bootstrap the virtual environment
 Run the environment installer from the repository root to create `.venv/` and install Python dependencies:
@@ -63,6 +66,12 @@ python3 scripts/install_environment.py --python=/usr/bin/python3.11
 
 The script is idempotent and safe to re-run whenever `requirements.txt` changes.
 
+For automated bootstraps on CI or remote developer workstations, combine the interpreter flag with accelerator installs:
+
+```bash
+python3 scripts/install_environment.py --python=$(command -v python3.11) --with-accelerators
+```
+
 ### Activating the environment
 After the installer completes, activate the virtual environment before running tooling, tests, or the GTK shell:
 
@@ -80,6 +89,8 @@ python scripts/setup_atlas.py
 ```
 
 Follow the prompts to supply PostgreSQL credentials, message-bus preferences, and any optional services. The CLI mirrors the GTK wizard’s state machine but is optimized for headless or automated environments.
+
+Non-interactive environments can pre-seed `config.yaml` and environment variables before invoking the setup helper so prompts resolve automatically. Re-run the helper after editing credentials to revalidate database or Redis connectivity without resetting other state.
 
 When prompted for a preset, pick the profile that matches your target:
 
