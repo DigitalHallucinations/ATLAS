@@ -1,3 +1,10 @@
+---
+audience: Backend developers and data engineers
+status: in_review
+last_verified: 2025-12-21
+source_of_truth: modules/conversation_store/models.py; modules/conversation_store/repository.py; modules/Server/routes.py; modules/user_accounts/user_account_service.py; modules/conversation_store/vector_pipeline.py; modules/background_tasks/retention.py
+---
+
 # Conversation store data model
 
 The conversation store persists chat transcripts, episodic memories, persona graphs, and local account data in PostgreSQL via SQLAlchemy models that are orchestrated by `ConversationStoreRepository`. The repository coordinates schema bootstrap, tenant-aware CRUD helpers, and retention policies for both messages and accounts.
@@ -40,4 +47,3 @@ The conversation store persists chat transcripts, episodic memories, persona gra
 
 - [Conversation retention](conversation_retention.md) – retention keys, worker scheduling, and administrative triggers.
 - [User accounts](user-accounts.md) – operator workflows layered on top of the repository-backed credential store.
-

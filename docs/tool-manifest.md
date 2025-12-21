@@ -1,3 +1,10 @@
+---
+audience: Tool authors and backend developers
+status: in_review
+last_verified: 2025-12-21
+source_of_truth: modules/Tools/tool_maps/functions.json; modules/Personas/<Persona>/Toolbox/functions.json; modules/Tools/tool_maps/schema.json; modules/Tools/providers/mcp_manifest.py
+---
+
 # Tool Manifest Metadata
 
 Tool declarations in ATLAS now include structured metadata so that personas and

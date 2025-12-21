@@ -1,3 +1,10 @@
+---
+audience: New contributors and maintainers
+status: in_review
+last_verified: 2025-12-21
+source_of_truth: main.py; ATLAS/ATLAS.py; modules/conversation_store/; modules/orchestration/; modules/Speech_Services/; modules/Server/
+---
+
 # ATLAS Architecture & Codebase Tour
 
 This guide expands on the README with a deeper walkthrough of the runtime, files, and development workflows. It is aimed at new contributors who want an end-to-end picture of how the GTK shell, persona runtime, orchestration layer, and server fit together.

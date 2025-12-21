@@ -1,3 +1,10 @@
+---
+audience: Operators and backend developers
+status: in_review
+last_verified: 2025-12-21
+source_of_truth: modules/conversation_store/repository.py; modules/user_accounts/user_account_service.py
+---
+
 # User Account Management
 
 ATLAS stores local user accounts alongside conversations in the PostgreSQL conversation store. The user account service wraps that persistence layer with helpers for password policy enforcement, reset tokens, login attempt tracking, and synchronisation with the active user configuration used by the shell and automation services.

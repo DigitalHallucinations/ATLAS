@@ -1,3 +1,10 @@
+---
+audience: Backend developers and UI engineers
+status: in_review
+last_verified: 2025-12-21
+source_of_truth: CapabilityRegistry; modules/orchestration/; modules/task_store/
+---
+
 # Task metadata and lifecycle
 
 This guide summarizes how tasks are described, orchestrated, and surfaced in ATLAS. It covers manifest fields, lifecycle transitions, service APIs, and the dashboards that consume task analytics.

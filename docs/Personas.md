@@ -1,3 +1,10 @@
+---
+audience: Persona authors and backend developers
+status: in_review
+last_verified: 2025-12-21
+source_of_truth: modules/Personas/schema.json; modules/Personas/__init__.py; modules/Tools/tool_maps/functions.json; scripts/persona_tools.py; tests/test_persona_schema.py
+---
+
 # Persona definitions
 
 The personas shipped with ATLAS live under `modules/Personas/<Persona Name>/Persona/<Persona Name>.json`.

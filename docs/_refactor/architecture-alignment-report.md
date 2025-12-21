@@ -9,6 +9,10 @@ source_of_truth: docs/_refactor/style-guide.md
 
 This report compares key architectural claims in the documentation against the current implementation. Each section lists notable claims, whether they match code behavior, and recommended follow-ups.
 
+## Front matter and link spot-checks
+
+- ✅ `docs/Personas.md`, `docs/architecture-overview.md`, `docs/conversation-store.md`, `docs/user-accounts.md`, `docs/configuration.md`, `docs/tasks/overview.md`, and `docs/tool-manifest.md` now include the standard front matter block. Quick previews confirmed heading rendering and intra-doc links remain intact after the retrofit.
+
 ## docs/architecture-overview.md
 
 - ✅ **Entry-point flow** – `main.py` instantiates `AtlasProvider`, gates startup on `is_setup_complete`, and defers `ATLAS.initialize()` until after setup succeeds via `FirstRunCoordinator`.  
