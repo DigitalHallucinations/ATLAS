@@ -52,6 +52,39 @@ ATLAS centralises runtime configuration in `ConfigManager`, which merges `.env` 
 | `server_config` | Optional legacy single-server mapping retained for backwards compatibility; defaults to `{}`.【F:ATLAS/config/tooling.py†L243-L246】 | None. | Used only when `servers` is empty to seed a default MCP server configuration.【F:modules/Tools/providers/mcp.py†L38-L49】 |
 | `tool` | Default MCP tool name to invoke when none is provided at call time; defaults to empty string.【F:ATLAS/config/tooling.py†L243-L246】【F:modules/Tools/providers/mcp.py†L50-L142】 | None. | Used by `McpToolProvider` to determine the tool target when callers omit one.【F:modules/Tools/providers/mcp.py†L50-L142】 |
 
+When enabled, MCP servers can be declared by name and transport. A minimal
+stdio-backed server configuration looks like:
+
+```yaml
+tools:
+  mcp:
+    enabled: true
+    default_server: scratchpad
+    servers:
+      scratchpad:
+        transport: stdio
+        command: mcp-scratchpad
+        args: ["--project-root", "/srv/atlas"]
+        allow_tools: ["read_file", "write_file"]
+        persona: Atlas
+```
+
+The router honours `allow_tools`/`deny_tools` filters at both the global MCP
+level and per-server level before registering providers, so unsafe or irrelevant
+tools are skipped entirely. Side-effect levels, consent, and parallelism are
+pulled from the server defaults during manifest translation
+(`side_effects="network"`, `requires_consent=true`, `allow_parallel=false`,
+`default_timeout=30` seconds unless overridden). If a server entry declares a
+`persona`, discovered tools are scoped to that persona; otherwise they remain
+shared. Persona allowlists present on manifest data still apply when
+`CapabilityRegistry` calculates compatibility for discovery payloads.
+
+Multiple MCP servers can be registered concurrently. Each server becomes its own
+provider entry on the translated manifest, and the router performs per-provider
+health checks, failure backoff, and priority-based selection. Providers under
+backoff are skipped, and the router will fail over to the next healthy provider
+before invoking any defined fallback callable.
+
 ### `tools.kv_store`
 | Key | Type & default | Environment overrides | Consumed by |
 | --- | --- | --- | --- |
