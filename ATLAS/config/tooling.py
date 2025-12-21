@@ -146,6 +146,105 @@ class ToolingConfigSection:
         vector_block["adapters"] = adapters_block
 
         tools_block["vector_store"] = vector_block
+
+        mcp_block = tools_block.get("mcp")
+        if not isinstance(mcp_block, Mapping):
+            mcp_block = {}
+        else:
+            mcp_block = dict(mcp_block)
+
+        env_enabled = self.env_config.get("ATLAS_MCP_ENABLED")
+        if env_enabled is not None and "enabled" not in mcp_block:
+            mcp_block["enabled"] = self._coerce_bool(env_enabled)
+        mcp_block.setdefault("enabled", False)
+
+        env_default_server = self.env_config.get("ATLAS_MCP_DEFAULT_SERVER")
+        if env_default_server and not mcp_block.get("default_server"):
+            mcp_block["default_server"] = str(env_default_server).strip()
+        mcp_block.setdefault("default_server", "")
+
+        env_timeout = self.env_config.get("ATLAS_MCP_TIMEOUT_SECONDS")
+        if env_timeout is not None and "timeout_seconds" not in mcp_block:
+            mcp_block["timeout_seconds"] = self._coerce_float(env_timeout, 30.0)
+        mcp_block.setdefault("timeout_seconds", 30.0)
+
+        env_health = self.env_config.get("ATLAS_MCP_HEALTH_CHECK_INTERVAL")
+        if env_health is not None and "health_check_interval" not in mcp_block:
+            mcp_block["health_check_interval"] = self._coerce_float(env_health, 300.0)
+        mcp_block.setdefault("health_check_interval", 300.0)
+
+        root_allow = self._normalize_csv_list(mcp_block.get("allow_tools"))
+        env_allow = self._normalize_csv_list(self.env_config.get("ATLAS_MCP_ALLOW_TOOLS"))
+        mcp_block["allow_tools"] = env_allow if env_allow is not None else root_allow
+
+        root_deny = self._normalize_csv_list(mcp_block.get("deny_tools"))
+        env_deny = self._normalize_csv_list(self.env_config.get("ATLAS_MCP_DENY_TOOLS"))
+        mcp_block["deny_tools"] = env_deny if env_deny is not None else root_deny
+
+        servers_block = mcp_block.get("servers")
+        if isinstance(servers_block, Mapping):
+            servers = dict(servers_block)
+        else:
+            servers = {}
+
+        env_server_config: dict[str, Any] = {}
+        env_transport = self.env_config.get("ATLAS_MCP_SERVER_TRANSPORT")
+        if env_transport:
+            env_server_config["transport"] = env_transport
+        env_command = self.env_config.get("ATLAS_MCP_SERVER_COMMAND")
+        if env_command:
+            env_server_config["command"] = env_command
+        env_args = self.env_config.get("ATLAS_MCP_SERVER_ARGS")
+        if env_args:
+            try:
+                env_server_config["args"] = shlex.split(env_args)
+            except ValueError:
+                env_server_config["args"] = env_args
+        env_url = self.env_config.get("ATLAS_MCP_SERVER_URL")
+        if env_url:
+            env_server_config["url"] = env_url
+        env_cwd = self.env_config.get("ATLAS_MCP_SERVER_CWD")
+        if env_cwd:
+            env_server_config["cwd"] = env_cwd
+
+        if env_server_config:
+            default_server_name = mcp_block.get("default_server") or "default"
+            if not isinstance(default_server_name, str) or not default_server_name.strip():
+                default_server_name = "default"
+            servers.setdefault(default_server_name, {})
+            env_allow_tools = env_allow
+            env_deny_tools = env_deny
+            if env_allow_tools is not None:
+                env_server_config.setdefault("allow_tools", env_allow_tools)
+            if env_deny_tools is not None:
+                env_server_config.setdefault("deny_tools", env_deny_tools)
+            servers[default_server_name] = {
+                **servers.get(default_server_name, {}),
+                **env_server_config,
+            }
+
+        normalized_servers: dict[str, Mapping[str, Any]] = {}
+        for name, raw_server in servers.items():
+            server_name = str(name or "").strip()
+            if not server_name:
+                continue
+            normalized_servers[server_name] = self._normalize_mcp_server(
+                raw_server,
+                defaults={
+                    "timeout_seconds": mcp_block["timeout_seconds"],
+                    "health_check_interval": mcp_block["health_check_interval"],
+                    "allow_tools": mcp_block["allow_tools"],
+                    "deny_tools": mcp_block["deny_tools"],
+                },
+            )
+
+        mcp_block["servers"] = normalized_servers
+
+        mcp_block.setdefault("server_config", {})
+        mcp_block.setdefault("server", mcp_block.get("default_server", ""))
+        mcp_block.setdefault("tool", "")
+
+        tools_block["mcp"] = mcp_block
         self.config["tools"] = tools_block
 
     def _ensure_tool_safety(self) -> None:
@@ -181,4 +280,92 @@ class ToolingConfigSection:
                     normalized.append(host)
             return normalized or None
 
+        return None
+
+    # MCP helpers ------------------------------------------------------
+    def _normalize_mcp_server(self, raw: Any, defaults: Mapping[str, Any]) -> Mapping[str, Any]:
+        server = dict(raw) if isinstance(raw, Mapping) else {}
+
+        transport = str(server.get("transport") or server.get("type") or "stdio").strip().lower()
+        if transport not in {"stdio", "ws", "wss", "websocket", "http", "https"}:
+            transport = "stdio"
+        server["transport"] = transport
+
+        args = server.get("args") or server.get("command_args") or []
+        server["args"] = self._normalize_sequence(args)
+
+        env = server.get("env")
+        server["env"] = dict(env) if isinstance(env, Mapping) else {}
+
+        server.setdefault("command", server.get("cmd"))
+        server.setdefault("cwd", server.get("working_directory"))
+        server.setdefault("url", server.get("uri") or server.get("endpoint"))
+
+        server["allow_tools"] = self._normalize_csv_list(
+            server.get("allow_tools"), fallback=defaults.get("allow_tools")
+        )
+        server["deny_tools"] = self._normalize_csv_list(
+            server.get("deny_tools"), fallback=defaults.get("deny_tools")
+        )
+
+        server["timeout_seconds"] = self._coerce_float(
+            server.get("timeout_seconds", server.get("timeout")),
+            defaults.get("timeout_seconds", 30.0),
+        )
+        server["health_check_interval"] = self._coerce_float(
+            server.get("health_check_interval"),
+            defaults.get("health_check_interval", 300.0),
+        )
+        return server
+
+    @staticmethod
+    def _normalize_sequence(value: Any) -> list[Any]:
+        if isinstance(value, str):
+            try:
+                return shlex.split(value)
+            except ValueError:
+                return [value]
+        if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+            return [item for item in value]
+        return []
+
+    @staticmethod
+    def _coerce_bool(value: Any, default: bool = False) -> bool:
+        if value is None:
+            return default
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            lowered = value.strip().lower()
+            if lowered in {"1", "true", "yes", "on"}:
+                return True
+            if lowered in {"0", "false", "no", "off"}:
+                return False
+        try:
+            return bool(int(value))
+        except Exception:
+            return default
+
+    @staticmethod
+    def _coerce_float(value: Any, default: float) -> float:
+        try:
+            result = float(value)
+        except (TypeError, ValueError):
+            return default
+        if result < 0:
+            return default
+        return result
+
+    @staticmethod
+    def _normalize_csv_list(value: Any, fallback: Any = None):
+        if value is None:
+            value = fallback
+        if value is None:
+            return None
+        if isinstance(value, str):
+            tokens = [item.strip() for item in value.split(",") if item.strip()]
+            return tokens or None
+        if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+            tokens = [str(item).strip() for item in value if str(item).strip()]
+            return tokens or None
         return None

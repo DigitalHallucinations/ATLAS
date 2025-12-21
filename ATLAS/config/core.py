@@ -164,6 +164,17 @@ class ConfigCore:
             "OPENAI_ORGANIZATION": os.getenv("OPENAI_ORGANIZATION"),
             "JAVASCRIPT_EXECUTOR_BIN": os.getenv("JAVASCRIPT_EXECUTOR_BIN"),
             "JAVASCRIPT_EXECUTOR_ARGS": os.getenv("JAVASCRIPT_EXECUTOR_ARGS"),
+            "ATLAS_MCP_ENABLED": os.getenv("ATLAS_MCP_ENABLED"),
+            "ATLAS_MCP_DEFAULT_SERVER": os.getenv("ATLAS_MCP_DEFAULT_SERVER"),
+            "ATLAS_MCP_TIMEOUT_SECONDS": os.getenv("ATLAS_MCP_TIMEOUT_SECONDS"),
+            "ATLAS_MCP_HEALTH_CHECK_INTERVAL": os.getenv("ATLAS_MCP_HEALTH_CHECK_INTERVAL"),
+            "ATLAS_MCP_SERVER_TRANSPORT": os.getenv("ATLAS_MCP_SERVER_TRANSPORT"),
+            "ATLAS_MCP_SERVER_COMMAND": os.getenv("ATLAS_MCP_SERVER_COMMAND"),
+            "ATLAS_MCP_SERVER_ARGS": os.getenv("ATLAS_MCP_SERVER_ARGS"),
+            "ATLAS_MCP_SERVER_URL": os.getenv("ATLAS_MCP_SERVER_URL"),
+            "ATLAS_MCP_SERVER_CWD": os.getenv("ATLAS_MCP_SERVER_CWD"),
+            "ATLAS_MCP_ALLOW_TOOLS": os.getenv("ATLAS_MCP_ALLOW_TOOLS"),
+            "ATLAS_MCP_DENY_TOOLS": os.getenv("ATLAS_MCP_DENY_TOOLS"),
             "APP_ROOT": str(app_root),
         }
         self.logger.debug("APP_ROOT is set to: %s", config["APP_ROOT"])
