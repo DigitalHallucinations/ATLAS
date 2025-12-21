@@ -1,11 +1,13 @@
 ---
 audience: Documentation maintainers and contributors
 status: draft
-last_verified: 2025-12-21
+last_verified: 2026-02-13
 source_of_truth: docs/_audit/style-guide.md
 ---
 
 # Documentation refactor inventory
+
+> Navigation: See the [audit workspace README](./README.md) for cadence, quick-start steps, and recording guidance.
 
 | current_path | title | topic | intended_audience | refs_to_code | last_updated_hint | rewrite_needed? | alignment_risk |
 | --- | --- | --- | --- | --- | --- | --- | --- |
