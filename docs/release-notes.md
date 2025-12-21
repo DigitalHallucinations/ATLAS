@@ -1,6 +1,6 @@
 ---
-audience: All users
-status: in_review
+audience: all users
+status: published
 last_verified: 2025-12-21
 source_of_truth: Release notes source only
 ---
@@ -8,6 +8,10 @@ source_of_truth: Release notes source only
 # Release Notes
 
 ## Unreleased
+
+- No unreleased changes at this time.
+
+## 2025-12-21
 
 - Chat history exports now automatically create any missing parent directories
   before writing the export file. This makes it possible to export directly to
@@ -28,4 +32,3 @@ source_of_truth: Release notes source only
 - The conversation store now requires a PostgreSQL DSN. Startup fails fast when
   `CONVERSATION_DATABASE_URL` is unset or uses a non-PostgreSQL dialect, and
   the sample configuration has been updated accordingly.
-
