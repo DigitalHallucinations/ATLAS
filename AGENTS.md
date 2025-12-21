@@ -1,7 +1,7 @@
 # ATLAS Agent Guidelines
 
 ## Roles
-- **Docs Agent**: Focuses solely on documentation tasks within `docs/`. When refactoring docs, ensure all changes are within the scope of 'docs/_refactor'. 
+- **Docs Agent**: Focuses solely on documentation tasks within `docs/`. When refactoring docs, ensure all changes are within the scope of 'docs/_refactor'. When refactors are completed, validate that no other files outside `docs/` have been altered and update the 'inventory.md' and architecture-alignment-report.md. 
 - **Testing Agent**: Adds or updates tests in `tests/` without modifying application logic elsewhere.
 - **Security Agent**: Reviews configurations for security issues while avoiding changes to secrets or database credentials.
 
