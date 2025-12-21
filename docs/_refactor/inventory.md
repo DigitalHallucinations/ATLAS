@@ -1,3 +1,10 @@
+---
+audience: Documentation maintainers and contributors
+status: draft
+last_verified: 2025-12-21
+source_of_truth: docs/_refactor/style-guide.md
+---
+
 # Documentation refactor inventory
 
 | current_path | title | topic | intended_audience | refs_to_code | last_updated_hint | rewrite_needed? | alignment_risk |
