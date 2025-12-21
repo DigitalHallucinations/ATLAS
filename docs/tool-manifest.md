@@ -177,3 +177,92 @@ job-level persona allowlist to ensure UI clients only see eligible jobs.
 
 For task-specific manifests, lifecycle states, and API guidance see
 [Task metadata and lifecycle](tasks/overview.md).
+
+### MCP tool entries
+
+#### Static wrappers in manifests
+
+You can wrap a Model Context Protocol tool inside a standard manifest entry so
+it participates in the same routing rules as other providers. The static entry
+points at a configured MCP server and tool name while keeping metadata
+explicit:
+
+```json
+{
+  "name": "browser_lookup",
+  "description": "Proxy to the MCP browser tool",
+  "side_effects": "network",
+  "default_timeout": 45,
+  "requires_consent": true,
+  "allow_parallel": false,
+  "providers": [
+    {
+      "name": "mcp",
+      "priority": 0,
+      "config": {
+        "server": "browser-server",
+        "tool": "browser.find"
+      }
+    },
+    {
+      "name": "openai",
+      "priority": 10,
+      "config": {"model": "gpt-4o-mini"}
+    }
+  ]
+}
+```
+
+The MCP provider can be blended with non-MCP providers; the router honours
+ascending `priority` and automatically skips providers that are unhealthy or
+currently backing off after errors. Health checks run per provider and the last
+successful provider is recorded in the tool’s capability health payload.
+
+#### Dynamically discovered MCP tools
+
+When `tools.mcp.enabled` is true, the registry polls each configured MCP server,
+translates every tool into a manifest entry, and caches the results for the
+`health_check_interval` window. Discovered tools are named
+`mcp.<server>.<tool>` (or `mcp.<tool>` when no server name is configured) and
+inherit defaults from `modules/Tools/providers/mcp_manifest.py`:
+
+* `side_effects` defaults to `"network"` unless overridden on the server config.
+* `default_timeout` defaults to `30` seconds, pulled from the server or global
+  MCP settings when set.
+* `allow_parallel` defaults to `false`, `requires_consent` defaults to `true`,
+  and `idempotency_key` defaults to `false` unless the server config supplies
+  overrides.
+* `auth` merges tool- and server-level auth hints and scopes; server-level auth
+  environment variables are copied through when provided.
+* Each entry carries a single provider block of `{ "name": "mcp", "config":
+  {"server": "<name>", "tool": "<tool>"} }`.
+
+Global `allow_tools` / `deny_tools` settings and per-server filters are applied
+before translation so unwanted MCP tools never enter the manifest set. If a
+server configuration specifies a `persona`, the discovered entries are scoped to
+that persona; otherwise they remain shared. Persona allowlists present on the
+translated entry (or existing manifest data) still participate in compatibility
+checks exposed by `CapabilityRegistry.summary`.
+
+#### Refresh and health behaviour
+
+The MCP discovery cache is refreshed when the configuration signature or
+`health_check_interval` window expires. During routing, MCP providers follow the
+same health/backoff rules as other providers: repeated failures trigger
+exponential backoff, providers under backoff are skipped when selecting a
+candidate, and periodic health checks are issued before reuse.
+
+#### Troubleshooting MCP connectivity and backoff
+
+* Verify the MCP client dependency is installed and that `tools.mcp.enabled` is
+  set; missing transports raise runtime errors before discovery completes.
+* For stdio transports, confirm the configured `command`, `args`, and `cwd`
+  launch successfully under the Atlas process user; websocket transports require
+  reachable `url` endpoints and any required headers.
+* If MCP tools disappear after repeated failures, check the provider health
+  fields in `CapabilityRegistry.summary(persona=...)["tools"][*]["health"]`
+  (`providers.*.router.backoff_until` and the most recent `last_call` outcome)
+  to see whether the router is currently backing off a server.
+* Force a refresh with `CapabilityRegistry.refresh(force=True)` after fixing
+  connectivity; the MCP cache will also refresh automatically after the
+  configured `health_check_interval` elapses.
