@@ -2,7 +2,7 @@
 audience: Documentation maintainers and contributors
 status: draft
 last_verified: 2025-12-21
-source_of_truth: docs/_refactor/style-guide.md
+source_of_truth: docs/_audit/style-guide.md
 ---
 
 # Architecture Alignment Report

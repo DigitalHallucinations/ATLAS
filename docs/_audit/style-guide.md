@@ -2,7 +2,7 @@
 audience: Documentation maintainers and contributors
 status: draft
 last_verified: 2025-12-21
-source_of_truth: docs/_refactor/linking-and-sources.md
+source_of_truth: docs/_audit/linking-and-sources.md
 ---
 
 # Refactored documentation style guide
@@ -44,7 +44,7 @@ If front matter is not supported (for example, by a downstream renderer), replac
 
 ## Rollout plan for existing pages
 
-1. **Seed templates**: Copy this front matter block into shared templates and content scaffolds in `docs/_refactor` so new pages start compliant.
+1. **Seed templates**: Copy this front matter block into shared templates and content scaffolds in `docs/_audit` so new pages start compliant.
 2. **Prioritize high-traffic docs**: Retrofit landing pages and README-linked docs first (those flagged as high-traffic in `inventory.md`).
 3. **Batch updates by area**: Update related clusters together (e.g., all `ops/` runbooks), verifying `last_verified` while aligning with code references.
 4. **Track completion**: Mark retrofits in `inventory.md` with updated `last_updated_hint` values and note outstanding sections in `architecture-alignment-report.md` where docs lag code.
