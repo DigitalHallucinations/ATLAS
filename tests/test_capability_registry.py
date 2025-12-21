@@ -7,6 +7,7 @@ from typing import Any, Optional
 
 import pytest
 
+from ATLAS.tools.manifests import _get_tool_manifest_validator
 from modules.orchestration.capability_registry import CapabilityRegistry
 
 
@@ -24,6 +25,10 @@ def capability_root(tmp_path: Path) -> Path:
     (tmp_path / "modules" / "Skills").mkdir(parents=True, exist_ok=True)
     (tmp_path / "modules" / "Tasks").mkdir(parents=True, exist_ok=True)
     (tmp_path / "modules" / "Jobs").mkdir(parents=True, exist_ok=True)
+    schema_src = Path(__file__).resolve().parent.parent / "modules" / "Tools" / "tool_maps" / "schema.json"
+    schema_target = tmp_path / "modules" / "Tools" / "tool_maps" / "schema.json"
+    if schema_src.exists():
+        schema_target.write_text(schema_src.read_text(encoding="utf-8"), encoding="utf-8")
     return tmp_path
 
 
@@ -178,7 +183,7 @@ def test_mcp_payloads_are_merged_and_cached(monkeypatch, capability_root: Path) 
     assert call_count["value"] == 1
 
     atlas_tools = registry.query_tools(persona_filters=["atlas"])
-    assert {view.manifest.name for view in atlas_tools} == {"kept"}
+    assert {view.manifest.name for view in atlas_tools} == {"mcp.default.kept"}
 
     other_tools = registry.query_tools(persona_filters=["nova"])
     assert other_tools == []
@@ -186,6 +191,67 @@ def test_mcp_payloads_are_merged_and_cached(monkeypatch, capability_root: Path) 
     registry.refresh(force=True)
     assert call_count["value"] == 1
     assert registry.persona_has_tool_manifest("atlas") is True
+
+
+def test_mcp_manifest_translation_validates(monkeypatch, capability_root: Path) -> None:
+    class _McpConfig(_DummyConfig):
+        def __init__(self, root: Path, settings: Mapping[str, Any]) -> None:
+            super().__init__(root)
+            self._settings = settings
+
+        def get_mcp_settings(self) -> Mapping[str, Any]:
+            return self._settings
+
+    settings: Mapping[str, Any] = {
+        "enabled": True,
+        "timeout_seconds": 30.0,
+        "server": "default",
+        "servers": {
+            "default": {
+                "transport": "stdio",
+                "command": "echo",
+                "persona": "Atlas",
+                "timeout_seconds": 12,
+            }
+        },
+    }
+
+    registry = CapabilityRegistry(config_manager=_McpConfig(capability_root, settings))
+
+    async def _fake_discover(provider, server_name: str):
+        return [
+            {
+                "name": "search",
+                "description": "from mcp",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"query": {"type": "string"}},
+                    "required": ["query"],
+                },
+                "auth": {"scopes": ["search.read"]},
+            }
+        ]
+
+    monkeypatch.setattr(registry, "_discover_mcp_server_tools", _fake_discover)
+
+    registry.refresh(force=True)
+    payload = registry.get_tool_manifest_payload(persona="Atlas")
+    assert payload
+
+    entry = payload[0]
+    assert entry["name"] == "mcp.default.search"
+    assert entry["side_effects"] == "network"
+    assert entry["allow_parallel"] is False
+    assert entry["idempotency_key"] is False
+    assert entry["requires_consent"] is True
+    assert entry["auth"]["required"] is True
+    assert entry["auth"]["scopes"] == ["search.read"]
+    assert entry["default_timeout"] == 12
+    assert entry["providers"][0]["config"] == {"server": "default", "tool": "search"}
+
+    validator = _get_tool_manifest_validator(config_manager=registry._config_manager)
+    assert validator is not None
+    validator.validate(payload)
 
 
 def test_registry_filters_invalid_entries(capability_root: Path) -> None:

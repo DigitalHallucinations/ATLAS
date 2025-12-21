@@ -1303,6 +1303,7 @@ class CapabilityRegistry:
 
         from modules.Tools.providers.base import ToolProviderSpec
         from modules.Tools.providers.mcp import McpToolProvider
+        from modules.Tools.providers.mcp_manifest import translate_mcp_tool_to_manifest
 
         provider: Optional[McpToolProvider] = None
         try:
@@ -1322,11 +1323,21 @@ class CapabilityRegistry:
         lookup: Dict[Optional[str], Dict[str, Mapping[str, Any]]] = {}
         persona_sources: Dict[Optional[str], bool] = {}
         manifest_entries: List[ToolManifestEntry] = []
+        try:
+            from ATLAS.tools.manifests import _get_tool_manifest_validator
+
+            validator = _get_tool_manifest_validator(config_manager=self._config_manager)
+        except Exception:
+            validator = None
 
         async def _discover() -> None:
             for server_name, server_config in provider._servers.items():  # type: ignore[attr-defined]
                 if not isinstance(server_config, Mapping):
                     continue
+                merged_server_config: Mapping[str, Any] = {
+                    **dict(settings.get("server_config") or {}),
+                    **dict(server_config),
+                }
                 persona_value = server_config.get("persona")
                 persona_key = normalize_persona_identifier(persona_value)
                 allow_tools = server_config.get("allow_tools") or settings.get("allow_tools")
@@ -1351,9 +1362,37 @@ class CapabilityRegistry:
                         if name in deny_tools:
                             continue
 
-                    entry = self._build_mcp_manifest_payload(tool, server_name)
+                    try:
+                        entry = translate_mcp_tool_to_manifest(
+                            tool,
+                            server_name=server_name,
+                            server_config=merged_server_config,
+                            defaults=settings,
+                        )
+                    except Exception as exc:
+                        logger.warning(
+                            "Capability registry failed to translate MCP tool '%s' on server '%s': %s",
+                            name,
+                            server_name,
+                            exc,
+                        )
+                        continue
+
+                    if validator is not None and hasattr(validator, "validate"):
+                        try:
+                            validator.validate([entry])
+                        except Exception as exc:
+                            logger.error(
+                                "MCP manifest validation failed for tool '%s' on server '%s': %s",
+                                entry.get("name"),
+                                server_name,
+                                exc,
+                            )
+                            continue
+
                     payloads.setdefault(persona_key, []).append(entry)
-                    lookup.setdefault(persona_key, {})[name] = entry
+                    manifest_name = entry.get("name") or name
+                    lookup.setdefault(persona_key, {})[manifest_name] = entry
                     manifest_entries.append(
                         self._build_mcp_manifest_entry(
                             entry,
@@ -1421,27 +1460,6 @@ class CapabilityRegistry:
                     tools.append(item)
         return tools
 
-    def _build_mcp_manifest_payload(self, tool: Mapping[str, Any], server_name: str) -> Mapping[str, Any]:
-        name = str(tool.get("name", "")).strip()
-        description = str(tool.get("description", "")).strip()
-        parameters = tool.get("input_schema") or tool.get("inputSchema") or tool.get("parameters") or {}
-        version = tool.get("version")
-        return {
-            "name": name,
-            "description": description,
-            "parameters": parameters if isinstance(parameters, Mapping) else {},
-            "version": version,
-            "providers": [
-                {
-                    "name": "mcp",
-                    "config": {
-                        "server": server_name,
-                        "tool": name,
-                    },
-                }
-            ],
-        }
-
     def _build_mcp_manifest_entry(
         self,
         entry: Mapping[str, Any],
@@ -1449,27 +1467,57 @@ class CapabilityRegistry:
         persona: Optional[str],
         server_name: str,
     ) -> ToolManifestEntry:
-        name = str(entry.get("name", "")).strip()
-        description = str(entry.get("description", "")).strip()
-        version = entry.get("version")
+        def _coerce_optional_bool(value: Any) -> Optional[bool]:
+            if isinstance(value, bool):
+                return value
+            if isinstance(value, str):
+                lowered = value.strip().lower()
+                if lowered in {"true", "yes", "1", "on"}:
+                    return True
+                if lowered in {"false", "no", "0", "off"}:
+                    return False
+            if isinstance(value, (int, float)):
+                return bool(value)
+            return None
+
+        def _coerce_optional_int(value: Any) -> Optional[int]:
+            try:
+                return int(float(value))
+            except (TypeError, ValueError):
+                return None
+
+        def _coerce_optional_float(value: Any) -> Optional[float]:
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return None
+
+        def _coerce_string(value: Any) -> Optional[str]:
+            text = str(value).strip() if value is not None else ""
+            return text or None
+
+        name = str(entry.get("name") or "").strip()
+        description = str(entry.get("description") or "").strip()
+        version_value = entry.get("version")
+        version = _coerce_string(version_value)
         providers = entry.get("providers") if isinstance(entry.get("providers"), list) else []
         return ToolManifestEntry(
             name=name,
             persona=persona,
             description=description,
             version=version,
-            capabilities=[],
-            auth={},
-            safety_level=None,
-            requires_consent=None,
-            allow_parallel=None,
-            idempotency_key=None,
-            default_timeout=None,
-            side_effects=None,
-            cost_per_call=None,
-            cost_unit=None,
-            persona_allowlist=[],
-            requires_flags={},
+            capabilities=list(entry.get("capabilities") or []),
+            auth=dict(entry.get("auth") or {"required": False}),
+            safety_level=_coerce_string(entry.get("safety_level")),
+            requires_consent=_coerce_optional_bool(entry.get("requires_consent")),
+            allow_parallel=_coerce_optional_bool(entry.get("allow_parallel")),
+            idempotency_key=entry.get("idempotency_key"),
+            default_timeout=_coerce_optional_int(entry.get("default_timeout")),
+            side_effects=_coerce_string(entry.get("side_effects")),
+            cost_per_call=_coerce_optional_float(entry.get("cost_per_call")),
+            cost_unit=_coerce_string(entry.get("cost_unit")),
+            persona_allowlist=list(entry.get("persona_allowlist") or []),
+            requires_flags=entry.get("requires_flags") if isinstance(entry.get("requires_flags"), Mapping) else {},
             providers=providers,
             source=f"mcp:{server_name}",
         )
