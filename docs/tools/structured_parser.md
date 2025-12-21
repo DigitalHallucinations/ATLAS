@@ -1,9 +1,20 @@
-## Structured Parser Tool
+---
+audience: Persona authors and operators
+status: draft
+last_verified: 2025-12-21
+source_of_truth:
+  - modules/Tools/Base_Tools/structured_parser.py
+  - ATLAS/config (environment variable `ATLAS_STRUCTURED_PARSER_MAX_BYTES`)
+---
+
+# Structured Parser Tool
 
 The structured parser is a shared tool that turns PDFs, Word documents, HTML,
 CSV files, and common image formats into normalized text, tables, and metadata.
 It surfaces a consistent schema so personas can build ingestion or summarization
-workflows without juggling format-specific libraries.
+workflows without juggling format-specific libraries. See
+[`structured_parser.py`](../../modules/Tools/Base_Tools/structured_parser.py)
+for parsing behaviors and error handling.
 
 ### Supported Formats
 
@@ -30,7 +41,9 @@ pip install pdfminer.six python-docx beautifulsoup4 pillow pytesseract
 
 Invocations enforce a configurable byte limit (5 MiB by default) to prevent
 excessive resource usage. Override the ceiling by setting the
-`ATLAS_STRUCTURED_PARSER_MAX_BYTES` environment variable when launching ATLAS.
+[`ATLAS_STRUCTURED_PARSER_MAX_BYTES`](../../modules/Tools/Base_Tools/structured_parser.py#L44)
+environment variable when launching ATLAS, which is read by the parser during
+initialization.
 
 ### Response Schema
 
