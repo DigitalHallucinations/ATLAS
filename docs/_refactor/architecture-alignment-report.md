@@ -18,19 +18,14 @@ This report compares key architectural claims in the documentation against the c
 - ✅ **Entry-point flow** – `main.py` instantiates `AtlasProvider`, gates startup on `is_setup_complete`, and defers `ATLAS.initialize()` until after setup succeeds via `FirstRunCoordinator`.  
 - ✅ **Runtime construction** – `ATLAS/ATLAS.py` builds `ConfigManager`, configures the message bus, initializes speech, instantiates `AtlasServer`, and binds the conversation repository/service before exposing provider/persona/chat wiring during `initialize()`.  
 - ✅ **Conversation store verification** – Startup calls `get_conversation_store_session_factory()` and raises if `is_conversation_store_verified()` is false, blocking the app when the store is missing required tables.  
-- ⚠️ **Message bus adapters** – The doc notes Redis/in-memory wiring plus legacy `modules/Tools/tool_event_system` adapters. `ConfigManager.configure_message_bus()` only builds the bus and does not attach legacy adapters, so tool events are isolated unless callers wire them manually.  
-  - *Recommended doc fix*: Clarify that legacy tool event adapters are not automatically bridged and must be integrated explicitly if needed.  
-  - *Optional code fix*: Add an opt-in bridge that subscribes the message bus to `tool_event_system` topics.
-- ⚠️ **Conversation store scope** – The doc claims the conversation store backs conversations, tasks, and job metadata. `ConversationStoreRepository` wraps conversations, vectors, accounts, and graph helpers; task/job persistence lives under `modules/task_store` and `modules/job_store`.  
-  - *Recommended doc fix*: Update the scope to conversations/accounts/vector data and point task/job storage references to their dedicated repositories.  
+- ✅ **Message bus adapters** – The doc now notes Redis/in-memory wiring and explicitly states the legacy `modules/Tools/tool_event_system` adapters are not auto-bridged, so callers must connect them manually when required.  
+- ✅ **Conversation store scope** – The doc now limits the conversation store to conversations, accounts, and vector data and points task/job storage references to `modules/task_store` and `modules/job_store`.  
 
 ## docs/setup-wizard.md
 
 - ✅ **Setup completion** – The GTK wizard registers the staged administrator and writes the setup marker only after the final step succeeds.  
-- ⚠️ **Branching & ordering** – The doc says Personal jumps straight to the Admin step and Enterprise routes through a combined company page first. In reality, both modes run `Introduction → Setup Type → Preflight`, then (for Personal/Enterprise) a `Users` roster page, the admin identity page, database intro/config, storage architecture, job scheduling, message bus, KV store, providers, and speech. Enterprise adds Company and Policies pages before the Users roster.  
-  - *Recommended doc fix*: Rephrase the flow to include Preflight, Users roster before admin, and the storage architecture/database split, noting that company/policy pages are enterprise-only.
-- ⚠️ **Step sequence detail** – The documented step list omits the storage-architecture preset page and splits the database configuration into a single bullet. The wizard handles database intro and configuration as separate steps and interleaves storage architecture before DB details.  
-  - *Recommended doc fix*: Expand the step list to match the current sequence and call out where presets are applied (setup type for global defaults; storage architecture for performance presets).
+- ✅ **Branching & ordering** – The flow now lists `Introduction → Setup Type → Preflight → (Company/Policies for enterprise) → Users roster → Admin identity → Storage architecture presets → Database intro → Database config → Job scheduling → Message bus → KV store → Providers → Speech`, matching the GTK wizard’s ordering.  
+- ✅ **Step sequence detail** – The step list calls out the storage-architecture preset page, separates the database intro/configuration bullets, and notes where setup-type defaults and preflight performance scores seed storage presets.  
 
 ## docs/server/api.md
 
