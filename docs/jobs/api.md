@@ -1,3 +1,10 @@
+---
+audience: Backend developers
+status: in_review
+last_verified: 2025-12-21
+source_of_truth: modules.job_store.service.JobService
+---
+
 # Job APIs
 
 The job service lives in `modules.job_store.service.JobService` and offers lifecycle, roster, and task-link management. Key entry points:

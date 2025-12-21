@@ -1,3 +1,10 @@
+---
+audience: Backend developers and operators
+status: in_review
+last_verified: 2025-12-21
+source_of_truth: modules/Tools/Base_Tools/task_queue.py; ATLAS/config/persistence.py
+---
+
 # Task Queue Tool
 
 The task queue base tool provides a durable scheduling surface for ATLAS agents.

@@ -1,3 +1,10 @@
+---
+audience: Tool users and operators
+status: in_review
+last_verified: 2025-12-21
+source_of_truth: JavaScript executor runtime in tooling config (ATLAS/config/tooling.py)
+---
+
 # JavaScript Executor Tool
 
 The JavaScript executor runs snippets inside a tightly controlled sandbox. It is

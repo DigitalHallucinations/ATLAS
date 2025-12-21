@@ -1,3 +1,10 @@
+---
+audience: Operators and support engineers
+status: in_review
+last_verified: 2025-12-21
+source_of_truth: AtlasServer backup endpoints (REST surface); GTK settings workspace
+---
+
 # Conversation and persona backups
 
 ATLAS can now export or import a combined backup that includes conversation history and persona manifests.

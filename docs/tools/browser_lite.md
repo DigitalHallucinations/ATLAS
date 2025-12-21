@@ -1,3 +1,10 @@
+---
+audience: Tool users and ops
+status: in_review
+last_verified: 2025-12-21
+source_of_truth: modules/Tools/Base_Tools/browser_lite.py; modules/Tools/Base_Tools/webpage_fetch.py
+---
+
 # Browser Lite Tool
 
 The **Browser Lite** tool provides constrained, policy-aware browsing for allowlisted domains.

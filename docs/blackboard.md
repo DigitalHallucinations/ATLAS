@@ -1,3 +1,10 @@
+---
+audience: Persona authors and UI integrators
+status: in_review
+last_verified: 2025-12-21
+source_of_truth: AtlasServer blackboard routes/streaming; SkillExecutionContext.blackboard
+---
+
 # Shared Blackboard Overview
 
 The shared blackboard provides a lightweight collaboration surface where skills

@@ -1,3 +1,10 @@
+---
+audience: UI engineers and operators
+status: in_review
+last_verified: 2025-12-21
+source_of_truth: CapabilityRegistry.summary; get_task_lifecycle_metrics; get_job_lifecycle_metrics
+---
+
 # Job dashboards and UI workflows
 
 Dashboards render job and task analytics side-by-side so operators can validate throughput, SLA adherence, and downstream task health. The `CapabilityRegistry.summary` payload now includes an `analytics` section with:

@@ -1,3 +1,10 @@
+---
+audience: Operators and DevOps
+status: in_review
+last_verified: 2025-12-21
+source_of_truth: Links to ops subpages
+---
+
 # Operations Runbooks
 
 Use these guides to provision and maintain ATLAS environments. Pick an audience landing page first to confirm prerequisites and policy expectations:

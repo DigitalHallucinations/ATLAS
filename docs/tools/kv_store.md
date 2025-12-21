@@ -1,3 +1,10 @@
+---
+audience: Backend developers and operators
+status: in_review
+last_verified: 2025-12-21
+source_of_truth: modules/Tools/Base_Tools/kv_store.py; ATLAS/config/persistence.py
+---
+
 # Key-Value Store Tool
 
 The key-value store tool provides a namespaced state store that supports

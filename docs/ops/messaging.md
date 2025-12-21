@@ -1,3 +1,10 @@
+---
+audience: Operators and backend developers
+status: in_review
+last_verified: 2025-12-21
+source_of_truth: modules/orchestration/message_bus.py
+---
+
 # Messaging Bus Deployment
 
 The ATLAS runtime now routes tool, skill, and analytics events through the

@@ -1,3 +1,10 @@
+---
+audience: Persona authors
+status: in_review
+last_verified: 2025-12-21
+source_of_truth: Time tool entry in tool maps
+---
+
 # Time Tool
 
 The `get_current_info` tool returns formatted information about the current

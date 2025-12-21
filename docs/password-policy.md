@@ -1,3 +1,10 @@
+---
+audience: Administrators and security
+status: in_review
+last_verified: 2025-12-21
+source_of_truth: modules/user_accounts/user_account_service.py
+---
+
 # Password Policy Configuration
 
 ATLAS enforces a password policy for local user accounts. Deployments can

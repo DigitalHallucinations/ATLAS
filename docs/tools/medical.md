@@ -1,3 +1,10 @@
+---
+audience: Persona authors
+status: in_review
+last_verified: 2025-12-21
+source_of_truth: Medical tool entries in tool maps
+---
+
 # Medical research tools
 
 The MEDIC persona relies on the NCBI Entrez Programming Utilities (E-utilities)

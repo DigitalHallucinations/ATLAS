@@ -1,3 +1,10 @@
+---
+audience: Backend developers and SREs
+status: in_review
+last_verified: 2025-12-21
+source_of_truth: modules.job_store.service.JobService.transition_job; modules.analytics.persona_metrics
+---
+
 # Job lifecycle
 
 Jobs progress through draft, scheduled, running, and terminal states (`succeeded`, `failed`, or `cancelled`). Lifecycle transitions are validated in `modules.job_store.service.JobService.transition_job`, which checks persona rosters, linked task completion, and scheduling prerequisites before persisting changes.

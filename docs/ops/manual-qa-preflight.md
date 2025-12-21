@@ -1,3 +1,10 @@
+---
+audience: QA engineers
+status: in_review
+last_verified: 2025-12-21
+source_of_truth: GTK shell setup wizard; main.py
+---
+
 # Manual QA – GTK preflight checks (Debian/Ubuntu)
 
 These manual checks confirm the new GTK setup wizard preflight workflow on Debian- or Ubuntu-based systems.

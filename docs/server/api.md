@@ -1,3 +1,10 @@
+---
+audience: Backend developers and integrators
+status: in_review
+last_verified: 2025-12-21
+source_of_truth: modules/Server/api_reference.py; modules/Server/routes.py; AtlasServer
+---
+
 # AtlasServer API Reference
 
 This reference summarizes the HTTP surface exposed by `AtlasServer` and its helper

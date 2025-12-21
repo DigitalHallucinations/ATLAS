@@ -1,3 +1,10 @@
+---
+audience: Contributors
+status: draft
+last_verified: 2025-12-21
+source_of_truth: Links to setup wizard UI/tasks
+---
+
 # Setup Wizard Enhancements Task List
 
 This tracker captures engineering tasks that expand the GTK setup wizard with the

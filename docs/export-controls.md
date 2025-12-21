@@ -1,3 +1,10 @@
+---
+audience: Security and compliance reviewers
+status: in_review
+last_verified: 2025-12-21
+source_of_truth: modules/Server/dlp.py; modules/Server/routes.py
+---
+
 # Export controls and data residency
 
 ATLAS supports deployments that must respect regional handling and export
