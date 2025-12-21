@@ -1,7 +1,7 @@
 ---
 audience: Backend developers and SREs
 status: in_review
-last_verified: 2025-12-21
+last_verified: 2025-05-09
 source_of_truth: modules.job_store.service.JobService.transition_job; modules.analytics.persona_metrics
 ---
 
@@ -16,6 +16,22 @@ Lifecycle events generate analytics via `modules.analytics.persona_metrics.recor
 - `from_status`/`to_status`
 - `success` and `latency_ms`
 - Arbitrary metadata (for example `sla_met`, escalation context, or task rollups)
+
+## State machine and enforcement
+
+Allowed transitions are defined in `_ALLOWED_TRANSITIONS` within `JobService`:
+
+- `draft` → `scheduled`, `running`, or `cancelled`
+- `scheduled` → `running` or `cancelled`
+- `running` → `succeeded`, `failed`, or `cancelled`
+- Terminal states (`succeeded`, `failed`, `cancelled`) do not allow further transitions.
+
+Additional guards include:
+
+- **Roster checks**: Persona rosters (`metadata.personas`) are required when moving into `scheduled` or `running` and are used to assert ownership for downstream actions.
+- **Schedule checks**: Jobs transitioning into `scheduled` or `running` must carry `metadata.recurrence` (populated by the scheduler) to keep manifests and persisted schedules aligned.
+- **Dependency checks**: Linked tasks must be completed (statuses `done` or `cancelled`) before `running` jobs can move to `succeeded`.
+- **Optimistic concurrency**: Routes accept `expected_updated_at` so API clients can avoid stomping intermediate updates.
 
 ## Metrics and message topics
 

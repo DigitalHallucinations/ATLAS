@@ -1,7 +1,7 @@
 ---
 audience: Documentation maintainers and contributors
 status: draft
-last_verified: 2025-12-21
+last_verified: 2025-05-09
 source_of_truth: docs/_refactor/style-guide.md
 ---
 
@@ -20,12 +20,12 @@ source_of_truth: docs/_refactor/style-guide.md
 | docs/conversation_retention.md | Conversation store retention | High-traffic (README map). Retention policies, workers, episodic memory flow, and follow-up events. | Operators and backend developers | `modules/background_tasks/retention.py`; `modules/background_tasks/conversation_summary.py`; `modules/Tools/Base_Tools/memory_episodic.py`; `modules/conversation_store/conversations.py`; `modules/orchestration/followups.py` | 2025-12-21 | Maybe (clarify worker configuration examples) | Medium |
 | docs/export-controls.md | Export controls and data residency | DLP, residency enforcement, and region routing. | Security and compliance reviewers | `modules/Server/dlp.py`; `modules/Server/routes.py` | 2025-12-21 | No | Medium (policy rules may change) |
 | docs/generated/tools.md | Tool Manifest | High-traffic (README map). Generated persona tool catalog. | Persona authors and reviewers | Generated from persona/tool manifests (tool map sources) | 2025-12-21 | No | High (auto-generated content can drift) |
-| docs/jobs/api.md | Job APIs | High-traffic (README map). Job service entry points, lifecycle, roster, and task links. | Backend developers | `modules.job_store.service.JobService` | 2025-12-21 | Maybe (add REST route mapping) | Medium |
-| docs/jobs/index.md | Jobs in ATLAS | Overview page linking job subtopics. | Readers navigating job docs | Internal links within jobs docs | 2025-12-21 | No | Low |
-| docs/jobs/lifecycle.md | Job lifecycle | Lifecycle states, validation, and analytics emission. | Backend developers and SREs | `modules.job_store.service.JobService.transition_job`; `modules.analytics.persona_metrics` | 2025-12-21 | Maybe (update metrics pipeline references) | Medium |
-| docs/jobs/manifest.md | Job manifests | Manifest structure, persona/task links, and loader behavior. | Persona authors and backend developers | `modules.Jobs.manifest_loader.load_job_metadata`; `modules/Jobs/`; `CapabilityRegistry` | 2025-12-21 | Maybe (align with current manifest schema) | Medium |
-| docs/jobs/scheduling.md | Job scheduling | Schedule definition, persistence, and validation. | Backend developers | `modules.orchestration.job_scheduler`; `modules.job_store.service.JobService.transition_job` | 2025-12-21 | Maybe (add scheduling examples) | Medium |
-| docs/jobs/ui.md | Job dashboards and UI workflows | High-traffic (README map). Analytics payloads for UI and dashboard rendering. | UI engineers and operators | `CapabilityRegistry.summary`; `get_task_lifecycle_metrics`; `get_job_lifecycle_metrics` | 2025-12-21 | Maybe (include screenshot/layout guidance) | Medium |
+| docs/jobs/api.md | Job APIs | High-traffic (README map). Job service entry points, lifecycle, roster, and task links. | Backend developers | `modules.job_store.service.JobService` | 2025-05-09 | No | Medium |
+| docs/jobs/index.md | Jobs in ATLAS | Overview page linking job subtopics. | Readers navigating job docs | Internal links within jobs docs | 2025-05-09 | No | Low |
+| docs/jobs/lifecycle.md | Job lifecycle | Lifecycle states, validation, and analytics emission. | Backend developers and SREs | `modules.job_store.service.JobService.transition_job`; `modules.analytics.persona_metrics` | 2025-05-09 | No | Medium |
+| docs/jobs/manifest.md | Job manifests | Manifest structure, persona/task links, and loader behavior. | Persona authors and backend developers | `modules.Jobs.manifest_loader.load_job_metadata`; `modules/Jobs/`; `CapabilityRegistry` | 2025-05-09 | No | Medium |
+| docs/jobs/scheduling.md | Job scheduling | Schedule definition, persistence, and validation. | Backend developers | `modules.orchestration.job_scheduler`; `modules.job_store.service.JobService.transition_job` | 2025-05-09 | No | Medium |
+| docs/jobs/ui.md | Job dashboards and UI workflows | High-traffic (README map). Analytics payloads for UI and dashboard rendering. | UI engineers and operators | `CapabilityRegistry.summary`; `get_task_lifecycle_metrics`; `get_job_lifecycle_metrics` | 2025-05-09 | No | Medium |
 | docs/ops/README.md | Operations Runbooks | High-traffic (README map). Entry point for operations guides. | Operators and DevOps | Links to ops subpages | 2025-12-21 | Maybe (ensure links cover new runbooks) | Low |
 | docs/ops/background-workers.md | Background worker health and redundancy | Worker orchestration, retention/summary loops, and task queue tuning. | Operators and backend developers | `modules/Tools/Base_Tools/task_queue.py`; worker configs under `ATLAS/config/` | 2025-12-21 | Maybe (add monitoring examples) | Medium |
 | docs/ops/developer-setup.md | Developer Environment Setup | Environment bootstrap instructions and scripts. | Contributors and developers | `scripts/install_environment.py`; `scripts/setup_atlas.py`; `main.py` | 2025-12-21 | Maybe (refresh package prerequisites) | Medium |
