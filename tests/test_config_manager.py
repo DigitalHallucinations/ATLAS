@@ -277,6 +277,59 @@ def test_tooling_section_apply_sets_defaults():
     assert config["tool_defaults"]["timeout_seconds"] == 30
     assert config["tool_safety"]["network_allowlist"] == ["example.com"]
     assert config["tools"]["javascript_executor"]["args"] == ["--inspect"]
+    mcp_block = config["tools"]["mcp"]
+    assert mcp_block["enabled"] is False
+    assert mcp_block["default_server"] == ""
+    assert mcp_block["timeout_seconds"] == 30.0
+    assert mcp_block["health_check_interval"] == 300.0
+    assert mcp_block["servers"] == {}
+    assert mcp_block["allow_tools"] is None
+    assert mcp_block["deny_tools"] is None
+    assert mcp_block["server_config"] == {}
+    assert mcp_block["server"] == ""
+    assert mcp_block["tool"] == ""
+
+
+def test_tooling_section_env_populates_mcp_server_defaults():
+    config: dict[str, Any] = {}
+    section = ToolingConfigSection(
+        config=config,
+        yaml_config={},
+        env_config={
+            "ATLAS_MCP_ENABLED": "true",
+            "ATLAS_MCP_DEFAULT_SERVER": "demo",
+            "ATLAS_MCP_TIMEOUT_SECONDS": "45",
+            "ATLAS_MCP_HEALTH_CHECK_INTERVAL": "120",
+            "ATLAS_MCP_SERVER_TRANSPORT": "ws",
+            "ATLAS_MCP_SERVER_URL": "wss://example.test/mcp",
+            "ATLAS_MCP_SERVER_ARGS": "--flag value",
+            "ATLAS_MCP_SERVER_CWD": "/tmp",
+            "ATLAS_MCP_ALLOW_TOOLS": "alpha,beta",
+            "ATLAS_MCP_DENY_TOOLS": "gamma",
+        },
+        logger=_StubLogger(),
+    )
+
+    section.apply()
+
+    mcp_block = config["tools"]["mcp"]
+    assert mcp_block["enabled"] is True
+    assert mcp_block["default_server"] == "demo"
+    assert mcp_block["timeout_seconds"] == 45.0
+    assert mcp_block["health_check_interval"] == 120.0
+    assert mcp_block["allow_tools"] == ["alpha", "beta"]
+    assert mcp_block["deny_tools"] == ["gamma"]
+    servers = mcp_block["servers"]
+    assert set(servers.keys()) == {"demo"}
+    server_cfg = servers["demo"]
+    assert server_cfg["transport"] == "ws"
+    assert server_cfg["url"] == "wss://example.test/mcp"
+    assert server_cfg["cwd"] == "/tmp"
+    assert server_cfg["args"] == ["--flag", "value"]
+    assert server_cfg["timeout_seconds"] == 45.0
+    assert server_cfg["health_check_interval"] == 120.0
+    assert server_cfg["allow_tools"] == ["alpha", "beta"]
+    assert server_cfg["deny_tools"] == ["gamma"]
 
 
 def test_persistence_kv_section_set_settings_updates_blocks():

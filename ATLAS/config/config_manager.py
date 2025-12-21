@@ -384,6 +384,23 @@ class ConfigManager(ProviderConfigMixin, PersistenceConfigMixin, ConfigCore):
 
         return {}
 
+    def get_mcp_settings(self) -> Dict[str, Any]:
+        """Return configuration for the MCP tool provider block."""
+
+        tools_block = self.config.get("tools")
+        if isinstance(tools_block, Mapping):
+            mcp_block = tools_block.get("mcp")
+            if isinstance(mcp_block, Mapping):
+                return dict(mcp_block)
+
+        yaml_tools = self.yaml_config.get("tools")
+        if isinstance(yaml_tools, Mapping):
+            mcp_block = yaml_tools.get("mcp")
+            if isinstance(mcp_block, Mapping):
+                return dict(mcp_block)
+
+        return {}
+
     def set_vector_store_settings(
         self,
         *,
@@ -1680,4 +1697,3 @@ class ConfigManager(ProviderConfigMixin, PersistenceConfigMixin, ConfigCore):
 
         self._write_yaml_config()
         return copy.deepcopy(self.yaml_config)
-
