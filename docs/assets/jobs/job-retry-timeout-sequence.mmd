@@ -1,0 +1,34 @@
+%% Job scheduling, retry, and timeout flows
+sequenceDiagram
+    autonumber
+    participant Client
+    participant JobAPI as Job API / Gateway
+    participant JobStore
+    participant Scheduler as Recurrence Scheduler
+    participant Worker as Worker / Runner
+    participant Metrics as Metrics & Event Bus
+
+    Client->>JobAPI: POST /jobs (manifest, recurrence)
+    JobAPI->>JobStore: Persist job (status=draft)
+    JobAPI-->>Client: 201 Created (job_id)
+    JobAPI->>Scheduler: Notify new job (manifest + recurrence)
+    Scheduler->>JobStore: transition_job(draft→scheduled)
+    Scheduler->>Worker: Dispatch next run
+    Worker->>JobStore: transition_job(scheduled→running)
+    Worker->>Metrics: Emit jobs.metrics.lifecycle(running)
+
+    alt Run succeeds
+        Worker->>JobStore: transition_job(running→succeeded)
+        Worker->>Metrics: Emit jobs.metrics.lifecycle(succeeded)
+    else Retryable failure
+        Worker->>JobStore: transition_job(running→failed, reason)
+        Scheduler->>JobStore: transition_job(failed→scheduled) with backoff window
+        Scheduler->>Metrics: Emit retry_scheduled (attempt++, delay)
+    else Timeout
+        Scheduler->>JobStore: transition_job(running→failed, reason=timeout)
+        Scheduler->>Worker: Cancel/tear down execution slot
+        Scheduler->>Metrics: Emit timeout_detected + job_id
+    end
+
+    Note over Scheduler,JobStore: Backoff metadata is stored with the schedule
+    Metrics->>Client: Lifecycle events and retry counts available for dashboards
