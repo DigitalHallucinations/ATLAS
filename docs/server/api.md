@@ -1,7 +1,7 @@
 ---
 audience: integrators, contributors, operators/admins
 status: in_review
-last_verified: 2025-12-21
+last_verified: 2025-12-22
 source_of_truth: server/http_gateway.py; modules/Server/routes.py; modules/Server/conversation_routes.py; modules/Server/task_routes.py; modules/Server/job_routes.py
 ---
 
@@ -16,6 +16,12 @@ Internally every handler translates requests into `ConversationRoutes`,
 their helpers in `modules/Server/conversation_routes.py`, `modules/Server/task_routes.py`,
 and `modules/Server/job_routes.py`, which are assembled into the gateway from
 `server/http_gateway.py`.
+
+## Topology and request flow
+
+![AtlasServer component diagram showing clients, gateway, orchestration, messaging bus, and persistence layers.](../assets/server/component-diagram.svg)
+
+![Sequence diagram illustrating request validation, orchestration calls into stores/providers, event publication on the message bus, and responses to clients.](../assets/server/request-sequence.svg)
 
 ## Running the standalone HTTP gateway
 

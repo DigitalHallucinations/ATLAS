@@ -1,0 +1,20 @@
+%% Common request data flow for AtlasServer
+sequenceDiagram
+    participant Client as Client (GTK UI / HTTP caller)
+    participant Gateway as HTTP gateway / AtlasServer
+    participant Orchestration as Orchestration (Task & Job services)
+    participant Stores as Persistence (conversation/task/job stores)
+    participant Bus as Message bus
+    participant Providers as Providers & Speech services
+
+    Client->>Gateway: REST/SSE request with RequestContext
+    Gateway-->>Gateway: Validate API key / bearer token and tenant scope
+    Gateway->>Orchestration: Route to task/job/conversation handler
+    Orchestration->>Stores: Read/write records (conversation, task, job)
+    Orchestration->>Providers: Invoke providers/tools/speech as needed
+    Providers-->>Orchestration: Responses and events
+    Orchestration-->>Bus: Publish lifecycle events
+    Bus-->>Gateway: Stream events to connected clients
+    Bus-->>Orchestration: Deliver queued work / notifications
+    Orchestration-->>Gateway: Response payload or stream handle
+    Gateway-->>Client: JSON response or SSE stream

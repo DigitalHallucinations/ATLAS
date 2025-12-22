@@ -1,0 +1,46 @@
+%% ATLAS server component diagram
+flowchart LR
+  subgraph Clients
+    GTK[GTK UI shell]
+    HTTPClient[External REST/streaming clients]
+  end
+
+  subgraph Server["AtlasServer & orchestration layer"]
+    Gateway[HTTP gateway / AtlasServer]
+    Orchestration[Task & Job orchestration services]
+    Persona[Persona & Provider management]
+    Tooling[Tooling & Skill runtime]
+    Speech[Speech services]
+  end
+
+  subgraph Messaging["Message bus"]
+    Redis[(Redis Streams or in-memory queues)]
+  end
+
+  subgraph Persistence
+    Conv[(Conversation store\nPostgreSQL)]
+    TaskStore[(Task store repository)]
+    JobStore[(Job store repository)]
+    KV[(Vector & KV stores)]
+  end
+
+  GTK -->|REST / SSE| Gateway
+  HTTPClient -->|REST / SSE| Gateway
+  Gateway --> Orchestration
+  Gateway --> Persona
+  Gateway --> Tooling
+
+  Orchestration --> Tooling
+  Tooling --> Persona
+  Orchestration --> Speech
+
+  Gateway --> Conv
+  Orchestration --> Conv
+  Orchestration --> TaskStore
+  Orchestration --> JobStore
+  Tooling --> KV
+
+  Gateway --> Redis
+  Orchestration --> Redis
+  Redis -->|events| Gateway
+  Redis -->|events| Orchestration
