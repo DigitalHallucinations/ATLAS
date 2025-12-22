@@ -80,6 +80,10 @@ class _StubConfigManager:
     def get_storage_architecture_settings(self):
         return StorageArchitecture().to_dict()
 
+    def set_storage_architecture(self, architecture):
+        self.storage_architecture = architecture
+        return architecture.to_dict()
+
     def _write_yaml_config(self):
         self.__class__.write_calls += 1
 
@@ -265,6 +269,35 @@ def test_apply_setup_type_switches_between_presets():
     controller.state.job_scheduling = custom_state
     controller.apply_setup_type("enterprise")
     assert controller.state.job_scheduling.queue_size == 5
+
+
+def test_apply_setup_type_developer_defaults():
+    controller = SetupWizardController(config_manager=_StubConfigManager())
+
+    controller.apply_setup_type("personal", local_only=True)
+    controller.apply_setup_type("developer")
+
+    assert controller.state.setup_type.mode == "developer"
+    assert controller.state.setup_type.applied is True
+    assert controller.state.setup_type.local_only is False
+    assert controller.state.database.backend == "postgresql"
+    assert controller.state.message_bus.backend == "redis"
+    assert controller.state.message_bus.redis_url == "redis://localhost:6379/0"
+    assert controller.state.message_bus.stream_prefix == "atlas-dev"
+    assert controller.state.job_scheduling.enabled is True
+    assert controller.state.job_scheduling.job_store_url == "postgresql+psycopg://atlas:atlas@localhost:5432/atlas_jobs"
+    assert controller.state.job_scheduling.queue_size == 500
+    assert controller.state.job_scheduling.timezone == "UTC"
+    assert controller.state.job_scheduling.max_workers == 8
+    assert controller.state.kv_store.reuse_conversation_store is True
+    assert controller.state.kv_store.url is None
+    assert controller.state.optional.retention_days == 14
+    assert controller.state.optional.retention_history_limit == 300
+    assert controller.state.optional.http_auto_start is True
+    assert controller.state.storage_architecture.performance_mode == PerformanceMode.BALANCED
+    assert controller.state.storage_architecture.conversation_backend == "postgresql"
+    assert controller.state.storage_architecture.kv_reuse_conversation_store is True
+    assert controller.state.storage_architecture.vector_store_adapter == "in_memory"
 
 
 def test_run_preflight_sets_recommendation(monkeypatch):
