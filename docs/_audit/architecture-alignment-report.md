@@ -1,7 +1,7 @@
 ---
 audience: Documentation maintainers and contributors
 status: draft
-last_verified: 2026-02-26
+last_verified: 2026-02-27
 source_of_truth: docs/_audit/style-guide.md
 ---
 
@@ -14,6 +14,7 @@ This report compares key architectural claims in the documentation against the c
 ## Owner registry alignment
 
 - ✅ Added `docs/contributing/agent-owners.md` with owner and cadence mappings sourced from `_audit` inventory entries to clarify who to engage for audited subsystems.
+- ✅ Added `docs/contributing/audit-rollout.md` to capture the standard onboarding flow for new subsystem audits, including template copies, owner/cadence setup, first-pass execution, and reminder scheduling.
 
 ## Front matter and link spot-checks
 

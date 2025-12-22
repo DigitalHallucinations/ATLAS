@@ -1,7 +1,7 @@
 ---
 audience: Documentation maintainers and contributors
 status: active
-last_verified: 2026-02-26
+last_verified: 2026-02-27
 source_of_truth: docs/_audit/style-guide.md
 ---
 
@@ -13,6 +13,7 @@ source_of_truth: docs/_audit/style-guide.md
 
 | path | owner | last_audited | audit_status | gaps_found | next_review | notes |
 | --- | --- | --- | --- | --- | --- | --- |
+| docs/contributing/audit-rollout.md | @docs-core | 2026-02-27 | Current | New rollout plan added for onboarding subsystem audits. | 2026-05-31 | Ensure future rollouts log findings into alignment report. |
 | docs/contributing/agent-owners.md | @docs-core | 2026-02-26 | Current | New owner registry added for audited subsystems. | 2026-05-31 | Keep owner/next review fields aligned with `_audit` inventory entries. |
 | docs/_audit/security-audit-checklist.md | @security | 2026-02-22 | Current | New checklist added for DLP/access/transport coverage. | 2026-05-31 | Link findings into `alignment-report.md` after each audit. |
 | docs/architecture-overview.md | @docs-core | 2026-02-20 | Needs review | Architecture diagrams lag recent orchestration changes. | 2026-04-20 | Track diagram refresh in [`alignment-report.md`](./alignment-report.md#drift-findings). |
@@ -31,6 +32,7 @@ The detailed audit backlog remains below for continuity with prior audits; keep 
 | docs/backups.md | Conversation and persona backups | Backup import/export via GTK settings and HTTP endpoints. | Operators and support engineers | `server/http_gateway.py`; `modules/Server/routes.py`; `ATLAS/ATLAS.py`; `GTKUI/Settings/backup_settings.py` | 2025-12-21 (Added CLI/server pointers and headless workflow.) | Current | Paths to routes not explicit in narrative examples. | 2026-05-31 | Alignment risk: Medium (paths to routes not explicit). |
 | docs/blackboard.md | Shared Blackboard Overview | High-traffic (README map). Shared collaboration surface, skill APIs, and REST/streaming access. | Persona authors and UI integrators | `AtlasServer` blackboard routes/streaming; `SkillExecutionContext.blackboard` | 2025-12-21 | Current | No gaps recorded; keep streaming/REST parity in review. | 2026-05-31 | Alignment risk: Medium (API surface changes could desync). |
 | docs/configuration.md | Configuration reference | Expanded YAML/env settings for tooling, persistence, MCP, vector store, and retention. | Operators and platform engineers | `ATLAS/config/tooling.py`; `ATLAS/config/persistence.py`; `modules/Tools/Base_Tools/kv_store.py`; `modules/Tools/Base_Tools/vector_store.py`; `modules/Tools/providers/mcp.py`; `modules/background_tasks/conversation_summary.py` | 2025-12-21 | Needs refresh | Stale coverage likely across expanded settings. | 2026-03-31 | Alignment risk: High (large surface that changes often). |
+| docs/contributing/audit-rollout.md | Audit rollout plan | Steps and checklists for onboarding new subsystem audits. | Documentation maintainers and subsystem owners | `_audit_template`; `docs/_audit/inventory.md`; `docs/_audit/architecture-alignment-report.md`; `docs/contributing/agent-owners.md` | 2026-02-27 | Current | None noted; ensure new audits log alignment and owner data. | 2026-05-31 | Alignment risk: Medium; keep cadence mapping in sync. |
 | docs/conversation-store.md | Conversation store data model | High-traffic (README map). Tables, repository helpers, APIs, and retention hooks. | Backend developers and data engineers | `modules/conversation_store/models.py`; `modules/conversation_store/repository.py`; `modules/Server/routes.py`; `modules/user_accounts/user_account_service.py`; `modules/conversation_store/vector_pipeline.py`; `modules/background_tasks/retention.py` | 2025-12-21 | Current | No issues noted; keep schema drift watch active. | 2026-05-31 | Alignment risk: Medium (DB schemas evolve). |
 | docs/conversation_retention.md | Conversation store retention | High-traffic (README map). Retention policies, workers, episodic memory flow, and follow-up events. | Operators and backend developers | `modules/background_tasks/retention.py`; `ATLAS/config/persistence.py`; `ATLAS/config/conversation_summary.py`; `modules/background_tasks/conversation_summary.py`; `modules/Tools/Base_Tools/memory_episodic.py`; `modules/conversation_store/conversations.py`; `modules/orchestration/followups.py`; `modules/Server/routes.py` | 2025-12-21 (Added retention worker configuration examples.) | Current | None captured; verify worker coverage next pass. | 2026-05-31 | Alignment risk: Medium; confirm retention worker coverage. |
 | docs/export-controls.md | Export controls and data residency | DLP, residency enforcement, and region routing. | Security and compliance reviewers | `modules/Server/dlp.py`; `modules/Server/routes.py`; `server/http_gateway.py` | 2025-12-21 (Clarified policy enforcement scope.) | Current | No gaps flagged; monitor policy updates. | 2026-05-31 | Alignment risk: Medium (policy rules may change). |
