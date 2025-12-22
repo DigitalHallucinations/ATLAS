@@ -16,6 +16,7 @@ from sqlalchemy.engine.url import make_url
 
 from ATLAS.config import (
     ConfigManager,
+    PerformanceMode,
     StorageArchitecture,
     get_default_conversation_store_backends,
     infer_conversation_store_backend,
@@ -710,7 +711,7 @@ class SetupWizardController:
 
     def apply_setup_type(self, mode: str, *, local_only: Optional[bool] = None) -> SetupTypeState:
         normalized = (mode or "").strip().lower()
-        if normalized not in {"personal", "enterprise", "regulatory"}:
+        if normalized not in {"personal", "developer", "enterprise", "regulatory"}:
             fallback_mode = normalized or "custom"
             logger.info("Unknown setup mode '%s'; falling back to custom configuration", mode)
             setup_state = SetupTypeState(mode=fallback_mode, applied=False, local_only=False)
@@ -770,6 +771,67 @@ class SetupWizardController:
                     adapter="in_memory",
                 )
             profile = self._load_setup_profile("personal")
+            self._apply_profile_overrides(profile)
+
+        elif normalized == "developer":
+            redis_url = self.state.message_bus.redis_url or "redis://localhost:6379/0"
+            stream_prefix = self.state.message_bus.stream_prefix or "atlas-dev"
+            self.state.message_bus = dataclasses.replace(
+                self.state.message_bus,
+                backend="redis",
+                redis_url=redis_url,
+                stream_prefix=stream_prefix,
+            )
+            default_workers, default_queue_size = self._resolve_queue_defaults(
+                backend=self.state.message_bus.backend
+            )
+            job_store_url = self.state.job_scheduling.job_store_url or (
+                "postgresql+psycopg://atlas:atlas@localhost:5432/atlas_jobs"
+            )
+            self.state.database = dataclasses.replace(
+                self.state.database,
+                backend="postgresql",
+                host="localhost",
+                port=5432,
+                database="atlas",
+                user="atlas",
+                password=self.state.database.password or "",
+                dsn="",
+                options=self.state.database.options,
+            )
+            self.state.job_scheduling = dataclasses.replace(
+                self.state.job_scheduling,
+                enabled=True,
+                job_store_url=job_store_url,
+                max_workers=self.state.job_scheduling.max_workers or default_workers,
+                retry_policy=dataclasses.replace(self.state.job_scheduling.retry_policy),
+                timezone=self.state.job_scheduling.timezone or "UTC",
+                queue_size=self.state.job_scheduling.queue_size or default_queue_size,
+            )
+            self.state.kv_store = dataclasses.replace(
+                self.state.kv_store,
+                reuse_conversation_store=True,
+                url=None,
+            )
+            self.state.optional = dataclasses.replace(
+                self.state.optional,
+                retention_days=14,
+                retention_history_limit=300,
+                http_auto_start=True,
+                audit_template=self.state.optional.audit_template,
+            )
+            architecture = StorageArchitecture(
+                performance_mode=PerformanceMode.BALANCED,
+                conversation_backend="postgresql",
+                kv_reuse_conversation_store=True,
+                vector_store_adapter="in_memory",
+            )
+            self.state.vector_store = dataclasses.replace(
+                self.state.vector_store,
+                adapter=architecture.vector_store_adapter,
+            )
+            self.apply_storage_architecture(architecture)
+            profile = self._load_setup_profile("developer")
             self._apply_profile_overrides(profile)
 
         elif normalized == "enterprise":

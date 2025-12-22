@@ -55,6 +55,11 @@ def build_setup_type_page(wizard: "SetupWizardWindow") -> Gtk.Widget:
             "Single administrator, defaults favor convenience on one host.",
         ),
         (
+            "developer",
+            "Developer",
+            "Local PostgreSQL and Redis so you can mirror production behaviours while iterating.",
+        ),
+        (
             "enterprise",
             "Enterprise",
             "Team rollout with Redis, schedulers, and stricter retention defaults.",
@@ -90,7 +95,7 @@ def build_setup_type_page(wizard: "SetupWizardWindow") -> Gtk.Widget:
     table.set_hexpand(True)
     table.set_vexpand(False)
 
-    headers = ["Area", "Personal", "Enterprise"]
+    headers = ["Area", "Personal", "Developer", "Enterprise"]
     for col, title in enumerate(headers):
         label = Gtk.Label(label=title)
         label.set_wrap(True)
@@ -101,38 +106,45 @@ def build_setup_type_page(wizard: "SetupWizardWindow") -> Gtk.Widget:
         if col == 1:
             wizard._setup_type_headers["personal"] = label
         elif col == 2:
+            wizard._setup_type_headers["developer"] = label
+        elif col == 3:
             wizard._setup_type_headers["enterprise"] = label
 
     rows = [
         (
             "Message bus",
             "In-memory queue for a single app server.",
+            "Local Redis streams on one host to match production protocols.",
             "Redis backend with shared streams.",
         ),
         (
             "Job scheduling",
             "Disabled so nothing else is required.",
+            "Enabled with a local PostgreSQL job store for background tasks.",
             "Enabled with a dedicated database-backed job store.",
         ),
         (
             "Key-value store",
             "Reuse the conversation database.",
+            "Reuse PostgreSQL alongside the main database.",
             "Separate database-backed cache for scale.",
         ),
         (
             "Retention & policies",
             "No retention limits are pre-set.",
+            "14 day retention and 300 message history.",
             "30 day retention and 500 message history.",
         ),
         (
             "HTTP server",
             "Auto-start for easy local testing.",
+            "Auto-start with developer-friendly defaults.",
             "Manual start so ops can control ingress.",
         ),
     ]
 
-    for row_index, (area, personal, enterprise) in enumerate(rows, start=1):
-        for column, text in enumerate((area, personal, enterprise)):
+    for row_index, (area, personal, developer, enterprise) in enumerate(rows, start=1):
+        for column, text in enumerate((area, personal, developer, enterprise)):
             label = Gtk.Label(label=text)
             label.set_wrap(True)
             label.set_xalign(0.0)

@@ -1025,6 +1025,7 @@ class SetupWizardWindow(AtlasWindow):
         self._identity_step_index = None
         self._identity_pages_by_mode = {
             "personal": [administrator_intro, administrator_form],
+            "developer": [administrator_intro, administrator_form],
             "enterprise": [administrator_form],
         }
         admin_pages = self._get_identity_pages()
@@ -1079,7 +1080,7 @@ class SetupWizardWindow(AtlasWindow):
                 )
             )
 
-        if mode in {"enterprise", "personal"}:
+        if mode in {"enterprise", "personal", "developer"}:
             self._steps.append(
                 WizardStep(
                     name="Users",
@@ -1582,7 +1583,7 @@ class SetupWizardWindow(AtlasWindow):
         state = getattr(self.controller.state, "setup_type", None)
         mode = (state.mode if state else "") or ""
         normalized = mode.strip().lower()
-        if normalized not in {"personal", "enterprise"}:
+        if normalized not in {"personal", "enterprise", "developer"}:
             normalized = "personal"
 
         self._setup_type_syncing = True
@@ -1658,7 +1659,7 @@ class SetupWizardWindow(AtlasWindow):
         self, mode: str | None, *, update_status: bool, local_only: bool | None = None
     ) -> tuple[str, bool]:
         selected = (mode or self._get_selected_setup_type() or "").strip().lower()
-        if selected not in {"personal", "enterprise"}:
+        if selected not in {"personal", "enterprise", "developer"}:
             message = "No preset selected. Configure each service manually."
             if update_status:
                 self._set_status(message)
