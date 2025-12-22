@@ -26,6 +26,14 @@ This workflow keeps contributors aligned on intent, guardrails, and validation a
 - Respect safety rules: avoid secrets, production configuration changes, and unreviewed migration paths.
 - Honor repository conventions (naming, front matter for docs, existing manifest patterns) and any nested instructions in the relevant directories.
 
+## 4a) Coordinate cross-cutting work
+- Assign a **lead agent** for scope-spanning efforts and a **secondary agent** from each affected domain. The lead owns sequencing, scope boundaries, and review readiness; secondaries ensure domain-specific guardrails are applied.
+- Define **interface freeze windows** for any shared contracts (APIs, schemas, events, UI surface areas) while dependent work lands. Communicate freeze start/end times in the PR description and do not merge interface changes during the freeze without lead + affected secondary approvals.
+- Require approvals from the lead plus at least one secondary from every touched scope (e.g., Backend, UI, Docs) before merging.
+- Bundle multi-scope changes only when they form a single, inseparable unit of value. Otherwise, stage changes by scope: land backend contracts behind feature flags, follow with UI wiring, then finalize docs. Each stage should be merge-safe and revertible.
+- When bundling is unavoidable (tight coupling), use a **stacked branch strategy** or sequence of PRs: base branch for shared contracts, dependent branches for UI/backend/docs layering. Merge in order, with explicit dependency notes in each PR.
+- For rollouts, prefer **feature flags or config gates** by default. Keep new paths backward-compatible, support configuration-driven rollbacks, and document default flag states. Remove flags only after the feature has run stably and dependencies confirm compatibility.
+
 ## 5) Validation checklist by domain
 | Domain | Required validations |
 | --- | --- |
