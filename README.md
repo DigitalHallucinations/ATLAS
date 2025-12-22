@@ -191,6 +191,20 @@ Contributions are welcome.
 If you’d like to build a persona, tool, or provider adapter, fork the repo and open a pull request.
 Follow PEP 8 and ensure tests pass with `pytest` before submitting.
 
+### Agent roles, guardrails, and AGENTS lookup
+- UI Agent (GTKUI/), Backend Agent (ATLAS/, modules/, atlas_provider.py), Data/DB Agent (conversation/task/job stores and migrations), Infra/Config Agent (server/, config.yaml, ATLAS/config/, scripts/ affecting runtime), Docs Agent (docs/), Testing Agent (tests/), and Security Agent (configuration reviews).
+- Always read `AGENTS.md` from the repository root down to the directory you’re editing; nested files override parent guidance and document additional required checks.
+
+### Workflow, audits, and new audit folders
+- Follow the shared [Agent Workflow](docs/contributing/agent-workflow.md) for intent capture, guardrail discovery, design alignment, validation, and traceability.
+- Documentation updates must refresh `docs/_audit/inventory.md` and `docs/_audit/architecture-alignment-report.md` to keep traceability current.
+- When spinning up a new audit folder, start with the [_audit_template](docs/_audit_template) and adapt it to the new scope before adding content.
+
+### Required validations by change type
+- Backend/infra changes: run `pytest tests/test_persona_schema.py` and `pytest`.
+- UI changes: run the tests above and capture updated screenshots for visible GTK modifications.
+- Documentation-only changes: refresh the audit inventory/report, and run link or spell checks if available before submitting.
+
 ---
 
 ## 🜂 Credits
