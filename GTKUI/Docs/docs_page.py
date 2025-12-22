@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import importlib.util
 import logging
 from pathlib import Path
 from typing import Any
@@ -12,13 +11,25 @@ from gi.repository import Gtk
 
 from GTKUI.Utils.utils import apply_css
 
-WEBKIT_AVAILABLE = importlib.util.find_spec("gi.repository.WebKit2") is not None
 
-if WEBKIT_AVAILABLE:
-    gi.require_version("WebKit2", "4.1")
-    from gi.repository import WebKit2
-else:  # pragma: no cover - WebKit2 not installed in tests
-    WebKit2 = None  # type: ignore[assignment]
+def _load_webkit2() -> tuple[bool, Any | None]:
+    """Attempt to load a GTK4-compatible WebKit2 namespace."""
+
+    gtk_major = getattr(Gtk, "get_major_version", lambda: 0)()
+    target_versions = ["6.0", "5.0"] if gtk_major >= 4 else ["4.1", "4.0"]
+
+    for version in target_versions:
+        try:
+            gi.require_version("WebKit2", version)
+            from gi.repository import WebKit2 as WebKit2NS  # type: ignore
+        except (ImportError, ValueError, gi.RepositoryError):
+            continue
+        return True, WebKit2NS
+
+    return False, None
+
+
+WEBKIT_AVAILABLE, WebKit2 = _load_webkit2()
 
 logger = logging.getLogger(__name__)
 
