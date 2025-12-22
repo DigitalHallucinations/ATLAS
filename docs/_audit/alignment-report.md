@@ -11,19 +11,29 @@ source_of_truth: docs/_audit/style-guide.md
 
 This report captures documentation drift risks and remediation plans for high-traffic pages. Cross-link entries to inventory rows and source code references per [`linking-and-sources.md`](./linking-and-sources.md).
 
-## Current risks
+## Review cadence
 
-| claim_or_area | risk_summary | owner | due_date | status | related_inventory_row |
-| --- | --- | --- | --- | --- | --- |
-| Architecture overview diagrams | Diagrams and runtime paths trail orchestration updates for background workers and gateways. | @docs-core | 2026-03-15 | Tracking | docs/architecture-overview.md |
-| Server API parity | REST route listings may omit websocket and retention updates from the latest server changes. | @docs-core | 2026-03-25 | Tracking | docs/server/api.md |
+| area | owner | frequency | next_review | notes |
+| --- | --- | --- | --- | --- |
+| Server API and gateway docs | @docs-core | Monthly (fast-moving) | 2026-03-25 | Keep parity with websocket reconnect and retention endpoints. |
+| Architecture overview and diagrams | @docs-core | Quarterly | 2026-04-20 | Align diagrams with orchestration and storage pipeline updates. |
+| UI/setup flow narratives | @docs-core | Quarterly | 2026-05-31 | Ensure GTK setup/UI screens match controller responses and assets. |
+
+## API / schema / UI contract risks
+
+| claim_or_area | risk_summary | severity | owner | due_date | status | related_inventory_row | issue_link |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Architecture overview diagrams | Diagrams and runtime paths trail orchestration updates for background workers and gateways. | High | @docs-core | 2026-03-15 | Tracking | docs/architecture-overview.md | link-to-issue-or-PR |
+| Server API parity (REST + websocket) | Route listings may omit websocket reconnect, backup, and retention updates from the latest server changes. | High | @docs-core | 2026-03-25 | Tracking | docs/server/api.md | link-to-issue-or-PR |
+| UI/setup flow contracts | GTK setup pages and controller responses may drift from documented field order and validation rules. | Medium | @docs-core | 2026-05-31 | Monitoring | docs/setup-wizard.md | link-to-issue-or-PR |
 
 ## Drift findings
 
-| path | drift_observed | source_of_truth | remediation_owner | target_pr | due_date |
-| --- | --- | --- | --- | --- | --- |
-| docs/architecture-overview.md | Component diagram and flow descriptions omit new retention/vector pipelines. | `modules/orchestration/`; `modules/conversation_store/`; `ATLAS/config/persistence.py` | @docs-core | link-to-issue-or-PR | 2026-03-22 |
-| docs/server/api.md | Route table misses websocket reconnect options and backup endpoints. | `server/http_gateway.py`; `modules/Server/routes.py` | @docs-core | link-to-issue-or-PR | 2026-03-25 |
+| path | drift_observed | severity | source_of_truth | remediation_owner | target_pr | due_date |
+| --- | --- | --- | --- | --- | --- | --- |
+| docs/architecture-overview.md | Component diagram and flow descriptions omit new retention/vector pipelines. | High | `modules/orchestration/`; `modules/conversation_store/`; `ATLAS/config/persistence.py` | @docs-core | link-to-issue-or-PR | 2026-03-22 |
+| docs/server/api.md | Route table misses websocket reconnect options and backup endpoints. | High | `server/http_gateway.py`; `modules/Server/routes.py` | @docs-core | link-to-issue-or-PR | 2026-03-25 |
+| docs/setup-wizard.md | Validation order and preset behaviors may not match the latest controller responses. | Medium | `ATLAS/setup/controller.py`; `GTKUI/Setup/`; `main.py` | @docs-core | link-to-issue-or-PR | 2026-05-31 |
 
 ## Remediation plan
 
