@@ -51,3 +51,25 @@ With these patterns, new pages inherit the same lifecycle as existing workspaces
 
 The task workspace exposes a stack switcher that toggles between the traditional list and a segmented Kanban board. Both layouts consume the same persona/status/search filters, so switching views never loses context. Dragging a card between columns triggers the underlying status transition flow, mirroring the primary and secondary action buttons in the detail pane.【F:GTKUI/Task_manager/task_management.py†L215-L343】【F:GTKUI/Task_manager/task_management.py†L972-L1050】【F:GTKUI/Task_manager/task_management.py†L1200-L1393】
 
+## UI reference placeholders
+The following embeds track where refreshed UI captures will land. Swap in the final exports while keeping the same filenames and relative paths.
+
+![Setup wizard overview placeholder](../assets/ui/setup-wizard-overview.svg)
+*Placeholder caption: setup wizard welcome and configuration overview. TODO: replace with final export.*
+
+![Main dashboard placeholder](../assets/ui/main-dashboard.png)
+*Placeholder caption: main dashboard with primary navigation sidebar, recent activity, and workspace tabs. TODO: replace with final PNG export.*
+
+![Task details modal placeholder](../assets/ui/task-details-modal.png)
+*Placeholder caption: task details modal or side panel showing lifecycle controls and metadata. TODO: replace with final PNG export.*
+
+### Navigation flow (placeholder)
+> TODO: Replace this placeholder Mermaid diagram with the finalized navigation flow export once captures are available.
+
+```mermaid
+flowchart LR
+    setup[Setup wizard] --> dashboard[Main dashboard]
+    dashboard --> taskDetail[Task detail view/modal]
+    dashboard --> settings[Settings]
+    taskDetail --> settings
+```
