@@ -5,6 +5,9 @@ from urllib.parse import urlparse
 
 pytest_plugins = ("pytest_postgresql",)
 
+if "cairo" not in sys.modules:
+    sys.modules["cairo"] = types.ModuleType("cairo")
+
 if "pygame" not in sys.modules:
     music = types.SimpleNamespace(
         load=lambda *_args, **_kwargs: None,

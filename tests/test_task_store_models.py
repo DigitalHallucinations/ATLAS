@@ -1,4 +1,9 @@
 import pytest
+
+sqlalchemy = pytest.importorskip("sqlalchemy", reason="SQLAlchemy is required for task store tests.")
+if getattr(sqlalchemy, "__version__", None) is None:
+    pytest.skip("SQLAlchemy not installed; skipping task store model tests.", allow_module_level=True)
+
 from sqlalchemy import create_engine, select
 from sqlalchemy.exc import StatementError
 from sqlalchemy.orm import sessionmaker

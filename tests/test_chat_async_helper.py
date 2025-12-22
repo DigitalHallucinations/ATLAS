@@ -6,8 +6,10 @@ from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import Mock
 from typing import Callable
+import importlib.util
 
-if "ATLAS.config" not in sys.modules:
+_atlas_config_spec = importlib.util.find_spec("ATLAS.config")
+if "ATLAS.config" not in sys.modules and _atlas_config_spec is None:
     config_stub = types.ModuleType("ATLAS.config")
 
     class _ConfigManager:

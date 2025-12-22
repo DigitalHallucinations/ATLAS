@@ -68,9 +68,14 @@ sys.modules.setdefault(
     ),
 )
 
+dynamic_pkg = sys.modules.setdefault("tests.dynamic", types.ModuleType("tests.dynamic"))
+if not getattr(dynamic_pkg, "__path__", None):
+    dynamic_pkg.__path__ = []
+
 # Reload the target module to ensure it picks up the stubbed pytz implementation.
+sys.modules.pop("modules.Tools.Base_Tools.time", None)
+sys.modules.pop("tests.dynamic.time", None)
 time_tool = importlib.import_module("modules.Tools.Base_Tools.time")
-importlib.reload(time_tool)
 
 pytz = pytz_stub
 

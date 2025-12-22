@@ -4,6 +4,8 @@ from pathlib import Path
 import pytest
 
 sqlalchemy = pytest.importorskip("sqlalchemy")
+if getattr(sqlalchemy, "__version__", None) is None:
+    pytest.skip("SQLAlchemy not installed; skipping legacy account migration tests.", allow_module_level=True)
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
@@ -143,4 +145,3 @@ def test_migrate_sqlite_accounts(tmp_path, repository):
     assert str(user_row.id) == record["user_id"]
     assert user_row.display_name == "Legacy User"
     assert (user_row.meta or {}).get("email") == "legacy@example.com"
-
