@@ -26,6 +26,7 @@
 - When work spans multiple scopes (e.g., Backend + Data/DB), sequence commits by scope or collaborate with the relevant role to ensure ownership and reviews remain clear.
 - Use nested `AGENTS.md` files to refine constraints and required checks for a subtree. Defer to the most specific file in the path of the files you touch.
 - For cross-cutting refactors, document affected scopes in the PR description and run the union of required tests from each scope.
+- Use the [agent owner registry](docs/contributing/agent-owners.md) to confirm who to involve for each audited subsystem and its escalation contact.
 
 ## Style references
 - Persona JSON schema lives at `modules/Personas/schema.json`; reference it for schema-aligned changes.

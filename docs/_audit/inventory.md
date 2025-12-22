@@ -1,7 +1,7 @@
 ---
 audience: Documentation maintainers and contributors
 status: active
-last_verified: 2026-02-22
+last_verified: 2026-02-26
 source_of_truth: docs/_audit/style-guide.md
 ---
 
@@ -13,6 +13,7 @@ source_of_truth: docs/_audit/style-guide.md
 
 | path | owner | last_audited | audit_status | gaps_found | next_review | notes |
 | --- | --- | --- | --- | --- | --- | --- |
+| docs/contributing/agent-owners.md | @docs-core | 2026-02-26 | Current | New owner registry added for audited subsystems. | 2026-05-31 | Keep owner/next review fields aligned with `_audit` inventory entries. |
 | docs/_audit/security-audit-checklist.md | @security | 2026-02-22 | Current | New checklist added for DLP/access/transport coverage. | 2026-05-31 | Link findings into `alignment-report.md` after each audit. |
 | docs/architecture-overview.md | @docs-core | 2026-02-20 | Needs review | Architecture diagrams lag recent orchestration changes. | 2026-04-20 | Track diagram refresh in [`alignment-report.md`](./alignment-report.md#drift-findings). |
 | docs/server/api.md | @docs-core | 2026-02-20 | Needs review | Route list may not include new websocket and retention endpoints. | 2026-03-25 | Sync with server audit items to confirm parity. |

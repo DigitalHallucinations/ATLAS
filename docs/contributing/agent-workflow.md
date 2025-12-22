@@ -1,7 +1,7 @@
 ---
 audience: All ATLAS contributors and scoped agents
 status: in_review
-last_verified: 2025-05-10
+last_verified: 2026-02-26
 source_of_truth: docs/contributing/agent-workflow.md; repository AGENTS.md files
 ---
 
@@ -15,6 +15,7 @@ This workflow keeps contributors aligned on intent, guardrails, and validation a
 
 ## 2) Discover guardrails
 - Locate `AGENTS.md` files from the repository root to the target directory to gather scope, style, and required checks. Use directory-scoped files with the deepest path for the most specific rules.
+- Check the [agent owner registry](./agent-owners.md) to confirm the responsible owner, cadence, and escalation contact for the audited subsystem before proposing changes.
 - Confirm your role for the change (UI, Backend, Data/DB, Infra/Config, Docs, Testing, Security) to avoid cross-scope edits.
 
 ## 3) Align the design
