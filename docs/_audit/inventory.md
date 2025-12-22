@@ -1,13 +1,23 @@
 ---
 audience: Documentation maintainers and contributors
-status: draft
-last_verified: 2026-02-13
+status: active
+last_verified: 2026-02-20
 source_of_truth: docs/_audit/style-guide.md
 ---
 
 # Documentation refactor inventory
 
 > Navigation: See the [audit workspace README](./README.md) for cadence, quick-start steps, and recording guidance.
+
+## Key docs audit snapshot
+
+| path | owner | last_audited | alignment_status | gaps_found | next_review | notes |
+| --- | --- | --- | --- | --- | --- | --- |
+| docs/architecture-overview.md | @docs-core | 2026-02-20 | Needs review | Architecture diagrams lag recent orchestration changes. | 2026-04-20 | Track diagram refresh in [`alignment-report.md`](./alignment-report.md#drift-findings). |
+| docs/server/api.md | @docs-core | 2026-02-20 | Needs review | Route list may not include new websocket and retention endpoints. | 2026-03-25 | Sync with server audit items to confirm parity. |
+| docs/setup-wizard.md | @docs-core | 2026-02-20 | Aligned | Setup steps match current controller responses and screenshots. | 2026-06-01 | Recheck after CLI/setup controller updates. |
+
+The detailed refactor backlog remains below for continuity with prior audits; keep both sections in sync until legacy entries are retired.
 
 | current_path | title | topic | intended_audience | refs_to_code | last_audited | audit_status | gaps_found | next_review |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
