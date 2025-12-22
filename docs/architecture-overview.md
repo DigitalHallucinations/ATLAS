@@ -1,7 +1,7 @@
 ---
 audience: New contributors and maintainers
 status: in_review
-last_verified: 2025-12-21
+last_verified: 2025-12-22
 source_of_truth: main.py; ATLAS/ATLAS.py; modules/conversation_store/; modules/orchestration/; modules/Speech_Services/; modules/Server/
 ---
 
@@ -20,6 +20,14 @@ This guide expands on the README with a deeper walkthrough of the runtime, files
 - **Speech**: `modules/Speech_Services/` contains the `SpeechManager` plus TTS/STT integrations. The runtime exposes a `SpeechService` facade so the UI and APIs can request status or streaming updates.
 - **Personas & providers**: persona manifests and schemas live under `modules/Personas/`. The `PersonaManager` loads persona definitions, while `ProviderManager` resolves which LLM provider/model is active and dispatches tool calls through the shared tooling service.
 - **User accounts**: `modules/user_accounts/` adds login and lockout flows. `UserAccountFacade` links auth state to the conversation repository so multi-tenant data stays isolated via `tenant_id`.
+
+### Server topology & data flow
+
+The diagrams below summarize how AtlasServer, orchestration services, and storage layers are wired together, plus how a typical request travels through the stack.
+
+![AtlasServer component diagram showing clients, gateway, orchestration, messaging bus, and persistence layers.](./assets/server/component-diagram.svg)
+
+![Sequence diagram illustrating request validation, orchestration calls into stores/providers, event publication on the message bus, and responses to clients.](./assets/server/request-sequence.svg)
 
 ## Orchestration & Automation
 - **Tasks & jobs**: The `modules/orchestration/` package hosts the `TaskManager`, `JobManager`, `JobScheduler`, capability registry, and supporting blackboard for collaborative state. These services share the message bus and repository state initialized by the core runtime.
