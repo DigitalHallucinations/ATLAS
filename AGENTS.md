@@ -33,6 +33,7 @@
 - Documentation should use clear Markdown headings, ordered/unordered lists where appropriate, and concise code fences for commands.
 
 ## Safety & validation rules
+- Security Agents focus on configuration, policy, and deployment-safety reviews (for example, transport security defaults, access controls, and data-loss-prevention policies) and must not alter secrets, credentials, or other sensitive values.
 - Do not introduce secrets or modify production configuration values.
 - Run persona schema tests and the full test suite (`pytest tests/test_persona_schema.py` and `pytest`) before submitting PRs.
 - Ensure commands and changes align with ATLAS conventions before final review.
