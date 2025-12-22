@@ -69,12 +69,20 @@ DEFAULT_PLACEHOLDER_HTML = """<!doctype html>
 </html>"""
 
 
+def _discover_repo_root() -> Path:
+    current = Path(__file__).resolve()
+    for candidate in (current.parent, *current.parents):
+        if (candidate / "README.md").exists():
+            return candidate
+    return current.parent
+
+
 def _resolve_default_doc() -> tuple[Path | None, str]:
-    repo_root = Path(__file__).resolve().parents[3]
+    repo_root = _discover_repo_root()
     for relative in DEFAULT_DOC_LOCATIONS:
         candidate = repo_root / relative
         if candidate.exists():
-            return candidate, str(candidate)
+            return candidate, f"Loading {candidate.name} from {candidate.parent}"
     return None, "No bundled documentation found. Loading placeholder content."
 
 
@@ -87,10 +95,16 @@ def _create_web_view(doc_path: Path | None) -> Gtk.Widget:
     web_view.set_vexpand(True)
     web_view.set_can_focus(True)
 
-    if doc_path is not None:
-        web_view.load_uri(doc_path.as_uri())
-    else:
+    if doc_path is None:
         web_view.load_html(DEFAULT_PLACEHOLDER_HTML, "about:blank")
+        return web_view
+
+    if doc_path.suffix.lower() in {".md", ".markdown"}:
+        rendered = _render_markdown(doc_path)
+        web_view.load_html(rendered, doc_path.parent.as_uri())
+        return web_view
+
+    web_view.load_uri(doc_path.as_uri())
 
     return web_view
 
@@ -132,6 +146,129 @@ def _create_placeholder_view(doc_path: Path | None) -> Gtk.Widget:
     text_view.set_margin_end(6)
     scroller.set_child(text_view)
     return scroller
+
+
+def _render_markdown(doc_path: Path) -> str:
+    try:
+        import markdown  # type: ignore
+    except ImportError:
+        return DEFAULT_PLACEHOLDER_HTML
+
+    raw = doc_path.read_text(encoding="utf-8")
+    md_converter = markdown.Markdown(
+        extensions=[
+            "fenced_code",
+            "tables",
+            "toc",
+            "attr_list",
+            "md_in_html",
+            "sane_lists",
+            "smarty",
+        ],
+        output_format="html5",
+        extension_configs={
+            "toc": {
+                "permalink": True,
+                "anchorlink": True,
+                "title": "Table of Contents",
+                "toc_depth": "2-6",
+            }
+        },
+    )
+    html = md_converter.convert(raw)
+    toc = md_converter.toc or ""
+    return f"""<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>{doc_path.name}</title>
+    <style>
+      :root {{
+        color-scheme: light dark;
+        --surface: #1f1f1f;
+        --card: #262626;
+        --muted: #b8b8b8;
+      }}
+      body {{
+        font-family: sans-serif;
+        margin: 1.5rem;
+        line-height: 1.6;
+      }}
+      h1, h2, h3, h4, h5, h6 {{
+        margin-top: 1.25rem;
+        margin-bottom: 0.5rem;
+      }}
+      pre, code {{
+        font-family: "JetBrains Mono", "Fira Code", monospace;
+      }}
+      pre {{
+        padding: 0.75rem;
+        background: rgba(0,0,0,0.08);
+        border-radius: 8px;
+        overflow: auto;
+      }}
+      code {{
+        background: rgba(0,0,0,0.05);
+        padding: 0.1rem 0.35rem;
+        border-radius: 6px;
+      }}
+      blockquote {{
+        border-left: 3px solid rgba(0,0,0,0.2);
+        margin: 0.75rem 0;
+        padding-left: 0.75rem;
+        color: var(--muted);
+      }}
+      ul, ol {{
+        padding-left: 1.5rem;
+      }}
+      table {{
+        border-collapse: collapse;
+        width: 100%;
+        margin: 1rem 0;
+      }}
+      th, td {{
+        border: 1px solid rgba(0,0,0,0.15);
+        padding: 0.5rem 0.75rem;
+        text-align: left;
+      }}
+      th {{
+        background: rgba(0,0,0,0.08);
+      }}
+      .toc {{
+        border: 1px solid rgba(0,0,0,0.1);
+        border-radius: 8px;
+        padding: 0.75rem;
+        background: rgba(0,0,0,0.03);
+        margin-bottom: 1rem;
+      }}
+      .toc h1 {{
+        margin: 0 0 0.5rem 0;
+        font-size: 1.05rem;
+      }}
+      .toc ul {{
+        padding-left: 1.25rem;
+        margin: 0;
+        list-style: disc;
+      }}
+      .toc a {{
+        text-decoration: none;
+      }}
+      .toc a:hover, .toc a:focus {{
+        text-decoration: underline;
+      }}
+    </style>
+    <script type="module">
+      import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
+      mermaid.initialize({{ startOnLoad: true }});
+    </script>
+  </head>
+  <body>
+    <article>
+      {toc}
+      {html}
+    </article>
+  </body>
+</html>"""
 
 
 def build_docs_browser_page(wizard: "SetupWizardWindow") -> Gtk.Widget:
