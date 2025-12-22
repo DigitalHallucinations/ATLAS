@@ -47,6 +47,12 @@ This workflow keeps contributors aligned on intent, guardrails, and validation a
 | Testing-only changes (`tests/`) | Keep changes isolated to tests. Run the targeted suites you modify and the relevant domain suites to confirm coverage. |
 | Security reviews | Ensure no secrets or sensitive endpoints are introduced. Confirm configuration hardening aligns with existing policies before merging. |
 
+## 5a) How to add visuals
+- Create or reuse the relevant section folder under `docs/assets/` (for example, `docs/assets/ui/`, `docs/assets/server/`, or a new section that matches your page).
+- Name files in **kebab-case** and include a version or date suffix when replacing a diagram (for example, `http-routing-v2.png` or `setup-wizard-flow-2026-03-09.svg`).
+- Embed images with relative links that stay within the docs tree (for example, `![alt text](../assets/ui/gtk-controller-flow-v1.svg)`).
+- Delete or archive superseded assets and update any pages that reference them.
+
 ## 6) Traceability
 - Record commands executed (tests, linting, previews) for inclusion in commit and PR notes.
 - Keep changeset-focused commits with clear messages that describe the scope and validations performed.
