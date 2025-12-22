@@ -20,6 +20,10 @@ This report compares key architectural claims in the documentation against the c
 
 - ✅ `docs/Personas.md`, `docs/architecture-overview.md`, `docs/conversation-store.md`, `docs/user-accounts.md`, `docs/configuration.md`, `docs/tasks/overview.md`, and `docs/tool-manifest.md` now include the standard front matter block. Quick previews confirmed heading rendering and intra-doc links remain intact after the retrofit.
 
+## Visual asset workflow
+
+- ✅ Established `docs/assets/` with section folders (for example, `ui/`, `server/`) and added `docs/contributing/visual-assets.md` to standardize naming, versioning, and Markdown embed patterns for diagrams.
+
 ## docs/architecture-overview.md
 
 - ✅ **Entry-point flow** – `main.py` instantiates `AtlasProvider`, gates startup on `is_setup_complete`, and defers `ATLAS.initialize()` until after setup succeeds via `FirstRunCoordinator`.  
