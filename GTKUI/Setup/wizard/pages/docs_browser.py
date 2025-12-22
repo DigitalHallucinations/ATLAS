@@ -69,12 +69,20 @@ DEFAULT_PLACEHOLDER_HTML = """<!doctype html>
 </html>"""
 
 
+def _discover_repo_root() -> Path:
+    current = Path(__file__).resolve()
+    for candidate in (current.parent, *current.parents):
+        if (candidate / "README.md").exists():
+            return candidate
+    return current.parent
+
+
 def _resolve_default_doc() -> tuple[Path | None, str]:
-    repo_root = Path(__file__).resolve().parents[3]
+    repo_root = _discover_repo_root()
     for relative in DEFAULT_DOC_LOCATIONS:
         candidate = repo_root / relative
         if candidate.exists():
-            return candidate, str(candidate)
+            return candidate, f"Loading {candidate.name} from {candidate.parent}"
     return None, "No bundled documentation found. Loading placeholder content."
 
 
