@@ -10,6 +10,11 @@ import gi
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk
 
+_REPOSITORY_ERRORS: tuple[type[BaseException], ...] = (ImportError, ValueError)
+_repository_error = getattr(gi, "RepositoryError", None)
+if isinstance(_repository_error, type) and issubclass(_repository_error, BaseException):
+    _REPOSITORY_ERRORS = (*_REPOSITORY_ERRORS, _repository_error)
+
 
 def _load_webkit2() -> tuple[bool, Any | None]:
     """Attempt to load a GTK4-compatible WebKit2 namespace."""
@@ -21,7 +26,7 @@ def _load_webkit2() -> tuple[bool, Any | None]:
         try:
             gi.require_version("WebKit2", version)
             from gi.repository import WebKit2 as WebKit2NS  # type: ignore
-        except (ImportError, ValueError, gi.RepositoryError):
+        except _REPOSITORY_ERRORS:
             continue
         return True, WebKit2NS
 
