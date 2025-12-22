@@ -12,3 +12,4 @@
 
 ## Coordination
 - Follow the **non-overlap principle**: keep persistence edits confined to this scope. For cross-cutting backend + data changes, split commits by scope and document which tests were run for each area.
+- Consult the shared workflow in [`../../docs/contributing/agent-workflow.md`](../../docs/contributing/agent-workflow.md) to capture intent, confirm guardrails, align design, respect execution constraints, run required validations (including migration notes), and prepare handoffs.

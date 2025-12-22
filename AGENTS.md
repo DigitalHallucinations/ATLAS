@@ -36,3 +36,4 @@
 - Do not introduce secrets or modify production configuration values.
 - Run persona schema tests and the full test suite (`pytest tests/test_persona_schema.py` and `pytest`) before submitting PRs.
 - Ensure commands and changes align with ATLAS conventions before final review.
+- Follow the shared workflow in [`docs/contributing/agent-workflow.md`](docs/contributing/agent-workflow.md) for intent capture, guardrail discovery, design alignment, execution constraints, validation, traceability, and handoff.

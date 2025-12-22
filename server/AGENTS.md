@@ -10,3 +10,4 @@
 
 ## Coordination
 - Apply the **non-overlap principle**: keep infrastructure/configuration updates separate from backend or persistence changes. Coordinate on cross-cutting work and run the combined required tests.
+- Use the shared workflow in [`../docs/contributing/agent-workflow.md`](../docs/contributing/agent-workflow.md) to capture intent, verify guardrails, align designs, respect execution constraints, and document validations for handoff.

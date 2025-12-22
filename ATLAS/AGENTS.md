@@ -11,3 +11,4 @@
 
 ## Coordination
 - Apply the **non-overlap principle**: keep backend logic changes distinct from Data/DB or Infra/Config scopes. For cross-cutting work, coordinate and run the union of required tests.
+- Follow the shared workflow in [`../docs/contributing/agent-workflow.md`](../docs/contributing/agent-workflow.md) to capture intent, confirm guardrails, align design, apply execution constraints, run required validations, and provide traceable handoffs.
