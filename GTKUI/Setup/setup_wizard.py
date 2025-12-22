@@ -46,6 +46,7 @@ from GTKUI.Setup.wizard.validators import (
     validate_company_identity,
     validate_enterprise_org,
 )
+from GTKUI.Setup.wizard.pages.docs_browser import build_docs_browser_page
 from GTKUI.Setup.wizard.pages.overview import build_overview_page
 from GTKUI.Setup.wizard.pages.preflight import build_preflight_page
 from GTKUI.Setup.wizard.pages.setup_type import build_setup_type_page
@@ -520,6 +521,7 @@ class SetupWizardWindow(AtlasWindow):
         self._step_containers: List[Gtk.Widget] = []
         self._step_page_stacks: Dict[int, Gtk.Stack] = {}
         self._current_page_indices: Dict[int, int] = {}
+        self._docs_step_index: int | None = None
 
         self._setup_type_buttons: Dict[str, Gtk.CheckButton] = {}
         self._setup_type_headers: Dict[str, Gtk.Label] = {}
@@ -982,6 +984,7 @@ class SetupWizardWindow(AtlasWindow):
         self._step_page_stacks.clear()
         self._current_page_indices.clear()
         self._hosting_hint_label = None
+        self._docs_step_index = None
 
         self._setup_type_buttons.clear()
         self._setup_type_headers.clear()
@@ -997,6 +1000,7 @@ class SetupWizardWindow(AtlasWindow):
 
         overview_page = build_overview_page(self)
         setup_type_page = build_setup_type_page(self)
+        docs_browser_page = build_docs_browser_page(self)
         preflight_page = build_preflight_page(self)
         administrator_intro = self._build_administrator_intro_page()
         user_collection_page = self._build_users_page()
@@ -1028,6 +1032,12 @@ class SetupWizardWindow(AtlasWindow):
         provider_intro = self._build_provider_intro_page()
         provider_pages = [provider_intro, *provider_pages]
 
+        documentation_step = WizardStep(
+            name="Documentation",
+            widget=docs_browser_page,
+            subpages=[docs_browser_page],
+            apply=self._apply_docs_browser,
+        )
         self._steps = [
             WizardStep(
                 name="Introduction",
@@ -1041,6 +1051,7 @@ class SetupWizardWindow(AtlasWindow):
                 subpages=[setup_type_page],
                 apply=self._apply_setup_type,
             ),
+            documentation_step,
             WizardStep(
                 name="Preflight",
                 widget=preflight_page,
@@ -1048,6 +1059,7 @@ class SetupWizardWindow(AtlasWindow):
                 apply=self._apply_preflight,
             ),
         ]
+        self._docs_step_index = self._steps.index(documentation_step)
 
         if mode == "enterprise":
             self._steps.append(
@@ -4446,6 +4458,11 @@ class SetupWizardWindow(AtlasWindow):
         )
         return True
 
+    def navigate_to_docs_browser(self) -> None:
+        if self._docs_step_index is None:
+            return
+        self._go_to_step(self._docs_step_index)
+
     def _go_to_step(self, index: int) -> None:
         if not self._steps:
             return
@@ -4670,6 +4687,9 @@ class SetupWizardWindow(AtlasWindow):
             self._go_to_step(self._current_index + 1)
 
     # -- apply handlers -------------------------------------------------
+
+    def _apply_docs_browser(self) -> str:
+        return "Reviewed documentation preview."
 
     def _apply_preflight(self) -> str:
         profile = self.controller.run_preflight()

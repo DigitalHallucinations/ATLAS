@@ -33,6 +33,18 @@ def build_setup_type_page(wizard: "SetupWizardWindow") -> Gtk.Widget:
     copy.set_xalign(0.0)
     box.append(copy)
 
+    action_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+    action_row.set_hexpand(True)
+    docs_button = Gtk.Button(label="View docs")
+    docs_button.set_halign(Gtk.Align.START)
+    if hasattr(docs_button, "set_tooltip_text"):
+        docs_button.set_tooltip_text("Open the embedded setup documentation")
+    if hasattr(docs_button, "set_receives_default"):
+        docs_button.set_receives_default(True)
+    docs_button.connect("clicked", lambda _button: wizard.navigate_to_docs_browser())
+    action_row.append(docs_button)
+    box.append(action_row)
+
     button_column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
     button_column.set_hexpand(False)
 
