@@ -19,7 +19,7 @@ Use this folder to coordinate documentation refactors, track alignment with the 
 
 1. **Inventory updates (`inventory.md`)**
    - Add or update rows when a page changes scope, audience, or code dependencies.
-   - Refresh `last_updated_hint`, `rewrite_needed?`, and `alignment_risk` when refactors finish or new risks appear.
+   - Refresh `audit_status`, `gaps_found`, `next_review`, and `notes` when refactors finish or new risks appear.
    - Keep code/module references current and prefer deep links per the linking guidance.
 2. **Architecture checks (`architecture-alignment-report.md`)**
    - Log claim-by-claim confirmations or mismatches, citing the owning modules or schemas.
