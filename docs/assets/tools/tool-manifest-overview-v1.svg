@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1050" height="640" viewBox="0 0 1050 640" role="img" aria-labelledby="title desc">
+  <title id="title">ATLAS tool manifest schema overview</title>
+  <desc id="desc">Diagram of tool manifest array entries, required metadata fields, validation constraints, and optional provider and capability settings.</desc>
+  <style>
+    .box { fill: #f6fbff; stroke: #2c5282; stroke-width: 2; rx: 6; ry: 6; }
+    .subbox { fill: #ffffff; stroke: #5a7ab3; stroke-width: 1.5; rx: 6; ry: 6; }
+    .title { font: 700 18px 'Inter', 'Segoe UI', Arial, sans-serif; fill: #102a43; }
+    .label { font: 600 15px 'Inter', 'Segoe UI', Arial, sans-serif; fill: #1f3c5d; }
+    .text { font: 14px 'Inter', 'Segoe UI', Arial, sans-serif; fill: #2f3b52; }
+    .small { font: 13px 'Inter', 'Segoe UI', Arial, sans-serif; fill: #2f3b52; }
+    .line { stroke: #2c5282; stroke-width: 2; }
+    .note { font: 13px 'Inter', 'Segoe UI', Arial, sans-serif; fill: #1b5678; }
+  </style>
+
+  <rect class="box" x="60" y="30" width="930" height="90" />
+  <text class="title" x="80" y="60">Tool manifest</text>
+  <text class="text" x="80" y="85">Array of tool entries validated by modules/Tools/tool_maps/schema.json.</text>
+  <text class="note" x="80" y="110">Loader rejects invalid entries at startup.</text>
+
+  <rect class="box" x="60" y="150" width="930" height="430" />
+  <text class="title" x="80" y="180">Tool entry (required fields)</text>
+
+  <rect class="subbox" x="80" y="205" width="270" height="140" />
+  <text class="label" x="100" y="230">Identity & description</text>
+  <text class="text" x="100" y="255">name (string, minLength 1)</text>
+  <text class="text" x="100" y="275">description (string, minLength 1)</text>
+  <text class="text" x="100" y="295">version (string, minLength 1)</text>
+  <text class="text" x="100" y="315">side_effects enum</text>
+
+  <rect class="subbox" x="380" y="205" width="270" height="140" />
+  <text class="label" x="400" y="230">Parameters</text>
+  <text class="text" x="400" y="255">type must equal "object"</text>
+  <text class="text" x="400" y="275">properties: object</text>
+  <text class="text" x="400" y="295">required[]: strings</text>
+  <text class="text" x="400" y="315">additionalProperties allowed</text>
+
+  <rect class="subbox" x="680" y="205" width="290" height="140" />
+  <text class="label" x="700" y="230">Execution guards</text>
+  <text class="text" x="700" y="255">default_timeout integer ≥ 0</text>
+  <text class="text" x="700" y="275">allow_parallel boolean</text>
+  <text class="text" x="700" y="295">idempotency_key boolean</text>
+  <text class="text" x="700" y="315">or object{required: boolean}</text>
+
+  <rect class="subbox" x="80" y="370" width="320" height="120" />
+  <text class="label" x="100" y="395">Auth</text>
+  <text class="text" x="100" y="420">auth.required (boolean)</text>
+  <text class="text" x="100" y="440">type (string, optional)</text>
+  <text class="text" x="100" y="460">scopes/env metadata allowed</text>
+  <text class="small" x="100" y="480">additionalProperties permitted</text>
+
+  <rect class="subbox" x="440" y="360" width="250" height="170" />
+  <text class="label" x="460" y="385">Optional metadata</text>
+  <text class="text" x="460" y="410">safety_level: low|medium|high</text>
+  <text class="text" x="460" y="430">requires_consent (boolean)</text>
+  <text class="text" x="460" y="450">capabilities[] strings</text>
+  <text class="text" x="460" y="470">cost_per_call ≥ 0 & cost_unit</text>
+  <text class="text" x="460" y="490">notes/examples arrays</text>
+
+  <rect class="subbox" x="720" y="360" width="250" height="170" />
+  <text class="label" x="740" y="385">Providers & routing</text>
+  <text class="text" x="740" y="410">providers[] entries</text>
+  <text class="text" x="740" y="430">- name (string, required)</text>
+  <text class="text" x="740" y="450">- priority (integer)</text>
+  <text class="text" x="740" y="470">- health_check_interval ≥ 0</text>
+  <text class="text" x="740" y="490">- config object</text>
+  <text class="text" x="740" y="510">persona_allowlist[] strings</text>
+
+  <line class="line" x1="525" y1="120" x2="525" y2="150" />
+  <line class="line" x1="215" y1="345" x2="215" y2="370" />
+  <line class="line" x1="565" y1="345" x2="565" y2="360" />
+  <line class="line" x1="845" y1="345" x2="845" y2="360" />

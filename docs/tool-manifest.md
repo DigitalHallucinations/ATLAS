@@ -82,6 +82,9 @@ python -m jsonschema -i modules/Personas/<Persona>/Toolbox/functions.json \
 The automated test suite also checks for validation failures, so any schema
 regressions will be caught in CI.
 
+![Tool manifest field relationships](assets/tools/tool-manifest-overview-v1.svg)
+_Figure: Required manifest fields, parameter and auth validation, and optional provider/capability metadata enforced by the schema. Source: assets/tools/src/tool-manifest-overview-v1.mmd._
+
 ## Example
 
 ```json

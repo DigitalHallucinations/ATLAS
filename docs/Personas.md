@@ -31,6 +31,9 @@ When the persona loader runs it automatically injects the set of known tool iden
 schema so the validator can confirm that `allowed_tools` only contains supported tools. Any
 additional persona fields remain opt-in and are still passed through unchanged.
 
+![Persona schema field relationships](assets/personas/persona-schema-overview-v1.svg)
+_Figure: Required persona content blocks, allowlists, and collaboration participants validated by the schema. Source: assets/personas/src/persona-schema-overview-v1.mmd._
+
 ## Manifest-backed tasks per persona
 
 Each production persona exposes a curated task manifest under `modules/Personas/<Persona>/Tasks/tasks.json`. Operators should populate the `metadata.manifest_task` field when creating a task so routing logic can hydrate the correct capabilities.

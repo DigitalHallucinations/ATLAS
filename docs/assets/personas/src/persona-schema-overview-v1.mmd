@@ -1,0 +1,8 @@
+flowchart TD
+    A[Persona document\n- type: object\n- requires: persona array\n- no extra props] --> B[persona[] entry\n- name (string, required)\n- content (object, required)\n- optional: meaning, type, allowed_tools, allowed_skills, collaboration]
+    B --> C[content\n- start_locked (string)\n- editable_content (string)\n- end_locked (string)]
+    B --> D[type.personal_assistant\n- access_to_calendar\n- calendar_write_enabled\n- terminal_read_enabled\n- terminal_write_enabled\n(all boolean|string)]
+    B --> E[allowed_tools[]\n- unique strings\n- enum injected from tool map]
+    B --> F[allowed_skills[]\n- unique strings\n- enum injected from skills]
+    B --> G[collaboration\n- enabled (bool|string)\n- protocol: vote|critique|contract_net\n- quorum: 0-1 (default 0.5)\n- timeout >=0 (default 10)]
+    G --> H[participants[]\n- id (string, required)\n- provider/model/system_prompt\n- weight (number)\n- metadata object]
