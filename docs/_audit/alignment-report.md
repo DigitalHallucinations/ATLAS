@@ -1,13 +1,14 @@
 ---
 audience: Documentation maintainers and contributors
 status: draft
-last_verified: 2026-02-20
+last_verified: 2026-02-22
 source_of_truth: docs/_audit/style-guide.md
 ---
 
 # Alignment and risk report
 
 > See the [audit workspace README](./README.md) for cadence guidance, and keep [`inventory.md`](./inventory.md) aligned with the findings below.
+> For security-related reviews, drive findings from the [`security-audit-checklist.md`](./security-audit-checklist.md) and log outcomes in this report.
 
 This report captures documentation drift risks and remediation plans for high-traffic pages. Cross-link entries to inventory rows and source code references per [`linking-and-sources.md`](./linking-and-sources.md).
 
@@ -34,6 +35,13 @@ This report captures documentation drift risks and remediation plans for high-tr
 | docs/architecture-overview.md | Component diagram and flow descriptions omit new retention/vector pipelines. | High | `modules/orchestration/`; `modules/conversation_store/`; `ATLAS/config/persistence.py` | @docs-core | link-to-issue-or-PR | 2026-03-22 |
 | docs/server/api.md | Route table misses websocket reconnect options and backup endpoints. | High | `server/http_gateway.py`; `modules/Server/routes.py` | @docs-core | link-to-issue-or-PR | 2026-03-25 |
 | docs/setup-wizard.md | Validation order and preset behaviors may not match the latest controller responses. | Medium | `ATLAS/setup/controller.py`; `GTKUI/Setup/`; `main.py` | @docs-core | link-to-issue-or-PR | 2026-05-31 |
+
+## Reporting and tracking expectations
+
+- Capture every checklist item (especially DLP, access controls, and transport security) with a status (`Aligned`, `Needs update`, or `Blocked`) in the tables above.
+- Link findings to the relevant source of truth (code/config) and reference issues or pull requests for remediation; ensure owners and due dates are populated.
+- Reflect status updates back into [`inventory.md`](./inventory.md) so the ledger mirrors the latest alignment outcomes and next review dates.
+- When closing a finding, note the verification evidence (test commands, config diffs, or doc updates) directly in the affected table row.
 
 ## Remediation plan
 

@@ -1,7 +1,7 @@
 ---
 audience: Documentation maintainers and contributors
 status: active
-last_verified: 2026-02-20
+last_verified: 2026-02-22
 source_of_truth: docs/_audit/style-guide.md
 ---
 
@@ -13,6 +13,7 @@ source_of_truth: docs/_audit/style-guide.md
 
 | path | owner | last_audited | audit_status | gaps_found | next_review | notes |
 | --- | --- | --- | --- | --- | --- | --- |
+| docs/_audit/security-audit-checklist.md | @security | 2026-02-22 | Current | New checklist added for DLP/access/transport coverage. | 2026-05-31 | Link findings into `alignment-report.md` after each audit. |
 | docs/architecture-overview.md | @docs-core | 2026-02-20 | Needs review | Architecture diagrams lag recent orchestration changes. | 2026-04-20 | Track diagram refresh in [`alignment-report.md`](./alignment-report.md#drift-findings). |
 | docs/server/api.md | @docs-core | 2026-02-20 | Needs review | Route list may not include new websocket and retention endpoints. | 2026-03-25 | Sync with server audit items to confirm parity. |
 | docs/setup-wizard.md | @docs-core | 2026-02-20 | Aligned | Setup steps match current controller responses and screenshots. | 2026-06-01 | Recheck after CLI/setup controller updates. |
@@ -22,6 +23,7 @@ The detailed audit backlog remains below for continuity with prior audits; keep 
 | current_path | title | topic | intended_audience | refs_to_code | last_audited | audit_status | gaps_found | next_review | notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | docs/_audit/glossary.md | ATLAS Glossary | Canonical term definitions and code anchors for key ATLAS concepts. | All audiences | `modules/Personas/schema.json`; `modules/Tools/manifest_loader.py`; `modules/Skills/manifest_loader.py`; `modules/orchestration/capability_registry.py`; `modules/conversation_store/models.py`; `ATLAS/config/config_manager.py`; `ATLAS/setup/controller.py` | 2025-12-21 | Current | None recorded; monitor terminology drift across subsystems. | 2026-05-31 | Alignment risk: Medium (touches many evolving subsystems). |
+| docs/_audit/security-audit-checklist.md | Security audit checklist | Checklist for DLP, access control, and transport security reviews. | Security reviewers and documentation maintainers | `config.yaml`; `server/http_gateway.py`; `modules/Server/dlp.py`; `ATLAS/config/`; `modules/Server/routes.py` | 2026-02-22 | Current | New checklist—use to log findings into alignment report. | 2026-05-31 | Alignment risk: Medium (requires periodic security coverage). |
 | docs/Personas.md | Persona definitions | High-traffic (README map). Persona schema, allowed tool lists, exports/imports, and validation workflow. | Persona authors and backend developers | `modules/Personas/schema.json`; `modules/Personas/__init__.py`; `modules/Tools/tool_maps/functions.json`; `scripts/persona_tools.py`; `tests/test_persona_schema.py` | 2025-12-21 | Current | No specific gaps logged; keep schema/tool map parity in view. | 2026-05-31 | Alignment risk: Medium (schema and tool map change frequently). |
 | docs/architecture-overview.md | ATLAS Architecture & Codebase Tour | High-traffic (README map). Runtime entry points, subsystem layout, and navigation map. | New contributors and maintainers | `main.py`; `ATLAS/ATLAS.py`; `modules/conversation_store/`; `modules/orchestration/`; `modules/Speech_Services/`; `modules/Server/` | 2025-12-21 | Current | No newly documented gaps; watch orchestration diagram freshness. | 2026-05-31 | Alignment risk: Medium (architecture evolves alongside orchestration changes). |
 | docs/audio/interface.md | Audio engine for playback and mixing | Audio interface contracts, playback examples, and mixer notes. | Backend/audio developers | `modules/audio/interface.py`; `modules/audio/engine.py`; `modules/Speech_Services/base.py`; `modules/Speech_Services/elevenlabs_tts.py`; `modules/Speech_Services/Google_tts.py` | 2025-12-21 (Added UI adapter notes and legacy context.) | Current | None noted during last pass. | 2026-07-31 | Alignment risk: Low; no gaps noted. |
