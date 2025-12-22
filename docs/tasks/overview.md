@@ -89,6 +89,45 @@ The task domain model defines the following lifecycle states (`modules/task_stor
 
 `modules/task_store/service.py` enforces the transition graph (`_ALLOWED_TRANSITIONS`) and emits `task.created`, `task.updated`, and `task.status_changed` events via the message bus. Invalid transitions raise `TaskTransitionError`, and dependency checks prevent advancing tasks with incomplete prerequisites.
 
+### Execution flow
+
+The sequence below summarizes task submission through completion, with retry and timeout annotations for schedulers and workers.  
+_Source: [docs/assets/tasks/task-lifecycle-sequence.mmd](../assets/tasks/task-lifecycle-sequence.mmd)._
+
+```mermaid
+%% Task submission through completion, including retry/timeout annotations
+sequenceDiagram
+    autonumber
+    participant Client
+    participant TaskAPI as Task API / Gateway
+    participant TaskStore
+    participant Scheduler
+    participant Worker as Worker / Persona Runner
+    participant Metrics as Metrics & Event Bus
+
+    Client->>TaskAPI: POST /tasks (title, metadata.manifest_task)
+    TaskAPI->>TaskStore: Persist task (status=draft)
+    TaskAPI-->>Client: 201 Created (task_id)
+    TaskAPI->>Scheduler: Publish task.created (ready for routing)
+    Scheduler->>TaskStore: transition_task(draft→ready)
+    Scheduler->>Worker: Assign task + persona context
+    Worker->>TaskStore: transition_task(ready→in_progress)
+    Worker->>Metrics: Emit task.status_changed(in_progress)
+    Worker->>TaskStore: transition_task(in_progress→review/done)
+    Worker->>Metrics: Emit task.status_changed(review/done)
+
+    alt Execution error
+        Worker->>TaskStore: transition_task(in_progress→ready) on retryable failure
+        Worker->>Scheduler: Request requeue with backoff
+        Scheduler->>Metrics: Emit retry_scheduled + backoff metadata
+    else Timeout or lost worker
+        Scheduler->>TaskStore: transition_task(in_progress→cancelled) after SLA timeout
+        Scheduler->>Metrics: Emit task.status_changed(cancelled, reason=timeout)
+    end
+
+    Metrics->>Client: Lifecycle events available for dashboards/alerts
+```
+
 ## Service APIs
 
 `TaskService` exposes `create_task`, `update_task`, and `transition_task`, delegating persistence to `TaskStoreRepository`. Each operation records lifecycle analytics using `modules.analytics.persona_metrics.record_task_lifecycle_event`, which persists metrics in unified `LifecycleEvent` records and publishes `task_metrics.lifecycle` messages.

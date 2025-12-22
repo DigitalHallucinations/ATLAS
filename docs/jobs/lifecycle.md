@@ -33,6 +33,48 @@ Additional guards include:
 - **Dependency checks**: Linked tasks must be completed (statuses `done` or `cancelled`) before `running` jobs can move to `succeeded`.
 - **Optimistic concurrency**: Routes accept `expected_updated_at` so API clients can avoid stomping intermediate updates.
 
+## Scheduling, retry, and timeout flow
+
+The sequence below highlights how the scheduler advances jobs, how retries are queued, and how timeouts are enforced.  
+_Source: [docs/assets/jobs/job-retry-timeout-sequence.mmd](../assets/jobs/job-retry-timeout-sequence.mmd)._
+
+```mermaid
+%% Job scheduling, retry, and timeout flows
+sequenceDiagram
+    autonumber
+    participant Client
+    participant JobAPI as Job API / Gateway
+    participant JobStore
+    participant Scheduler as Recurrence Scheduler
+    participant Worker as Worker / Runner
+    participant Metrics as Metrics & Event Bus
+
+    Client->>JobAPI: POST /jobs (manifest, recurrence)
+    JobAPI->>JobStore: Persist job (status=draft)
+    JobAPI-->>Client: 201 Created (job_id)
+    JobAPI->>Scheduler: Notify new job (manifest + recurrence)
+    Scheduler->>JobStore: transition_job(draft→scheduled)
+    Scheduler->>Worker: Dispatch next run
+    Worker->>JobStore: transition_job(scheduled→running)
+    Worker->>Metrics: Emit jobs.metrics.lifecycle(running)
+
+    alt Run succeeds
+        Worker->>JobStore: transition_job(running→succeeded)
+        Worker->>Metrics: Emit jobs.metrics.lifecycle(succeeded)
+    else Retryable failure
+        Worker->>JobStore: transition_job(running→failed, reason)
+        Scheduler->>JobStore: transition_job(failed→scheduled) with backoff window
+        Scheduler->>Metrics: Emit retry_scheduled (attempt++, delay)
+    else Timeout
+        Scheduler->>JobStore: transition_job(running→failed, reason=timeout)
+        Scheduler->>Worker: Cancel/tear down execution slot
+        Scheduler->>Metrics: Emit timeout_detected + job_id
+    end
+
+    Note over Scheduler,JobStore: Backoff metadata is stored with the schedule
+    Metrics->>Client: Lifecycle events and retry counts available for dashboards
+```
+
 ## Metrics and message topics
 
 `PersonaMetricsStore.get_job_metrics` aggregates lifecycle events by persona or tenant. Metrics include:
