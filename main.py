@@ -11,7 +11,7 @@ from ATLAS.ATLAS import ATLAS
 from ATLAS.setup_marker import is_setup_complete
 from GTKUI.Setup.first_run import FirstRunCoordinator
 from GTKUI.sidebar import MainWindow
-from atlas_provider import AtlasProvider
+from ATLAS.providers.atlas_provider import AtlasProvider
 
 logger = logging.getLogger(__name__)
 
