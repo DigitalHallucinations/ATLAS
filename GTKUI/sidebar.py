@@ -15,6 +15,7 @@ from gi.repository import GLib, Gtk
 
 from GTKUI.Chat.chat_page import ChatPage
 from GTKUI.Chat.conversation_history_page import ConversationHistoryPage
+from GTKUI.Docs.docs_page import DocsPage
 from GTKUI.Persona_manager.persona_management import PersonaManagement
 from GTKUI.Provider_manager.provider_management import ProviderManagement
 from GTKUI.Settings.Speech.speech_settings import SpeechSettings
@@ -87,6 +88,7 @@ class MainWindow(AtlasWindow):
             "settings": self._build_backup_settings_page,
             "conversation-history": self._build_conversation_history_page,
             "accounts": self._build_accounts_page,
+            "docs": self._build_docs_page,
         }
 
     def _build_chat_page(self) -> Gtk.Widget:
@@ -100,6 +102,9 @@ class MainWindow(AtlasWindow):
 
     def _build_backup_settings_page(self) -> Gtk.Widget:
         return BackupSettings(self.ATLAS)
+
+    def _build_docs_page(self) -> Gtk.Widget:
+        return DocsPage(self.ATLAS)
 
     def _build_accounts_page(self) -> Tuple[Gtk.Widget, AccountDialog]:
         dialog = AccountDialog(
@@ -204,6 +209,14 @@ class MainWindow(AtlasWindow):
         page = self._open_or_focus_page("speech", "Speech")
         if page is not None:
             self.sidebar.set_active_item("speech")
+
+    def show_docs_page(self) -> None:
+        if not self._ensure_initialized():
+            return
+
+        page = self._open_or_focus_page("docs", "Docs")
+        if page is not None:
+            self.sidebar.set_active_item("docs")
 
     def show_settings_page(self) -> None:
         page = self._open_or_focus_page("settings", "Settings")
@@ -741,6 +754,12 @@ class _NavigationSidebar(Gtk.Box):
             "Chat",
             self.main_window.show_chat_page,
             tooltip="Chat",
+        )
+        self._create_nav_item(
+            "docs",
+            "Docs",
+            self.main_window.show_docs_page,
+            tooltip="Documentation",
         )
         self._create_nav_item(
             "tools",
