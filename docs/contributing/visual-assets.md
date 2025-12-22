@@ -37,6 +37,17 @@ When a diagram requires a static image (for example, a complex UI mockup exporte
 ![Persona selection mockup](../assets/ui/persona-selection-mockup-v1.svg)
 ```
 
+## Accessibility and readability
+- Provide descriptive **alt text** that conveys intent and key details (for example, actors, state changes, and outcomes) instead of generic labels such as “diagram.”
+- Maintain **color contrast** that meets WCAG AA for text and key shapes (use accessible palettes and avoid contrast-dependent meaning).
+- Prefer **text in Markdown** over words baked into images; if labels must live in the asset, use legible fonts with sufficient size and weight to read in both dark and light themes.
+- Keep annotations and callouts consistent with the surrounding narrative—avoid watermarking or dense text overlays that compete with captions.
+
+### Quick accessibility checklist
+- [ ] Alt text clearly states what the visual shows and why it matters.
+- [ ] Fonts and annotations are readable in dark and light modes (no low-contrast combinations).
+- [ ] Text is in Markdown when possible; any in-asset text uses a legible font and size.
+
 ## Directory layout
 - Store visuals under `docs/assets/` and group them by topic to keep related files discoverable.
   - UI diagrams: `docs/assets/ui/`
@@ -59,6 +70,18 @@ Use relative paths that stay within the docs tree so links remain stable when mo
 ```
 
 If a doc sits deeper in the tree, adjust the relative path accordingly (for example, `![...](../../assets/ui/...)`).
+
+## Sizing and alignment
+- Target a **maximum width of 960px** for exported assets to avoid stretching the documentation layout; prefer vector formats that scale without blurring.
+- Use standard Markdown image embeds for most cases. If a visual needs centering, wrap the image in a short HTML block that keeps the element responsive:
+
+```html
+<div align="center">
+  <img src="../assets/ui/persona-selection-mockup-v1.svg" alt="Persona selection mockup" width="960" />
+</div>
+```
+
+- Avoid hard-coding heights; let images resize naturally to preserve aspect ratio and readability on narrower screens.
 
 ## Replacement checklist
 - [ ] Place the new asset in the correct section folder under `docs/assets/`.
