@@ -10,3 +10,4 @@
 
 ## Coordination
 - Honor the **non-overlap principle**: keep doc updates separate from code changes. For cross-cutting efforts (e.g., adding docs for a backend change), coordinate commits with the relevant agent and ensure the PR describes which scopes were updated.
+- Use the shared workflow in [`docs/contributing/agent-workflow.md`](./contributing/agent-workflow.md) to capture intent, check guardrails, align design, confirm constraints, validate changes, and provide traceable handoffs.

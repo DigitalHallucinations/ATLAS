@@ -10,3 +10,4 @@
 
 ## Coordination
 - Follow the **non-overlap principle**: keep GTKUI changes separate from backend/storage edits. For cross-cutting UI + backend work, split commits by scope or coordinate with the Backend or Data/DB Agent.
+- Reference the shared workflow in [`../docs/contributing/agent-workflow.md`](../docs/contributing/agent-workflow.md) to capture intent, check guardrails, align designs, honor execution constraints, validate changes (including screenshots), and document handoffs.
