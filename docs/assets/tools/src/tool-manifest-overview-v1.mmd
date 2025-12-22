@@ -1,0 +1,13 @@
+flowchart TD
+    A[Tool manifest\n- array of entries\n- validated by schema.json] --> B[Tool entry\n(required fields)]
+    B --> C[name (string)\n description (string)\n version (string)]
+    B --> D[parameters (object)\n- type: object\n- properties{}\n- required[] strings\n- additionalProperties allowed]
+    B --> E[side_effects\n- enum: none|write|network|read_external_service|filesystem|compute|system|database]
+    B --> F[default_timeout\n- integer >=0]
+    B --> G[auth (object)\n- required (bool)\n- type (string) optional\n- env/scopes arrays optional\n- extra props allowed]
+    B --> H[allow_parallel (bool)]
+    B --> I[idempotency_key\n- bool or object{required: bool}]
+    B --> J[Optional metadata\n- safety_level (low|medium|high)\n- requires_consent (bool)\n- capabilities[] strings\n- cost_per_call (number >=0)\n- cost_unit (string)
+    - notes/examples]
+    B --> K[Providers[]\n- name (string, required)\n- priority (int)\n- health_check_interval >=0\n- config object]
+    B --> L[persona_allowlist[] strings]
