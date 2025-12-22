@@ -23,7 +23,7 @@ This report compares key architectural claims in the documentation against the c
 ## Visual asset workflow
 
 - ✅ Established `docs/assets/` with section folders (for example, `ui/`, `server/`) and added `docs/contributing/visual-assets.md` to standardize naming, versioning, and Markdown embed patterns for diagrams.
-- ✅ Updated visual asset guidance to prioritize Mermaid fenced blocks for sequence/flow/state diagrams, prefer `.svg` exports for complex visuals, and reserve `.png` as a fallback when vector export is unavailable, including inline and static embed examples. Added accessibility reminders (alt text, color contrast, legible fonts), a quick checklist, and sizing/alignment conventions to keep pages consistent.
+- ✅ Updated visual asset guidance to prioritize Mermaid fenced blocks for sequence/flow/state diagrams, prefer `.svg` exports for complex visuals, and reserve `.png` as a fallback when vector export is unavailable, including inline and static embed examples. Added accessibility reminders (alt text, color contrast, legible fonts), a quick checklist, and sizing/alignment conventions to keep pages consistent. Latest revision also captures source storage under `docs/assets/.../src/`, a reviewer checklist (sources, alt text, relative links, feature parity), and optional validation tips (Mermaid linting, local HTTP spot-checks).
 
 ## docs/architecture-overview.md
 

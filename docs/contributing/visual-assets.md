@@ -1,7 +1,7 @@
 ---
 audience: Documentation maintainers and contributors
 status: draft
-last_verified: 2026-03-19
+last_verified: 2026-04-20
 source_of_truth: docs/contributing/visual-assets.md
 ---
 
@@ -55,6 +55,10 @@ When a diagram requires a static image (for example, a complex UI mockup exporte
   - Add additional subfolders as needed (for example, `docs/assets/ops/` or `docs/assets/data/`) to match the documentation section you are updating.
 - Keep assets near the pages they serve (for example, `docs/ui/gtk-overview.md` should pull from `docs/assets/ui/`).
 
+### Source files
+- Keep editable source files (for example, `.mmd`, `.drawio`, or design exports) alongside their rendered counterparts under a `src/` subfolder that mirrors the asset path (for example, `docs/assets/ui/src/` for UI diagrams).
+- Commit both the source and the exported asset so reviewers can iterate on updates without recreating diagrams from scratch.
+
 ## Naming and versioning
 - Use **kebab-case** file names: `conversation-router-sequence.png`, `setup-wizard-overview.svg`.
 - Include a version or date stamp when replacing an existing visual: `message-bus-topology-v2.png` or `persona-review-2026-03-09.svg`.
@@ -88,3 +92,13 @@ If a doc sits deeper in the tree, adjust the relative path accordingly (for exam
 - [ ] Rename the file to kebab-case with a version or date suffix when supplanting an older diagram.
 - [ ] Update the Markdown embed with the new path and alt text.
 - [ ] Remove or archive superseded assets if they are no longer referenced.
+
+## Reviewer checklist
+- [ ] Source files are present under `docs/assets/.../src/` alongside exported assets.
+- [ ] Alt text is descriptive and present for every embed.
+- [ ] Image links are relative and stay within the `docs/` tree.
+- [ ] Diagram content matches the current feature set and UI flows.
+
+## Optional validation
+- Lint Mermaid blocks if available to catch syntax errors early.
+- Spot-check relative paths and embeds by serving the docs locally: `python3 -m http.server` from the `docs/` directory.
