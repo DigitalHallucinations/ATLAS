@@ -1,7 +1,7 @@
 ---
 audience: Documentation maintainers and contributors
 status: draft
-last_verified: 2026-02-13
+last_verified: 2026-02-26
 source_of_truth: docs/_audit/style-guide.md
 ---
 
@@ -10,6 +10,10 @@ source_of_truth: docs/_audit/style-guide.md
 > Navigation: See the [audit workspace README](./README.md) for cadence, quick-start steps, and recording guidance.
 
 This report compares key architectural claims in the documentation against the current implementation. Each section lists notable claims, whether they match code behavior, and recommended follow-ups.
+
+## Owner registry alignment
+
+- ✅ Added `docs/contributing/agent-owners.md` with owner and cadence mappings sourced from `_audit` inventory entries to clarify who to engage for audited subsystems.
 
 ## Front matter and link spot-checks
 
