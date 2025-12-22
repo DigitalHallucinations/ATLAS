@@ -58,6 +58,7 @@ python-docx
 beautifulsoup4
 Pillow
 pytesseract
+markdown
 
 # =====================================
 # Visualization tools
@@ -93,4 +94,3 @@ pinecone-client
 # Optional accelerator/fine-tuning dependencies
 # =====================================
 # See requirements-accelerators.txt for Torch, local Whisper STT, and Hugging Face fine-tuning extras.
-
