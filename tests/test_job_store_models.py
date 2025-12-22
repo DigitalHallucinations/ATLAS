@@ -1,6 +1,11 @@
 from __future__ import annotations
 
 import pytest
+
+sqlalchemy = pytest.importorskip("sqlalchemy", reason="SQLAlchemy is required for job store tests.")
+if getattr(sqlalchemy, "__version__", None) is None:
+    pytest.skip("SQLAlchemy not installed; skipping job store model tests.", allow_module_level=True)
+
 from sqlalchemy import create_engine, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker

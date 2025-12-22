@@ -25,7 +25,9 @@ if "dotenv" not in sys.modules:
 if "jsonschema" in sys.modules and getattr(sys.modules["jsonschema"], "__file__", None) is None:
     sys.modules.pop("jsonschema", None)
 
-jsonschema = importlib.import_module("jsonschema")
+jsonschema = pytest.importorskip(
+    "jsonschema", reason="jsonschema is required for tool manifest validation tests."
+)
 
 import ATLAS.ToolManager as tool_manager
 

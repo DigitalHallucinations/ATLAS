@@ -5,6 +5,8 @@ import types
 from typing import Any, Dict, Iterable, Mapping, Optional, Tuple
 
 import pytest
+
+pytest.importorskip("fastapi", reason="FastAPI dependency is required for gateway auth tests.")
 from fastapi.testclient import TestClient
 
 
