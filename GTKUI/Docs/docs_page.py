@@ -12,24 +12,24 @@ from gi.repository import Gtk
 from GTKUI.Utils.utils import apply_css
 
 
-def _load_webkit2() -> tuple[bool, Any | None]:
-    """Attempt to load a GTK4-compatible WebKit2 namespace."""
+def _load_webkit() -> tuple[bool, Any | None]:
+    """Attempt to load a GTK4-compatible WebKit namespace."""
 
     gtk_major = getattr(Gtk, "get_major_version", lambda: 0)()
     target_versions = ["6.0", "5.0"] if gtk_major >= 4 else ["4.1", "4.0"]
 
     for version in target_versions:
         try:
-            gi.require_version("WebKit2", version)
-            from gi.repository import WebKit2 as WebKit2NS  # type: ignore
+            gi.require_version("WebKit", version)
+            from gi.repository import WebKit as WebKitNS  # type: ignore
         except (ImportError, ValueError, gi.RepositoryError):
             continue
-        return True, WebKit2NS
+        return True, WebKitNS
 
     return False, None
 
 
-WEBKIT_AVAILABLE, WebKit2 = _load_webkit2()
+WEBKIT_AVAILABLE, WebKit = _load_webkit()
 
 logger = logging.getLogger(__name__)
 
@@ -205,7 +205,7 @@ class DocsPage(Gtk.Box):
         if path is None:
             viewer = (
                 self._create_web_view(None)
-                if WebKit2 is not None
+                if WebKit is not None
                 else self._create_placeholder_view(None, hint)
             )
             status_message = hint or "Showing placeholder content."
@@ -220,11 +220,11 @@ class DocsPage(Gtk.Box):
         self._update_status(status_message)
 
     def _create_web_view(self, doc_path: Path | None) -> Gtk.Widget:
-        if WebKit2 is None:
-            logger.debug("WebKit2 is unavailable; falling back to placeholder view.")
-            return self._create_placeholder_view(doc_path, "WebKit2 is unavailable. Showing a preview instead.")
+        if WebKit is None:
+            logger.debug("WebKit is unavailable; falling back to placeholder view.")
+            return self._create_placeholder_view(doc_path, "WebKit is unavailable. Showing a preview instead.")
 
-        web_view = WebKit2.WebView()
+        web_view = WebKit.WebView()
         web_view.set_hexpand(True)
         web_view.set_vexpand(True)
         web_view.set_can_focus(True)
