@@ -638,68 +638,20 @@ class SetupWizardWindow(AtlasWindow):
         if stored:
             return stored
 
-        dialog = Gtk.Dialog(transient_for=self, modal=True)
-        if hasattr(dialog, "set_title"):
-            dialog.set_title("Administrator privileges required")
-        dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
-        dialog.add_button("Submit", Gtk.ResponseType.OK)
-        dialog.set_default_response(Gtk.ResponseType.OK)
+        sudo_entry = self._user_entries.get("sudo_password")
+        confirm_entry = self._user_entries.get("confirm_sudo_password")
+        sudo_value: str | None = None
+        confirm_value: str | None = None
 
-        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        content.set_margin_top(12)
-        content.set_margin_bottom(12)
-        content.set_margin_start(12)
-        content.set_margin_end(12)
+        if isinstance(sudo_entry, Gtk.Entry):
+            sudo_value = sudo_entry.get_text().strip()
+        if isinstance(confirm_entry, Gtk.Entry):
+            confirm_value = confirm_entry.get_text().strip()
 
-        message = Gtk.Label(
-            label=(
-                "ATLAS needs the administrator's sudo password to perform privileged "
-                "operations. Enter the password to continue."
-            )
-        )
-        message.set_wrap(True)
-        message.set_xalign(0.0)
-        content.append(message)
+        if sudo_value and (confirm_value is None or sudo_value == confirm_value):
+            return sudo_value
 
-        password_entry = Gtk.Entry()
-        password_entry.set_visibility(False)
-        password_entry.set_hexpand(True)
-        password_entry.set_activates_default(True)
-        content.append(password_entry)
-
-        dialog.set_child(content)
-
-        response: Dict[str, Any] = {
-            "response": Gtk.ResponseType.CANCEL,
-            "password": "",
-        }
-
-        loop = GLib.MainLoop()
-
-        def _on_response(dlg: Gtk.Dialog, resp: int) -> None:
-            response["response"] = resp
-            response["password"] = password_entry.get_text()
-            dlg.destroy()
-            if loop.is_running():
-                loop.quit()
-
-        dialog.connect("response", _on_response)
-        dialog.present()
-        loop.run()
-
-        if response["response"] != Gtk.ResponseType.OK:
-            return None
-
-        password = response["password"].strip()
-        if not password:
-            return None
-
-        updated_credentials = replace(privileged_state, sudo_password=password)
-        self.controller.state.user = replace(
-            self.controller.state.user,
-            privileged_credentials=updated_credentials,
-        )
-        return password
+        return None
 
     def display_error(self, error: BaseException) -> None:
         text = str(error) or error.__class__.__name__
