@@ -522,6 +522,8 @@ class SetupWizardWindow(AtlasWindow):
         self._step_page_stacks: Dict[int, Gtk.Stack] = {}
         self._current_page_indices: Dict[int, int] = {}
         self._docs_step_index: int | None = None
+        self._storage_step_index: int | None = None
+        self._storage_pages: list[Gtk.Widget] = []
 
         self._setup_type_buttons: Dict[str, Gtk.CheckButton] = {}
         self._setup_type_headers: Dict[str, Gtk.Label] = {}
@@ -945,6 +947,8 @@ class SetupWizardWindow(AtlasWindow):
         self._storage_architecture_manual_box = None
         self._storage_architecture_syncing = False
         self._storage_recommended_mode = None
+        self._storage_step_index = None
+        self._storage_pages = []
 
         # Run the hardware preflight early so later pages can read recommendations.
         self._ensure_preflight_profile()
@@ -957,9 +961,14 @@ class SetupWizardWindow(AtlasWindow):
         administrator_intro = self._build_administrator_intro_page()
         user_collection_page = self._build_users_page()
         administrator_form = self._build_user_page()
-        database_intro = self._build_database_intro_page()
+        storage_intro_page = self._build_database_intro_page()
         storage_architecture_page = self._build_storage_architecture_page()
-        database_form = self._build_database_page()
+        storage_advanced_page = self._build_database_page()
+        self._storage_pages = [
+            storage_intro_page,
+            storage_architecture_page,
+            storage_advanced_page,
+        ]
         job_scheduling_intro = self._build_job_scheduling_intro_page()
         job_scheduling_form = self._build_job_scheduling_page()
         message_bus_intro = self._build_message_bus_intro_page()
@@ -1051,26 +1060,15 @@ class SetupWizardWindow(AtlasWindow):
                 apply=self._apply_user,
             )
         )
+        storage_step = WizardStep(
+            name="Storage",
+            widget=self._storage_pages[0],
+            subpages=self._storage_pages,
+            apply=self._apply_storage,
+        )
         self._steps.extend(
             [
-                WizardStep(
-                    name="Database",
-                    widget=database_intro,
-                    subpages=[database_intro],
-                    apply=self._apply_database_intro,
-                ),
-                WizardStep(
-                    name="Storage Architecture",
-                    widget=storage_architecture_page,
-                    subpages=[storage_architecture_page],
-                    apply=self._apply_storage_architecture,
-                ),
-                WizardStep(
-                    name="Configure Database",
-                    widget=database_form,
-                    subpages=[database_form],
-                    apply=self._apply_database,
-                ),
+                storage_step,
                 WizardStep(
                     name="Job Scheduling",
                     widget=job_scheduling_intro,
@@ -1103,6 +1101,7 @@ class SetupWizardWindow(AtlasWindow):
                 ),
             ]
         )
+        self._storage_step_index = self._steps.index(storage_step)
 
         for index, step in enumerate(self._steps):
             container, inner_stack = self._create_step_container(index, step)
@@ -2293,7 +2292,7 @@ class SetupWizardWindow(AtlasWindow):
 
     def _build_database_intro_page(self) -> Gtk.Widget:
         page = self._create_intro_page(
-            "About the Database",
+            "Storage Intro",
             [
                 "ATLAS keeps conversations and configuration in a dedicated database.",
                 "Choose between PostgreSQL, SQLite, or MongoDB/Atlas based on your deployment.",
@@ -2314,7 +2313,7 @@ class SetupWizardWindow(AtlasWindow):
         recommendation_handoff = Gtk.Label(
             label=(
                 f"Hardware scan suggests the {recommended_mode.value.title()} preset. "
-                "We'll carry that into Storage Architecture so you can keep the preset or switch to manual."
+                "We'll carry that into Storage presets so you can keep the preset or switch to manual."
             )
         )
         recommendation_handoff.set_wrap(True)
@@ -2352,7 +2351,7 @@ class SetupWizardWindow(AtlasWindow):
         box.set_hexpand(True)
         box.set_vexpand(True)
 
-        heading = Gtk.Label(label="Choose a storage architecture")
+        heading = Gtk.Label(label="Presets")
         heading.set_wrap(True)
         heading.set_xalign(0.0)
         if hasattr(heading, "add_css_class"):
@@ -2860,7 +2859,7 @@ class SetupWizardWindow(AtlasWindow):
         advanced_box.set_margin_start(12)
         advanced_box.set_margin_end(12)
 
-        advanced_label = Gtk.Label(label="Advanced Configuration")
+        advanced_label = Gtk.Label(label="Advanced")
         advanced_label.set_wrap(True)
         advanced_label.set_xalign(0.0)
         if hasattr(advanced_label, "add_css_class"):
@@ -3076,13 +3075,12 @@ class SetupWizardWindow(AtlasWindow):
             self._register_hosting_summary_trigger(entry)
 
         instructions = (
-            "Use Advanced Configuration to pick the right backend and location, then fill in the matching"
-            " connection details and provisioning credentials so ATLAS can create or update the conversation"
-            " store."
+            "Use Advanced to pick the right backend and location, then fill in the matching connection details"
+            " and provisioning credentials so ATLAS can create or update the conversation store."
             f" {DATABASE_LOCAL_TIP} {DATABASE_MANAGED_TIP}"
         )
 
-        return self._wrap_with_instructions(container, instructions, "Configure Database")
+        return self._wrap_with_instructions(container, instructions, "Advanced")
 
     def _set_database_entry_text(
         self, key: str, value: str | int | None
@@ -4373,6 +4371,7 @@ class SetupWizardWindow(AtlasWindow):
             return
         page_index = max(0, min(page_index, len(pages) - 1))
         self._current_page_indices[step_index] = page_index
+        self._sync_storage_backend_to_architecture(step_index, page_index)
         stack = self._step_page_stacks.get(step_index)
         if stack is not None:
             try:
@@ -4384,6 +4383,31 @@ class SetupWizardWindow(AtlasWindow):
             self._update_guidance_for_widget(pages[page_index])
             self._update_navigation()
             self._update_step_status()
+
+    def _sync_storage_backend_to_architecture(self, step_index: int, page_index: int) -> None:
+        if step_index != getattr(self, "_storage_step_index", None):
+            return
+        if not (0 <= page_index < len(self._storage_pages)):
+            return
+        target_page = self._storage_pages[page_index]
+        if target_page is not self._storage_pages[-1]:
+            return
+
+        architecture = self._collect_storage_architecture_state()
+        backend = architecture.conversation_backend
+        backend_combo = self._database_backend_combo
+        if isinstance(backend_combo, Gtk.ComboBoxText):
+            try:
+                backend_combo.set_active_id(backend)
+            except Exception:
+                pass
+
+        stack = self._database_stack
+        if isinstance(stack, Gtk.Stack):
+            try:
+                stack.set_visible_child_name(backend)
+            except Exception:
+                pass
 
     def _advance_subpage(self) -> bool:
         total = self._get_total_pages()
@@ -4587,8 +4611,36 @@ class SetupWizardWindow(AtlasWindow):
             return
         self._go_to_step(index)
 
+    def _handle_storage_step_navigation(self) -> bool:
+        storage_index = getattr(self, "_storage_step_index", None)
+        if storage_index is None or self._current_index != storage_index:
+            return False
+
+        total_pages = self._get_total_pages()
+        last_page_index = max(0, total_pages - 1)
+        current_page = self._get_current_page_index()
+
+        if current_page < last_page_index:
+            if current_page == 1:
+                self._set_status("Applying changes…")
+                try:
+                    message = self._apply_storage_architecture()
+                except BootstrapError as exc:
+                    self.display_error(exc)
+                    return True
+                except Exception as exc:  # pragma: no cover - defensive
+                    self.display_error(exc)
+                    self._on_error(exc)
+                    return True
+                self._set_status(message or "Storage preset saved.")
+            if self._advance_subpage():
+                return True
+        return False
+
     def _on_next_clicked(self, *_: object) -> None:
         if not self._steps:
+            return
+        if self._handle_storage_step_navigation():
             return
         if self._advance_subpage():
             return
@@ -4652,8 +4704,17 @@ class SetupWizardWindow(AtlasWindow):
             f" {recommended} mode recommended."
         )
 
+    def _apply_storage(self) -> str:
+        intro_message = self._apply_database_intro()
+        architecture_message = self._apply_storage_architecture()
+        database_message = self._apply_database()
+        messages = [message for message in (intro_message, architecture_message, database_message) if message]
+        if messages:
+            return " ".join(messages)
+        return "Storage configuration saved."
+
     def _apply_database_intro(self) -> str:
-        return "Reviewed database options."
+        return "Reviewed storage options."
 
     def _apply_storage_architecture(self) -> str:
         architecture = self._collect_storage_architecture_state()
