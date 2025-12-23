@@ -233,12 +233,143 @@ class DocsPage(Gtk.Box):
             web_view.load_html(DEFAULT_PLACEHOLDER_HTML, "about:blank")
             return web_view
 
+        if doc_path.suffix.lower() in {".md", ".markdown"}:
+            rendered = self._render_markdown(doc_path)
+            web_view.load_html(rendered, doc_path.parent.as_uri())
+            return web_view
+
         try:
             web_view.load_uri(doc_path.as_uri())
         except Exception as exc:  # pragma: no cover - defensive logging
             logger.error("Failed to load documentation %s: %s", doc_path, exc, exc_info=True)
             return self._create_placeholder_view(doc_path, f"Unable to load {doc_path}. Showing a preview instead.")
         return web_view
+
+    def _render_markdown(self, doc_path: Path) -> str:
+        try:
+            import markdown  # type: ignore
+        except ImportError:
+            logger.debug("Markdown package unavailable; falling back to placeholder for %s", doc_path)
+            return DEFAULT_PLACEHOLDER_HTML
+
+        try:
+            raw = doc_path.read_text(encoding="utf-8")
+        except OSError as exc:  # pragma: no cover - defensive logging
+            logger.error("Failed to read %s: %s", doc_path, exc, exc_info=True)
+            return DEFAULT_PLACEHOLDER_HTML
+
+        md_converter = markdown.Markdown(
+            extensions=[
+                "fenced_code",
+                "tables",
+                "toc",
+                "attr_list",
+                "md_in_html",
+                "sane_lists",
+                "smarty",
+            ],
+            output_format="html5",
+            extension_configs={
+                "toc": {
+                    "permalink": True,
+                    "anchorlink": True,
+                    "title": "Table of Contents",
+                    "toc_depth": "2-6",
+                }
+            },
+        )
+        html = md_converter.convert(raw)
+        toc = md_converter.toc or ""
+
+        return f"""<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>{doc_path.name}</title>
+    <style>
+      :root {{
+        color-scheme: light dark;
+      }}
+      body {{
+        font-family: sans-serif;
+        margin: 1.5rem;
+        line-height: 1.6;
+      }}
+      h1, h2, h3, h4, h5, h6 {{
+        margin-top: 1.25rem;
+        margin-bottom: 0.5rem;
+      }}
+      pre, code {{
+        font-family: "JetBrains Mono", "Fira Code", monospace;
+      }}
+      pre {{
+        padding: 0.75rem;
+        background: rgba(0,0,0,0.08);
+        border-radius: 8px;
+        overflow: auto;
+      }}
+      code {{
+        background: rgba(0,0,0,0.05);
+        padding: 0.1rem 0.35rem;
+        border-radius: 6px;
+      }}
+      blockquote {{
+        border-left: 3px solid rgba(0,0,0,0.2);
+        margin: 0.75rem 0;
+        padding-left: 0.75rem;
+        color: rgba(0,0,0,0.65);
+      }}
+      ul, ol {{
+        padding-left: 1.5rem;
+      }}
+      table {{
+        border-collapse: collapse;
+        width: 100%;
+        margin: 1rem 0;
+      }}
+      th, td {{
+        border: 1px solid rgba(0,0,0,0.15);
+        padding: 0.5rem 0.75rem;
+        text-align: left;
+      }}
+      th {{
+        background: rgba(0,0,0,0.08);
+      }}
+      .toc {{
+        border: 1px solid rgba(0,0,0,0.1);
+        border-radius: 8px;
+        padding: 0.75rem;
+        background: rgba(0,0,0,0.03);
+        margin-bottom: 1rem;
+      }}
+      .toc h1 {{
+        margin: 0 0 0.5rem 0;
+        font-size: 1.05rem;
+      }}
+      .toc ul {{
+        padding-left: 1.25rem;
+        margin: 0;
+        list-style: disc;
+      }}
+      .toc a {{
+        text-decoration: none;
+      }}
+      .toc a:hover, .toc a:focus {{
+        text-decoration: underline;
+      }}
+    </style>
+    <script type="module">
+      import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
+      mermaid.initialize({{ startOnLoad: true }});
+    </script>
+  </head>
+  <body>
+    <article>
+      {toc}
+      {html}
+    </article>
+  </body>
+</html>"""
 
     def _create_placeholder_view(self, doc_path: Path | None, reason: str | None) -> Gtk.Widget:
         scroller = Gtk.ScrolledWindow()
