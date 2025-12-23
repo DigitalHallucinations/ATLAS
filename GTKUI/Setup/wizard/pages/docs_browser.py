@@ -155,11 +155,28 @@ def _render_markdown(doc_path: Path) -> str:
         return DEFAULT_PLACEHOLDER_HTML
 
     raw = doc_path.read_text(encoding="utf-8")
-    html = markdown.markdown(
-        raw,
-        extensions=["fenced_code", "tables", "toc", "attr_list", "md_in_html"],
+    md_converter = markdown.Markdown(
+        extensions=[
+            "fenced_code",
+            "tables",
+            "toc",
+            "attr_list",
+            "md_in_html",
+            "sane_lists",
+            "smarty",
+        ],
         output_format="html5",
+        extension_configs={
+            "toc": {
+                "permalink": True,
+                "anchorlink": True,
+                "title": "Table of Contents",
+                "toc_depth": "2-6",
+            }
+        },
     )
+    html = md_converter.convert(raw)
+    toc = md_converter.toc or ""
     return f"""<!doctype html>
 <html lang="en">
   <head>
@@ -222,6 +239,22 @@ def _render_markdown(doc_path: Path) -> str:
         border-radius: 8px;
         padding: 0.75rem;
         background: rgba(0,0,0,0.03);
+        margin-bottom: 1rem;
+      }}
+      .toc h1 {{
+        margin: 0 0 0.5rem 0;
+        font-size: 1.05rem;
+      }}
+      .toc ul {{
+        padding-left: 1.25rem;
+        margin: 0;
+        list-style: disc;
+      }}
+      .toc a {{
+        text-decoration: none;
+      }}
+      .toc a:hover, .toc a:focus {{
+        text-decoration: underline;
       }}
     </style>
     <script type="module">
@@ -231,6 +264,7 @@ def _render_markdown(doc_path: Path) -> str:
   </head>
   <body>
     <article>
+      {toc}
       {html}
     </article>
   </body>
