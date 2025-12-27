@@ -5,12 +5,15 @@ import pytest
 
 sqlalchemy = pytest.importorskip("sqlalchemy")
 if getattr(sqlalchemy, "__version__", None) is None:
-    pytest.skip("SQLAlchemy not installed; skipping legacy account migration tests.", allow_module_level=True)
+    pytest.skip(
+        "SQLAlchemy not installed; skipping supported SQLite → PostgreSQL account migration tests.",
+        allow_module_level=True,
+    )
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from modules.conversation_store import Base, ConversationStoreRepository, User
-from modules.user_accounts.migrate_legacy import migrate_sqlite_accounts
+from modules.user_accounts.sqlite_to_postgres_migration import migrate_sqlite_accounts
 from modules.user_accounts.user_account_service import ConversationCredentialStore
 
 

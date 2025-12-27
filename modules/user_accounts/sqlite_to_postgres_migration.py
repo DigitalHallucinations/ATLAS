@@ -1,4 +1,8 @@
-"""Utilities for migrating legacy SQLite user accounts into PostgreSQL."""
+"""Supported SQLite → PostgreSQL migration helpers for user accounts.
+
+This module provides the maintained path for replaying SQLite user account
+data into the PostgreSQL conversation store backing modern deployments.
+"""
 
 from __future__ import annotations
 
@@ -48,14 +52,16 @@ def migrate_sqlite_accounts(
     *,
     logger: Optional[logging.Logger] = None,
 ) -> Dict[str, int]:
-    """Replay legacy SQLite user accounts into PostgreSQL.
+    """Replay SQLite user accounts into the PostgreSQL conversation store.
 
-    Returns a mapping describing how many entities were migrated.
+    This is the supported uplift path for deployments moving from the SQLite
+    credential store to PostgreSQL. Returns a mapping describing how many
+    entities were migrated.
     """
 
     path = Path(sqlite_path)
     if not path.exists():
-        raise FileNotFoundError(f"Legacy database not found: {path}")
+        raise FileNotFoundError(f"SQLite database not found: {path}")
 
     log = logger or logging.getLogger(__name__)
     store = ConversationCredentialStore(repository)
@@ -73,7 +79,8 @@ def migrate_sqlite_accounts(
     with sqlite3.connect(str(path)) as conn:
         conn.row_factory = sqlite3.Row
 
-        # migrate user rows
+        # Migrate user rows from the supported SQLite export into PostgreSQL
+        # while preserving canonicalised identifiers and profile metadata.
         for row in conn.execute(
             "SELECT username, password, email, name, DOB, last_login FROM user_accounts"
         ):

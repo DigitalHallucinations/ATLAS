@@ -50,3 +50,6 @@ The GTK shell and orchestration services rely on the “active user” selection
 ### Handling locked or duplicate active users
 - Changing or removing the active user setting uses `set_active_user` and `delete_user`. If a locked account is the active user, clearing the configuration entry lets operators switch personas or credentials without editing the YAML manually.【F:modules/user_accounts/user_account_service.py†L1229-L1273】
 - When removing duplicate credentials, delete the redundant account and rely on the automatic configuration cleanup to drop the active selection if it referenced that user.【F:modules/user_accounts/user_account_service.py†L1248-L1273】
+
+### Migrating from SQLite deployments
+- For legacy installations that stored credentials in SQLite, use `migrate_sqlite_accounts` from `modules.user_accounts.sqlite_to_postgres_migration` to replay users, lockouts, reset tokens, and login attempts into the PostgreSQL conversation store. Point the helper at the SQLite database file and an initialised `ConversationStoreRepository` to backfill supported deployments before enabling PostgreSQL-only auth flows.【F:modules/user_accounts/sqlite_to_postgres_migration.py†L24-L168】
