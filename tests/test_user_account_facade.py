@@ -9,7 +9,10 @@ import pytest
 from ATLAS.config import ConfigManager
 from modules.user_accounts import user_account_facade as user_account_facade_module
 from modules.user_accounts import user_account_service as user_account_service_module
-from modules.user_accounts.user_account_facade import UserAccountFacade
+from modules.user_accounts.user_account_facade import (
+    LEGACY_IDENTITY_OVERRIDE_FLAG,
+    UserAccountFacade,
+)
 
 
 class _RepositoryStub:
@@ -116,6 +119,7 @@ def service_stub(monkeypatch) -> _ServiceStub:
 @pytest.fixture
 def facade(service_stub):
     config = Mock(spec=ConfigManager)
+    config.get_config.return_value = False
     logger = Mock()
     repository = _RepositoryStub()
     return UserAccountFacade(
@@ -269,3 +273,22 @@ def test_complete_password_reset_propagates_exceptions(
             {},
         ),
     ]
+
+
+def test_override_user_identity_requires_feature_flag(facade: UserAccountFacade):
+    with pytest.raises(RuntimeError, match="Manual user identity overrides are deprecated"):
+        facade.override_user_identity("manual-user")
+
+
+def test_override_user_identity_dispatches_when_enabled(facade: UserAccountFacade):
+    facade._config_manager.get_config.return_value = True
+
+    calls: list[tuple[str, str]] = []
+    facade.add_active_user_change_listener(lambda username, display: calls.append((username, display)))
+    calls.clear()
+
+    facade.override_user_identity("manual-user")
+
+    assert facade.ensure_user_identity() == ("manual-user", "manual-user")
+    assert calls and calls[-1] == ("manual-user", "manual-user")
+    facade._config_manager.get_config.assert_any_call(LEGACY_IDENTITY_OVERRIDE_FLAG, False)
