@@ -161,36 +161,33 @@ class RedisStreamBackend(MessageBackend):
 
     async def get(self, topic: str) -> BusMessage:
         stream_name = self._stream_name(topic)
-        lock = self._locks.get(topic)
-        if lock is None:
-            lock = asyncio.Lock()
-            self._locks[topic] = lock
+        lock = self._topic_lock(topic)
 
-        async with lock:
-            start_id = self._start_id(topic)
-            while True:
-                response = await self._redis.xread(
-                    {stream_name: start_id}, count=1, block=self._blocking_timeout
-                )
-                if not response:
-                    start_id = self._start_id(topic)
-                    continue
-                _, entries = response[0]
-                entry_id, payload = entries[0]
+        while True:
+            async with lock:
+                start_id = self._start_id(topic)
+            response = await self._redis.xread(
+                {stream_name: start_id}, count=1, block=self._blocking_timeout
+            )
+            if not response:
+                continue
+            _, entries = response[0]
+            entry_id, payload = entries[0]
+            async with lock:
                 self._pending[topic].add(entry_id)
-                message = BusMessage(
-                    topic=topic,
-                    priority=int(payload.get("priority", MessagePriority.NORMAL)),
-                    payload=self._deserialize_payload(payload.get("payload")),
-                    correlation_id=payload.get("correlation_id") or uuid.uuid4().hex,
-                    tracing=self._deserialize_payload(payload.get("tracing")),
-                    metadata=self._deserialize_payload(payload.get("metadata")),
-                )
-                message.backend_id = entry_id
-                message.delivery_attempts = int(payload.get("delivery_attempts", 0))
-                message.enqueued_time = float(payload.get("enqueued_time", time.time()))
-                message.__post_init__()  # recompute sort key
-                return message
+            message = BusMessage(
+                topic=topic,
+                priority=int(payload.get("priority", MessagePriority.NORMAL)),
+                payload=self._deserialize_payload(payload.get("payload")),
+                correlation_id=payload.get("correlation_id") or uuid.uuid4().hex,
+                tracing=self._deserialize_payload(payload.get("tracing")),
+                metadata=self._deserialize_payload(payload.get("metadata")),
+            )
+            message.backend_id = entry_id
+            message.delivery_attempts = int(payload.get("delivery_attempts", 0))
+            message.enqueued_time = float(payload.get("enqueued_time", time.time()))
+            message.__post_init__()  # recompute sort key
+            return message
 
     async def requeue(self, message: BusMessage) -> None:
         await self.publish(message)
@@ -198,26 +195,44 @@ class RedisStreamBackend(MessageBackend):
     def acknowledge(self, message: BusMessage) -> None:
         entry_id = getattr(message, "backend_id", None)
         topic = message.topic
-        pending_ids = self._pending.get(topic)
-        if pending_ids and entry_id in pending_ids:
-            pending_ids.remove(entry_id)
-            if not pending_ids:
-                self._pending.pop(topic, None)
+        lock = self._topic_lock(topic)
 
-        if entry_id:
-            self._promote_last_id(topic, entry_id)
-            stream_name = self._stream_name(topic)
-            asyncio.create_task(self._redis.xdel(stream_name, entry_id))
-        elif pending_ids:
-            last_pending = self._max_stream_id(pending_ids)
-            if last_pending:
-                self._promote_last_id(topic, last_pending)
+        async def _acknowledge() -> None:
+            async with lock:
+                pending_ids = self._pending.get(topic)
+                if pending_ids and entry_id in pending_ids:
+                    pending_ids.remove(entry_id)
+                    if not pending_ids:
+                        self._pending.pop(topic, None)
+
+                if entry_id:
+                    self._promote_last_id(topic, entry_id)
+                    stream_name = self._stream_name(topic)
+                    await self._redis.xdel(stream_name, entry_id)
+                elif pending_ids:
+                    last_pending = self._max_stream_id(pending_ids)
+                    if last_pending:
+                        self._promote_last_id(topic, last_pending)
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            asyncio.run(_acknowledge())
+        else:
+            loop.create_task(_acknowledge())
 
     async def close(self) -> None:
         await self._redis.close()
 
     def _stream_name(self, topic: str) -> str:
         return f"{self._stream_prefix}:{topic}"
+
+    def _topic_lock(self, topic: str) -> asyncio.Lock:
+        lock = self._locks.get(topic)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._locks[topic] = lock
+        return lock
 
     def _start_id(self, topic: str) -> str:
         candidates: list[str] = []

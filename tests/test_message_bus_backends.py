@@ -5,6 +5,7 @@ from typing import Dict, List, Tuple
 
 from modules.orchestration.message_bus import (
     BusMessage,
+    MessageBus,
     MessagePriority,
     RedisStreamBackend,
 )
@@ -73,6 +74,23 @@ class _FakeRedisStream:
             return False
 
 
+class _TrackingRedisStream(_FakeRedisStream):
+    """Redis Stream helper that records concurrent reads."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.max_concurrent_reads = 0
+        self._inflight_reads = 0
+
+    async def xread(self, streams: dict, count: int = 1, block: int = 0):
+        self._inflight_reads += 1
+        self.max_concurrent_reads = max(self.max_concurrent_reads, self._inflight_reads)
+        try:
+            return await super().xread(streams, count=count, block=block)
+        finally:
+            self._inflight_reads -= 1
+
+
 async def _roundtrip_requeue() -> tuple[BusMessage, BusMessage, BusMessage]:
     fake_redis = _FakeRedisStream()
     backend = RedisStreamBackend(
@@ -106,3 +124,41 @@ def test_redis_backend_requeues_without_skipping_entries():
 
     assert replayed.payload == original.payload
     assert replayed.backend_id != initial.backend_id
+
+
+async def _capture_parallel_consumption() -> tuple[int, list[int]]:
+    redis_client = _TrackingRedisStream()
+    backend = RedisStreamBackend(
+        "redis://example",
+        stream_prefix="concurrent_bus",
+        blocking_timeout=50,
+        redis_client=redis_client,
+    )
+    bus = MessageBus(backend=backend)
+    processed: list[int] = []
+    completed = asyncio.Event()
+
+    async def handler(message: BusMessage) -> None:
+        processed.append(int(message.payload["seq"]))
+        await asyncio.sleep(0.05)
+        if len(processed) >= 2:
+            completed.set()
+
+    bus.subscribe("events", handler, concurrency=2)
+    await asyncio.sleep(0)
+
+    await asyncio.gather(
+        bus.publish("events", {"seq": 1}),
+        bus.publish("events", {"seq": 2}),
+    )
+
+    await asyncio.wait_for(completed.wait(), timeout=1.0)
+    await bus.close()
+    return redis_client.max_concurrent_reads, processed
+
+
+def test_message_bus_redis_subscription_allows_parallel_stream_reads():
+    max_concurrent_reads, processed = asyncio.run(_capture_parallel_consumption())
+
+    assert max_concurrent_reads >= 2
+    assert sorted(processed) == [1, 2]
