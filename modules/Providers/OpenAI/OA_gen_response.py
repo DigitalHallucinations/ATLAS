@@ -524,25 +524,29 @@ class OpenAIGenerator:
 
         if isinstance(call, dict) and call.get("type") in {"function", "code_interpreter", "file_search"}:
             normalized = dict(call)
-            if "raw_call" not in normalized:
-                normalized["raw_call"] = call
-            if normalized.get("type") == "function" and "function_call" not in normalized:
-                function_payload = normalized.get("function") or {}
-                if isinstance(function_payload, dict):
-                    name = self._safe_get(function_payload, "name")
-                    arguments = self._safe_get(function_payload, "arguments")
-                    if name:
-                        normalized["function_call"] = {
-                            "name": name,
-                            "arguments": self._stringify_function_arguments(arguments),
-                        }
+            normalized.setdefault("raw_call", call)
+            call_type = normalized.get("type")
+            if call_type == "function":
+                function_payload = normalized.get("function")
+                if not isinstance(function_payload, dict):
+                    return None
+                name = self._safe_get(function_payload, "name")
+                if not name:
+                    return None
+                arguments = self._safe_get(function_payload, "arguments")
+                normalized["function_call"] = {
+                    "name": name,
+                    "arguments": self._stringify_function_arguments(arguments),
+                }
+                call_id = self._safe_get(normalized, "id")
+                if call_id:
+                    normalized["id"] = call_id
             return normalized
 
         payload: Dict[str, Any] = {}
         for key in (
             "type",
             "function",
-            "function_call",
             "name",
             "arguments",
             "code_interpreter",
@@ -558,25 +562,28 @@ class OpenAIGenerator:
 
         call_type = payload.get("type")
         function_payload = payload.get("function")
-        legacy_function_call = payload.get("function_call")
 
         normalized: Dict[str, Any] = {"raw_call": dict(payload)}
-
-        if function_payload is None and isinstance(legacy_function_call, dict):
-            function_payload = legacy_function_call
-            call_type = call_type or "function"
 
         if call_type is None and function_payload is not None:
             call_type = "function"
 
         if call_type == "function":
-            function_payload = function_payload or {}
-            name = self._safe_get(function_payload, "name") or payload.get("name")
+            if function_payload is None and (
+                payload.get("name") or payload.get("arguments")
+            ):
+                function_payload = {
+                    "name": payload.get("name"),
+                    "arguments": payload.get("arguments"),
+                }
+            if not isinstance(function_payload, dict):
+                return None
+            name = self._safe_get(function_payload, "name")
+            if not name:
+                return None
             arguments = self._safe_get(function_payload, "arguments")
             if arguments is None:
                 arguments = payload.get("arguments")
-            if not name:
-                return None
             normalized.update(
                 {
                     "type": "function",
@@ -586,6 +593,9 @@ class OpenAIGenerator:
                     },
                 }
             )
+            call_id = payload.get("id")
+            if call_id:
+                normalized["id"] = call_id
             return normalized
 
         if call_type in {"code_interpreter", "file_search"}:
@@ -1319,15 +1329,6 @@ class OpenAIGenerator:
             if normalized:
                 tool_messages.append(normalized)
 
-        if tool_messages:
-            return tool_messages
-
-        legacy_call = self._safe_get(message, "function_call")
-        if legacy_call:
-            normalized = self._normalize_tool_call({"type": "function", "function": legacy_call})
-            if normalized:
-                tool_messages.append(normalized)
-
         return tool_messages
 
     def _update_pending_tool_calls(self, pending: Dict[int, Dict[str, Any]], tool_call_delta):
@@ -2009,6 +2010,18 @@ class OpenAIGenerator:
             return None
 
         self.logger.info("Handling function call: %s", function_payload)
+        tool_call_entry: Dict[str, Any] = {}
+        raw_call = normalized.get("raw_call")
+        if isinstance(raw_call, dict):
+            tool_call_entry = dict(raw_call)
+        tool_call_entry.setdefault("type", "function")
+        tool_call_entry["function"] = {
+            "name": function_payload.get("name"),
+            "arguments": function_payload.get("arguments"),
+        }
+        call_id = normalized.get("id") or tool_call_entry.get("id")
+        if call_id:
+            tool_call_entry["id"] = call_id
         provider_manager = None
         if conversation_manager is not None:
             atlas = getattr(conversation_manager, "ATLAS", None)
@@ -2020,7 +2033,7 @@ class OpenAIGenerator:
             tool_response = await use_tool(
                 user=user,
                 conversation_id=conversation_id,
-                message={"function_call": function_payload},
+                message={"tool_calls": [tool_call_entry]},
                 conversation_history=conversation_manager,
                 function_map=function_map,
                 functions=functions,

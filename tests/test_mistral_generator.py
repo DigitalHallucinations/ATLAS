@@ -685,10 +685,6 @@ def test_mistral_generator_preserves_message_metadata_in_payload():
                     },
                 }
             ],
-            "function_call": {
-                "name": "fetch_data",
-                "arguments": '{"foo": "bar"}',
-            },
         },
         {
             "role": "tool",
@@ -712,10 +708,7 @@ def test_mistral_generator_preserves_message_metadata_in_payload():
 
     assert payload[2]["id"] == "assistant-msg-1"
     assert payload[2]["content"] == ""
-    assert payload[2]["function_call"] == {
-        "name": "fetch_data",
-        "arguments": '{"foo": "bar"}',
-    }
+    assert "function_call" not in payload[2]
     assert payload[2]["tool_calls"][0]["id"] == "call_1"
     assert (
         payload[2]["tool_calls"][0]["function"]["arguments"]
@@ -822,10 +815,13 @@ def test_mistral_generator_executes_tool_call_from_complete(monkeypatch):
         entry = conversation.records[0]
         assert entry["role"] == "assistant"
         tool_call_id = None
+        first_call = None
         if isinstance(message_payload, dict):
-            tool_call_id = (
-                message_payload.get("tool_call_id") or message_payload.get("id")
-            )
+            tool_calls = message_payload.get("tool_calls") or []
+            if tool_calls:
+                first_call = tool_calls[0]
+        if isinstance(first_call, dict):
+            tool_call_id = first_call.get("id")
         conversation.add_message(
             _kwargs.get("user"),
             _kwargs.get("conversation_id"),
@@ -870,13 +866,17 @@ def test_mistral_generator_executes_tool_call_from_complete(monkeypatch):
     assert result == "tool-result"
     assert recorded_messages == [
         {
-            "function_call": {
-                "name": "lookup",
-                "arguments": '{"query":"value"}',
-                "id": "call_1",
-            },
-            "tool_call_id": "call_1",
-            "id": "call_1",
+            "tool_calls": [
+                {
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {
+                        "name": "lookup",
+                        "arguments": '{"query":"value"}',
+                        "id": "call_1",
+                    },
+                }
+            ]
         }
     ]
     assert conversation.records
@@ -935,10 +935,13 @@ def test_mistral_generator_executes_tool_call_from_stream(monkeypatch):
         entry = conversation.records[0]
         assert entry["role"] == "assistant"
         tool_call_id = None
+        first_call = None
         if isinstance(message_payload, dict):
-            tool_call_id = (
-                message_payload.get("tool_call_id") or message_payload.get("id")
-            )
+            tool_calls = message_payload.get("tool_calls") or []
+            if tool_calls:
+                first_call = tool_calls[0]
+        if isinstance(first_call, dict):
+            tool_call_id = first_call.get("id")
         conversation.add_message(
             _kwargs.get("user"),
             _kwargs.get("conversation_id"),
@@ -1040,13 +1043,17 @@ def test_mistral_generator_executes_tool_call_from_stream(monkeypatch):
     assert chunks == ["stream-tool"]
     assert recorded_messages == [
         {
-            "function_call": {
-                "name": "lookup",
-                "arguments": '{"query":"value"}',
-                "id": "call_1",
-            },
-            "tool_call_id": "call_1",
-            "id": "call_1",
+            "tool_calls": [
+                {
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {
+                        "name": "lookup",
+                        "arguments": '{"query":"value"}',
+                        "id": "call_1",
+                    },
+                }
+            ]
         }
     ]
     assert conversation.records

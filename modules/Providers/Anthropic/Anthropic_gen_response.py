@@ -907,10 +907,10 @@ class AnthropicGenerator:
             if tool_call_id and "id" not in function_payload:
                 function_payload["id"] = tool_call_id
 
-            message_payload: Dict[str, Any] = {"function_call": function_payload}
+            tool_entry: Dict[str, Any] = {"type": "function", "function": function_payload}
             if tool_call_id:
-                message_payload["tool_call_id"] = tool_call_id
-                message_payload.setdefault("id", tool_call_id)
+                tool_entry["id"] = tool_call_id
+            message_payload: Dict[str, Any] = {"tool_calls": [tool_entry]}
 
             provider_manager = self._resolve_provider_manager(conversation_manager)
 
@@ -940,18 +940,12 @@ class AnthropicGenerator:
                     exc,
                     exc_info=True,
                 )
-                return {
-                    "error": str(exc),
-                    "function_call": function_payload,
-                }
+                return {"error": str(exc), "tool_calls": [tool_entry]}
             except Exception as exc:  # pragma: no cover - defensive logging
                 self.logger.error(
                     "Unexpected error executing tool %s: %s", name, exc, exc_info=True
                 )
-                return {
-                    "error": str(exc),
-                    "function_call": function_payload,
-                }
+                return {"error": str(exc), "tool_calls": [tool_entry]}
 
         if stream:
             return None

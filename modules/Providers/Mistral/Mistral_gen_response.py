@@ -762,12 +762,6 @@ class MistralGenerator:
                             self._update_pending_tool_calls(
                                 pending_tool_calls, single_tool_call
                             )
-                        legacy_call = getattr(delta, "function_call", None)
-                        if legacy_call:
-                            self._update_pending_tool_calls(
-                                pending_tool_calls,
-                                {"function": legacy_call, "type": "function"},
-                            )
                     if getattr(choice, "finish_reason", None):
                         if pending_tool_calls:
                             finalized = self._finalize_pending_tool_calls(
@@ -903,7 +897,7 @@ class MistralGenerator:
         if isinstance(call, dict):
             payload = dict(call)
         else:
-            for key in ("type", "id", "function", "name", "arguments", "function_call"):
+            for key in ("type", "id", "function", "name", "arguments"):
                 value = getattr(call, key, None)
                 if value is not None:
                     payload[key] = value
@@ -911,9 +905,6 @@ class MistralGenerator:
         raw_call = call if isinstance(call, dict) else payload or call
         call_type = payload.get("type")
         function_payload = payload.get("function")
-        if function_payload is None and isinstance(payload.get("function_call"), dict):
-            function_payload = payload.get("function_call")
-            call_type = call_type or "function"
 
         if function_payload is None and (
             payload.get("name") or payload.get("arguments")
@@ -964,10 +955,6 @@ class MistralGenerator:
             collected.extend(tool_calls)
         elif tool_calls:
             collected.append(tool_calls)
-
-        legacy_call = self._safe_get(message, "function_call")
-        if legacy_call:
-            collected.append({"type": "function", "function": legacy_call})
 
         return self._prepare_tool_messages(collected)
 
@@ -1123,10 +1110,13 @@ class MistralGenerator:
             tool_call_identifier = message.get("tool_call_id") or message.get("id")
             if tool_call_identifier and "id" not in function_payload:
                 function_payload["id"] = tool_call_identifier
-            tool_message_payload: Dict[str, Any] = {"function_call": function_payload}
+            tool_call_entry: Dict[str, Any] = {
+                "type": "function",
+                "function": function_payload,
+            }
             if tool_call_identifier:
-                tool_message_payload["tool_call_id"] = tool_call_identifier
-                tool_message_payload.setdefault("id", tool_call_identifier)
+                tool_call_entry["id"] = tool_call_identifier
+            tool_message_payload: Dict[str, Any] = {"tool_calls": [tool_call_entry]}
             provider_manager = None
             if conversation_manager is not None:
                 atlas = getattr(conversation_manager, "ATLAS", None)
