@@ -335,6 +335,7 @@ class ConfigManager(ProviderConfigMixin, PersistenceConfigMixin, ConfigCore):
         backend: str,
         redis_url: Optional[str] = None,
         stream_prefix: Optional[str] = None,
+        initial_offset: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Persist messaging backend preferences and clear cached bus instances."""
 
@@ -342,6 +343,7 @@ class ConfigManager(ProviderConfigMixin, PersistenceConfigMixin, ConfigCore):
             backend=backend,
             redis_url=redis_url,
             stream_prefix=stream_prefix,
+            initial_offset=initial_offset,
         )
         self._message_backend = None
         self._message_bus = None

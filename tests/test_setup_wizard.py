@@ -458,6 +458,45 @@ def test_stack_switcher_updates_current_index():
 
     assert [name for name, *_ in controller.calls] == ["message_bus"]
     assert window._current_index == 6
+
+
+def test_message_bus_step_records_initial_offset_selection():
+    application = Gtk.Application()
+    controller = FakeController()
+    window = SetupWizardWindow(
+        application=application,
+        atlas=None,
+        on_success=lambda: None,
+        on_error=lambda exc: None,
+        controller=controller,
+    )
+
+    message_bus_step = window._steps[5]
+    window._stack.set_visible_child(message_bus_step.widget)
+
+    backend_combo = window._message_widgets.get("backend")
+    redis_entry = window._message_widgets.get("redis_url")
+    stream_entry = window._message_widgets.get("stream_prefix")
+    offset_combo = window._message_widgets.get("initial_offset_mode")
+
+    assert isinstance(backend_combo, Gtk.ComboBoxText)
+    assert isinstance(redis_entry, Gtk.Entry)
+    assert isinstance(stream_entry, Gtk.Entry)
+    assert isinstance(offset_combo, Gtk.ComboBoxText)
+
+    backend_combo.set_active_id("redis")
+    redis_entry.set_text("redis://localhost:6379/0")
+    stream_entry.set_text("atlas")
+    offset_combo.set_active_id("replay")
+
+    window._on_next_clicked(None)
+
+    assert controller.calls and controller.calls[-1][0] == "message_bus"
+    saved_state = controller.calls[-1][1]
+    assert isinstance(saved_state, MessageBusState)
+    assert saved_state.initial_offset == "0-0"
+
+    window.close()
 def test_setup_type_headers_highlight_active_mode():
     application = Gtk.Application()
     controller = FakeController()

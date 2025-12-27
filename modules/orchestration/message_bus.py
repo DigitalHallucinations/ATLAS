@@ -126,6 +126,7 @@ class RedisStreamBackend(MessageBackend):
         *,
         redis_client: Any | None = None,
         initial_stream_id: str | None = None,
+        initial_offset: str | None = None,
     ) -> None:
         if redis_client is None:
             try:
@@ -141,12 +142,8 @@ class RedisStreamBackend(MessageBackend):
 
         self._stream_prefix = stream_prefix
         self._blocking_timeout = blocking_timeout
-        self._initial_stream_id = (initial_stream_id or "$").strip() or "$"
-        if self._initial_stream_id != "$":
-            try:
-                self._parse_stream_id(self._initial_stream_id)
-            except ValueError:
-                self._initial_stream_id = "$"
+        offset_source = initial_offset if initial_offset is not None else initial_stream_id
+        self._initial_offset = self._normalize_initial_offset(offset_source)
         self._pending: Dict[str, set[str]] = defaultdict(set)
         self._last_ids: Dict[str, str] = {}
         self._locks: Dict[str, asyncio.Lock] = {}
@@ -254,8 +251,8 @@ class RedisStreamBackend(MessageBackend):
         if last_ack:
             candidates.append(last_ack)
         if not candidates:
-            return self._initial_stream_id
-        return self._max_stream_id(candidates) or self._initial_stream_id
+            return self._initial_offset
+        return self._max_stream_id(candidates) or self._initial_offset
 
     @staticmethod
     def _serialize_payload(payload: Any) -> str:
@@ -295,6 +292,19 @@ class RedisStreamBackend(MessageBackend):
     def _parse_stream_id(entry_id: str) -> tuple[int, int]:
         timestamp_str, sequence_str = entry_id.split("-", maxsplit=1)
         return int(timestamp_str), int(sequence_str)
+
+    @staticmethod
+    def _normalize_initial_offset(entry_id: str | None) -> str:
+        candidate = (entry_id or "$").strip()
+        if not candidate:
+            return "$"
+        if candidate == "$":
+            return "$"
+        try:
+            RedisStreamBackend._parse_stream_id(candidate)
+        except ValueError:
+            return "$"
+        return candidate
 
     def _promote_last_id(self, topic: str, candidate_id: str) -> None:
         existing = self._last_ids.get(topic)
