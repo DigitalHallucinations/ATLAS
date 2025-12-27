@@ -20,6 +20,7 @@ from GTKUI.Persona_manager.persona_management import PersonaManagement
 from GTKUI.Provider_manager.provider_management import ProviderManagement
 from GTKUI.Settings.Speech.speech_settings import SpeechSettings
 from GTKUI.Settings.backup_settings import BackupSettings
+from GTKUI.Settings.vector_store_overview import VectorStoreOverview
 from GTKUI.Tool_manager import ToolManagement
 from GTKUI.Skill_manager import SkillManagement
 from GTKUI.Job_manager import JobManagement
@@ -89,6 +90,7 @@ class MainWindow(AtlasWindow):
             "conversation-history": self._build_conversation_history_page,
             "accounts": self._build_accounts_page,
             "docs": self._build_docs_page,
+            "vector-store": self._build_vector_store_page,
         }
 
     def _build_chat_page(self) -> Gtk.Widget:
@@ -105,6 +107,9 @@ class MainWindow(AtlasWindow):
 
     def _build_docs_page(self) -> Gtk.Widget:
         return DocsPage(self.ATLAS)
+
+    def _build_vector_store_page(self) -> Gtk.Widget:
+        return VectorStoreOverview(self.ATLAS)
 
     def _build_accounts_page(self) -> Tuple[Gtk.Widget, AccountDialog]:
         dialog = AccountDialog(
@@ -217,6 +222,14 @@ class MainWindow(AtlasWindow):
         page = self._open_or_focus_page("docs", "Docs")
         if page is not None:
             self.sidebar.set_active_item("docs")
+
+    def show_vector_store_page(self) -> None:
+        if not self._ensure_initialized():
+            return
+
+        page = self._open_or_focus_page("vector-store", "Vector Store")
+        if page is not None:
+            self.sidebar.set_active_item("vector-store")
 
     def show_settings_page(self) -> None:
         page = self._open_or_focus_page("settings", "Settings")
@@ -760,6 +773,12 @@ class _NavigationSidebar(Gtk.Box):
             "Docs",
             self.main_window.show_docs_page,
             tooltip="Documentation",
+        )
+        self._create_nav_item(
+            "vector-store",
+            "Vector store",
+            self.main_window.show_vector_store_page,
+            tooltip="Vector store overview",
         )
         self._create_nav_item(
             "tools",
