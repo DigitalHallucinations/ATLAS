@@ -17,8 +17,15 @@ from .models import (
     UserLoginAttempt,
 )
 from .mongo_repository import MongoConversationStoreRepository
-from .repository import ConversationStoreRepository, create_conversation_engine
-from .vector_pipeline import ConversationVectorCatalog, ConversationVectorPipeline
+
+try:
+    from .repository import ConversationStoreRepository, create_conversation_engine
+    from .vector_pipeline import ConversationVectorCatalog, ConversationVectorPipeline
+except ImportError as exc:  # pragma: no cover - startup import guard
+    raise ImportError(
+        "Conversation store SQL backend requires SQLAlchemy with PostgreSQL dialect and "
+        "pgvector installed. Install with `pip install SQLAlchemy pgvector psycopg[binary]`."
+    ) from exc
 
 # Import task models so they share the conversation metadata during bootstrap.
 from modules.task_store import models as task_models  # noqa: F401

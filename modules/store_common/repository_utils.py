@@ -6,60 +6,20 @@ import contextlib
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
-from typing import (
-    Any,
-    Callable,
-    Dict,
-    Iterator,
-    Mapping,
-    Optional,
-    Sequence,
-    Type,
-    TypeVar,
-)
+from typing import Any, Callable, Dict, Iterator, Mapping, Optional, Sequence, Type, TypeVar
+
+import importlib.util
+
+if importlib.util.find_spec("sqlalchemy") is None:  # pragma: no cover - import guard
+    raise ImportError(
+        "SQLAlchemy is required for store repositories. Install it via "
+        "`pip install SQLAlchemy` along with PostgreSQL extras where applicable."
+    )
 
 from modules.conversation_store.models import Conversation
-
-try:  # pragma: no cover - optional SQLAlchemy dependency in test environments
-    from sqlalchemy import and_, or_, select
-    from sqlalchemy.exc import IntegrityError
-except Exception:  # pragma: no cover - fallback when SQLAlchemy is absent
-    def select(*_args, **_kwargs):  # type: ignore[override]
-        raise RuntimeError("SQLAlchemy select is unavailable in this environment")
-
-    def and_(*_args, **_kwargs):  # type: ignore[override]
-        raise RuntimeError("SQLAlchemy and_ is unavailable in this environment")
-
-    def or_(*_args, **_kwargs):  # type: ignore[override]
-        raise RuntimeError("SQLAlchemy or_ is unavailable in this environment")
-
-    class IntegrityError(Exception):
-        """Fallback IntegrityError when SQLAlchemy is not installed."""
-
-        pass
-
-try:  # pragma: no cover - optional SQLAlchemy dependency in test environments
-    from sqlalchemy.orm import Session, joinedload, sessionmaker
-except Exception:  # pragma: no cover - fallback when SQLAlchemy is absent
-    class _Session:  # pragma: no cover - lightweight placeholder type
-        pass
-
-    class _Sessionmaker:  # pragma: no cover - lightweight placeholder type
-        def __init__(self, *_args, **_kwargs):
-            raise RuntimeError("SQLAlchemy sessionmaker is unavailable in this environment")
-
-    def joinedload(*_args, **_kwargs):  # type: ignore[override]
-        raise RuntimeError("SQLAlchemy joinedload is unavailable in this environment")
-
-    Session = _Session  # type: ignore[assignment]
-    sessionmaker = _Sessionmaker  # type: ignore[assignment]
-else:  # pragma: no cover - sanitize stubbed implementations
-    if not isinstance(sessionmaker, type):  # pragma: no cover - test stub compatibility
-        class _Sessionmaker:  # lightweight placeholder mirroring SQLAlchemy API
-            def __init__(self, *_args, **_kwargs):
-                raise RuntimeError("SQLAlchemy sessionmaker is unavailable in this environment")
-
-        sessionmaker = _Sessionmaker  # type: ignore[assignment]
+from sqlalchemy import and_, or_, select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session, joinedload, sessionmaker
 
 
 @contextlib.contextmanager
