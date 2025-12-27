@@ -21,7 +21,7 @@ import uuid
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable, Dict, Optional
+from typing import Any, Awaitable, Callable, Dict, Iterable, Optional
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -47,6 +47,7 @@ class BusMessage:
     delivery_attempts: int = field(default=0, compare=False)
     metadata: Dict[str, Any] = field(default_factory=dict, compare=False)
     enqueued_time: float = field(default_factory=time.time, compare=False)
+    backend_id: Optional[str] = field(default=None, compare=False, repr=False)
 
     def __post_init__(self) -> None:  # noqa: D401 - dataclass hook
         # Lower priority numbers should be processed first.  When priorities are
@@ -70,8 +71,8 @@ class MessageBackend(ABC):
         """Requeue *message* for later delivery."""
 
     @abstractmethod
-    def acknowledge(self, topic: str) -> None:
-        """Mark the current message for *topic* as processed."""
+    def acknowledge(self, message: BusMessage) -> None:
+        """Mark *message* as processed."""
 
     @abstractmethod
     async def close(self) -> None:
@@ -99,8 +100,8 @@ class InMemoryQueueBackend(MessageBackend):
         queue = self._queues[message.topic]
         await queue.put((message.sort_key, message))
 
-    def acknowledge(self, topic: str) -> None:
-        queue = self._queues.get(topic)
+    def acknowledge(self, message: BusMessage) -> None:
+        queue = self._queues.get(message.topic)
         if queue is not None:
             queue.task_done()
 
@@ -117,18 +118,31 @@ class RedisStreamBackend(MessageBackend):
     in Redis streams using the pattern ``{stream_prefix}:{topic}``.
     """
 
-    def __init__(self, dsn: str, stream_prefix: str = "atlas_bus", blocking_timeout: int = 1000) -> None:
-        try:
-            import redis.asyncio as redis_async  # type: ignore
-        except ImportError as exc:  # pragma: no cover - optional dependency
-            raise RuntimeError(
-                "Redis backend requested but redis-py is not installed."
-            ) from exc
+    def __init__(
+        self,
+        dsn: str,
+        stream_prefix: str = "atlas_bus",
+        blocking_timeout: int = 1000,
+        *,
+        redis_client: Any | None = None,
+    ) -> None:
+        if redis_client is None:
+            try:
+                import redis.asyncio as redis_async  # type: ignore
+            except ImportError as exc:  # pragma: no cover - optional dependency
+                raise RuntimeError(
+                    "Redis backend requested but redis-py is not installed."
+                ) from exc
 
-        self._redis = redis_async.from_url(dsn, decode_responses=True)
+            self._redis = redis_async.from_url(dsn, decode_responses=True)
+        else:
+            self._redis = redis_client
+
         self._stream_prefix = stream_prefix
         self._blocking_timeout = blocking_timeout
-        self._pending: Dict[str, str] = {}
+        self._pending: Dict[str, set[str]] = defaultdict(set)
+        self._last_ids: Dict[str, str] = {}
+        self._locks: Dict[str, asyncio.Lock] = {}
 
     async def publish(self, message: BusMessage) -> None:
         stream_name = self._stream_name(message.topic)
@@ -147,40 +161,77 @@ class RedisStreamBackend(MessageBackend):
 
     async def get(self, topic: str) -> BusMessage:
         stream_name = self._stream_name(topic)
-        while True:
-            response = await self._redis.xread({stream_name: self._pending.get(topic, "$")}, count=1, block=self._blocking_timeout)
-            if not response:
-                continue
-            _, entries = response[0]
-            entry_id, payload = entries[0]
-            self._pending[topic] = entry_id
-            message = BusMessage(
-                topic=topic,
-                priority=int(payload.get("priority", MessagePriority.NORMAL)),
-                payload=self._deserialize_payload(payload.get("payload")),
-                correlation_id=payload.get("correlation_id") or uuid.uuid4().hex,
-                tracing=self._deserialize_payload(payload.get("tracing")),
-                metadata=self._deserialize_payload(payload.get("metadata")),
-            )
-            message.delivery_attempts = int(payload.get("delivery_attempts", 0))
-            message.enqueued_time = float(payload.get("enqueued_time", time.time()))
-            message.__post_init__()  # recompute sort key
-            return message
+        lock = self._locks.get(topic)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._locks[topic] = lock
+
+        async with lock:
+            start_id = self._start_id(topic)
+            while True:
+                response = await self._redis.xread(
+                    {stream_name: start_id}, count=1, block=self._blocking_timeout
+                )
+                if not response:
+                    start_id = self._start_id(topic)
+                    continue
+                _, entries = response[0]
+                entry_id, payload = entries[0]
+                self._pending[topic].add(entry_id)
+                message = BusMessage(
+                    topic=topic,
+                    priority=int(payload.get("priority", MessagePriority.NORMAL)),
+                    payload=self._deserialize_payload(payload.get("payload")),
+                    correlation_id=payload.get("correlation_id") or uuid.uuid4().hex,
+                    tracing=self._deserialize_payload(payload.get("tracing")),
+                    metadata=self._deserialize_payload(payload.get("metadata")),
+                )
+                message.backend_id = entry_id
+                message.delivery_attempts = int(payload.get("delivery_attempts", 0))
+                message.enqueued_time = float(payload.get("enqueued_time", time.time()))
+                message.__post_init__()  # recompute sort key
+                return message
 
     async def requeue(self, message: BusMessage) -> None:
         await self.publish(message)
 
-    def acknowledge(self, topic: str) -> None:
-        pending_id = self._pending.pop(topic, None)
-        if pending_id:
+    def acknowledge(self, message: BusMessage) -> None:
+        entry_id = getattr(message, "backend_id", None)
+        topic = message.topic
+        pending_ids = self._pending.get(topic)
+        if pending_ids and entry_id in pending_ids:
+            pending_ids.remove(entry_id)
+            if not pending_ids:
+                self._pending.pop(topic, None)
+
+        if entry_id:
+            self._promote_last_id(topic, entry_id)
             stream_name = self._stream_name(topic)
-            asyncio.create_task(self._redis.xdel(stream_name, pending_id))
+            asyncio.create_task(self._redis.xdel(stream_name, entry_id))
+        elif pending_ids:
+            last_pending = self._max_stream_id(pending_ids)
+            if last_pending:
+                self._promote_last_id(topic, last_pending)
 
     async def close(self) -> None:
         await self._redis.close()
 
     def _stream_name(self, topic: str) -> str:
         return f"{self._stream_prefix}:{topic}"
+
+    def _start_id(self, topic: str) -> str:
+        candidates: list[str] = []
+        pending_ids = self._pending.get(topic)
+        if pending_ids:
+            latest_pending = self._max_stream_id(pending_ids)
+            if latest_pending:
+                candidates.append(latest_pending)
+        last_ack = self._last_ids.get(topic)
+        if last_ack:
+            candidates.append(last_ack)
+        if not candidates:
+            return "$"
+        return self._max_stream_id(candidates) or "$"
 
     @staticmethod
     def _serialize_payload(payload: Any) -> str:
@@ -201,6 +252,45 @@ class RedisStreamBackend(MessageBackend):
         if isinstance(data, dict):
             return data
         return {"value": data}
+
+    @staticmethod
+    def _max_stream_id(ids: Iterable[str]) -> Optional[str]:
+        selected: Optional[tuple[int, int]] = None
+        selected_id: Optional[str] = None
+        for candidate in ids:
+            try:
+                parsed = RedisStreamBackend._parse_stream_id(candidate)
+            except ValueError:
+                continue
+            if selected is None or parsed > selected:
+                selected = parsed
+                selected_id = candidate
+        return selected_id
+
+    @staticmethod
+    def _parse_stream_id(entry_id: str) -> tuple[int, int]:
+        timestamp_str, sequence_str = entry_id.split("-", maxsplit=1)
+        return int(timestamp_str), int(sequence_str)
+
+    def _promote_last_id(self, topic: str, candidate_id: str) -> None:
+        existing = self._last_ids.get(topic)
+        try:
+            candidate_tuple = self._parse_stream_id(candidate_id)
+        except ValueError:
+            return
+
+        if existing is None:
+            self._last_ids[topic] = candidate_id
+            return
+
+        try:
+            existing_tuple = self._parse_stream_id(existing)
+        except ValueError:
+            self._last_ids[topic] = candidate_id
+            return
+
+        if candidate_tuple > existing_tuple:
+            self._last_ids[topic] = candidate_id
 
 
 class Subscription:
@@ -335,7 +425,7 @@ class MessageBus:
                             "Handler failure for topic '%s'. Max retries exceeded.", topic
                         )
                 finally:
-                    self._backend.acknowledge(topic)
+                    self._backend.acknowledge(message)
 
         for _ in range(max(concurrency, 1)):
             if self._loop_owner:
