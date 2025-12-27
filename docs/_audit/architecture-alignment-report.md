@@ -57,3 +57,7 @@ This report compares key architectural claims in the documentation against the c
 ## docs/conversation-store.md
 
 - ✅ **Tenant context enforcement** – Credential and conversation lookups now reject missing tenant context when strict mode is enabled, and legacy tenantless auto-upgrades have been removed. A one-time helper (`scripts/migrations/tenantless_account_backfill.py`) migrates tenantless `users` and `user_credentials` rows before enabling strict tenancy.
+
+## docs/user-accounts.md
+
+- ✅ **SQLite uplift guidance** – Documented the supported `migrate_sqlite_accounts` helper (`modules/user_accounts/sqlite_to_postgres_migration.py`) for moving credentials, lockouts, reset tokens, and login attempts from SQLite into the PostgreSQL conversation store used by current deployments.
