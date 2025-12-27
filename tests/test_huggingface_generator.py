@@ -161,7 +161,17 @@ def _build_generator(monkeypatch, *, response_text: str, use_tool_result):
 
 
 def test_huggingface_generator_executes_tool_call(monkeypatch):
-    response_payload = '{"function_call": {"name": "lookup", "arguments": "{}"}}'
+    response_payload = json.dumps(
+        {
+            "tool_calls": [
+                {
+                    "id": "call-1",
+                    "type": "function",
+                    "function": {"name": "lookup", "arguments": "{}"},
+                }
+            ]
+        }
+    )
     generator, recorded, conversation_manager = _build_generator(
         monkeypatch,
         response_text=response_payload,
@@ -182,7 +192,7 @@ def test_huggingface_generator_executes_tool_call(monkeypatch):
     )
 
     assert result == "tool-output"
-    assert recorded["message"]["function_call"]["name"] == "lookup"
+    assert recorded["message"]["tool_calls"][0]["function"]["name"] == "lookup"
     assert isinstance(recorded["functions"], list)
     names = {entry.get("name") for entry in recorded["functions"]}
     assert names == {"lookup", "provided"}

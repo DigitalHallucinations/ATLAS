@@ -896,7 +896,7 @@ async def use_tool(
 
     if not isinstance(message, dict):
         normalized_message = {}
-        for attr in ("function_call", "tool_calls", "tool_call"):
+        for attr in ("tool_calls", "tool_call"):
             value = getattr(message, attr, None)
             if value is not None:
                 normalized_message[attr] = value
@@ -992,12 +992,7 @@ async def use_tool(
     elif tool_calls_payload:
         _append_tool_entry(tool_calls_payload)
     else:
-        _append_tool_entry(message.get("function_call"))
         _append_tool_entry(message.get("tool_call"))
-
-    if tool_call_entries and not message.get("function_call"):
-        message = dict(message)
-        message["function_call"] = dict(tool_call_entries[0])
 
     if not tool_call_entries:
         return None

@@ -275,8 +275,8 @@ def test_responses_tool_call_invokes_tool(monkeypatch):
     result = asyncio.run(exercise())
 
     assert result == "tool-output"
-    assert recorded["message"]["function_call"]["name"] == "my_tool"
-    assert recorded["message"]["function_call"]["arguments"] == "{\"value\": 1}"
+    assert recorded["message"]["tool_calls"][0]["function"]["name"] == "my_tool"
+    assert recorded["message"]["tool_calls"][0]["function"]["arguments"] == "{\"value\": 1}"
     assert conversation.records
     history_entry = conversation.records[0]
     assert history_entry["tool_calls"][0]["function"]["name"] == "my_tool"
@@ -1106,8 +1106,8 @@ def test_chat_completion_tool_calls_invokes_tool(monkeypatch):
     result = asyncio.run(exercise())
 
     assert result == "tool-response"
-    assert recorded["message"]["function_call"]["name"] == "my_tool"
-    assert recorded["message"]["function_call"]["arguments"] == "{\"value\": 2}"
+    assert recorded["message"]["tool_calls"][0]["function"]["name"] == "my_tool"
+    assert recorded["message"]["tool_calls"][0]["function"]["arguments"] == "{\"value\": 2}"
     assert conversation.records
     history_entry = conversation.records[0]
     assert history_entry["tool_calls"][0]["function"]["name"] == "my_tool"

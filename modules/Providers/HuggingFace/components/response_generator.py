@@ -800,11 +800,14 @@ class ResponseGenerator:
         messages: List[Dict[str, Any]] = []
         function_call = payload.get("function_call")
         if isinstance(function_call, Mapping):
-            entry: Dict[str, Any] = {"function_call": dict(function_call)}
-            for key in ("tool_call_id", "id"):
-                if key in payload:
-                    entry[key] = payload[key]
-            messages.append(entry)
+            tool_entry: Dict[str, Any] = {
+                "type": "function",
+                "function": dict(function_call),
+            }
+            identifier = payload.get("tool_call_id") or payload.get("id")
+            if identifier:
+                tool_entry["id"] = identifier
+            messages.append({"tool_calls": [tool_entry]})
 
         tool_calls = payload.get("tool_calls")
         if isinstance(tool_calls, list):
@@ -814,11 +817,13 @@ class ResponseGenerator:
                 function_payload = call.get("function") or call.get("function_call")
                 if not isinstance(function_payload, Mapping):
                     continue
-                message_payload: Dict[str, Any] = {"function_call": dict(function_payload)}
+                tool_entry: Dict[str, Any] = {
+                    "type": "function",
+                    "function": dict(function_payload),
+                }
                 identifier = call.get("id") or call.get("tool_call_id")
                 if identifier:
-                    message_payload["tool_call_id"] = identifier
-                    message_payload.setdefault("id", identifier)
-                messages.append(message_payload)
+                    tool_entry["id"] = identifier
+                messages.append({"tool_calls": [tool_entry]})
 
         return messages
