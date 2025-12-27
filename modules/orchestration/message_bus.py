@@ -146,7 +146,8 @@ class RedisStreamBackend(MessageBackend):
         self._initial_offset = self._normalize_initial_offset(offset_source)
         self._pending: Dict[str, set[str]] = defaultdict(set)
         self._last_ids: Dict[str, str] = {}
-        self._locks: Dict[str, asyncio.Lock] = {}
+        self._pending_locks: Dict[str, asyncio.Lock] = {}
+        self._last_id_locks: Dict[str, asyncio.Lock] = {}
 
     async def publish(self, message: BusMessage) -> None:
         stream_name = self._stream_name(message.topic)
@@ -165,22 +166,21 @@ class RedisStreamBackend(MessageBackend):
 
     async def get(self, topic: str) -> BusMessage:
         stream_name = self._stream_name(topic)
-        lock = self._topic_lock(topic)
+        start_id = await self._start_snapshot(topic)
 
         while True:
-            async with lock:
-                start_id = self._start_id(topic)
             response = await self._redis.xread(
                 {stream_name: start_id}, count=1, block=self._blocking_timeout
             )
             if not response:
+                start_id = await self._start_snapshot(topic)
                 continue
             _, entries = response[0]
             entry_id, payload = entries[0]
-            async with lock:
-                if entry_id in self._pending.get(topic, set()):
-                    continue
-                self._pending[topic].add(entry_id)
+            claimed = await self._claim_pending(topic, entry_id)
+            if not claimed:
+                start_id = entry_id
+                continue
             message = BusMessage(
                 topic=topic,
                 priority=int(payload.get("priority", MessagePriority.NORMAL)),
@@ -201,24 +201,25 @@ class RedisStreamBackend(MessageBackend):
     def acknowledge(self, message: BusMessage) -> None:
         entry_id = getattr(message, "backend_id", None)
         topic = message.topic
-        lock = self._topic_lock(topic)
 
         async def _acknowledge() -> None:
-            async with lock:
+            pending_snapshot: set[str] = set()
+            pending_lock = self._pending_lock(topic)
+            async with pending_lock:
                 pending_ids = self._pending.get(topic)
                 if pending_ids and entry_id in pending_ids:
                     pending_ids.remove(entry_id)
                     if not pending_ids:
                         self._pending.pop(topic, None)
+                if pending_ids:
+                    pending_snapshot = set(pending_ids)
 
-                if entry_id:
-                    self._promote_last_id(topic, entry_id)
-                    stream_name = self._stream_name(topic)
-                    await self._redis.xdel(stream_name, entry_id)
-                elif pending_ids:
-                    last_pending = self._max_stream_id(pending_ids)
-                    if last_pending:
-                        self._promote_last_id(topic, last_pending)
+            candidate_id = entry_id or self._max_stream_id(pending_snapshot)
+            if candidate_id:
+                await self._promote_last_id_atomic(topic, candidate_id)
+            if entry_id:
+                stream_name = self._stream_name(topic)
+                await self._redis.xdel(stream_name, entry_id)
 
         try:
             loop = asyncio.get_running_loop()
@@ -233,21 +234,34 @@ class RedisStreamBackend(MessageBackend):
     def _stream_name(self, topic: str) -> str:
         return f"{self._stream_prefix}:{topic}"
 
-    def _topic_lock(self, topic: str) -> asyncio.Lock:
-        lock = self._locks.get(topic)
+    def _pending_lock(self, topic: str) -> asyncio.Lock:
+        lock = self._pending_locks.get(topic)
         if lock is None:
             lock = asyncio.Lock()
-            self._locks[topic] = lock
+            self._pending_locks[topic] = lock
         return lock
 
-    def _start_id(self, topic: str) -> str:
+    def _last_id_lock(self, topic: str) -> asyncio.Lock:
+        lock = self._last_id_locks.get(topic)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._last_id_locks[topic] = lock
+        return lock
+
+    async def _start_snapshot(self, topic: str) -> str:
+        pending_ids: set[str] = set()
+        pending_lock = self._pending_lock(topic)
+        async with pending_lock:
+            pending_ids = set(self._pending.get(topic, set()))
+        last_ack = await self._last_id_snapshot(topic)
+        return self._start_id(topic, pending_ids, last_ack)
+
+    def _start_id(self, topic: str, pending_ids: Iterable[str] | None, last_ack: str | None) -> str:
         candidates: list[str] = []
-        pending_ids = self._pending.get(topic)
         if pending_ids:
             latest_pending = self._max_stream_id(pending_ids)
             if latest_pending:
                 candidates.append(latest_pending)
-        last_ack = self._last_ids.get(topic)
         if last_ack:
             candidates.append(last_ack)
         if not candidates:
@@ -305,6 +319,25 @@ class RedisStreamBackend(MessageBackend):
         except ValueError:
             return "$"
         return candidate
+
+    async def _claim_pending(self, topic: str, entry_id: str) -> bool:
+        lock = self._pending_lock(topic)
+        async with lock:
+            pending = self._pending[topic]
+            if entry_id in pending:
+                return False
+            pending.add(entry_id)
+            return True
+
+    async def _promote_last_id_atomic(self, topic: str, candidate_id: str) -> None:
+        lock = self._last_id_lock(topic)
+        async with lock:
+            self._promote_last_id(topic, candidate_id)
+
+    async def _last_id_snapshot(self, topic: str) -> str | None:
+        lock = self._last_id_lock(topic)
+        async with lock:
+            return self._last_ids.get(topic)
 
     def _promote_last_id(self, topic: str, candidate_id: str) -> None:
         existing = self._last_ids.get(topic)

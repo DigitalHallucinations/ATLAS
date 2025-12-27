@@ -224,3 +224,42 @@ def test_message_bus_redis_subscription_allows_parallel_stream_reads():
 
     assert max_concurrent_reads >= 2
     assert sorted(processed) == [1, 2]
+
+
+async def _concurrent_workers_receive_unique_messages() -> list[int]:
+    redis_client = _FakeRedisStream()
+    backend = RedisStreamBackend(
+        "redis://example",
+        stream_prefix="dedupe_bus",
+        blocking_timeout=50,
+        redis_client=redis_client,
+    )
+    bus = MessageBus(backend=backend)
+    processed: list[int] = []
+    seen_backend_ids: set[str] = set()
+    lock = asyncio.Lock()
+    completed = asyncio.Event()
+    total = 5
+
+    async def handler(message: BusMessage) -> None:
+        async with lock:
+            assert message.backend_id not in seen_backend_ids
+            seen_backend_ids.add(str(message.backend_id))
+            processed.append(int(message.payload["seq"]))
+            if len(processed) >= total:
+                completed.set()
+
+    bus.subscribe("events", handler, concurrency=3)
+    await asyncio.sleep(0)
+
+    await asyncio.gather(*(bus.publish("events", {"seq": i}) for i in range(1, total + 1)))
+
+    await asyncio.wait_for(completed.wait(), timeout=1.0)
+    await bus.close()
+    return processed
+
+
+def test_redis_backend_deduplicates_parallel_consumers():
+    processed = asyncio.run(_concurrent_workers_receive_unique_messages())
+
+    assert sorted(processed) == [1, 2, 3, 4, 5]
