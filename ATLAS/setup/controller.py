@@ -90,7 +90,7 @@ class MessageBusState:
     backend: str = "in_memory"
     redis_url: Optional[str] = None
     stream_prefix: Optional[str] = None
-    initial_offset: Optional[str] = "$"
+    initial_offset: str = "$"
 
 
 @dataclass
@@ -1193,13 +1193,17 @@ class SetupWizardController:
 
     def apply_message_bus(self, state: MessageBusState) -> Dict[str, Any]:
         logger.info("Applying message bus settings for backend '%s'", state.backend)
+        if state.backend != "redis":
+            initial_offset = "$"
+        else:
+            initial_offset = state.initial_offset if state.initial_offset in {"$", "0-0"} else "$"
         settings = self.config_manager.set_messaging_settings(
             backend=state.backend,
             redis_url=state.redis_url,
             stream_prefix=state.stream_prefix,
-            initial_offset=state.initial_offset,
+            initial_offset=initial_offset,
         )
-        self.state.message_bus = dataclasses.replace(state)
+        self.state.message_bus = dataclasses.replace(state, initial_offset=initial_offset)
         return settings
 
     def apply_kv_store_settings(self, state: KvStoreState) -> Mapping[str, Any]:

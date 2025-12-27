@@ -487,7 +487,7 @@ def test_message_bus_step_records_initial_offset_selection():
     backend_combo.set_active_id("redis")
     redis_entry.set_text("redis://localhost:6379/0")
     stream_entry.set_text("atlas")
-    offset_combo.set_active_id("replay")
+    offset_combo.set_active_id("0-0")
 
     window._on_next_clicked(None)
 
@@ -495,6 +495,34 @@ def test_message_bus_step_records_initial_offset_selection():
     saved_state = controller.calls[-1][1]
     assert isinstance(saved_state, MessageBusState)
     assert saved_state.initial_offset == "0-0"
+
+    window.close()
+
+
+def test_message_bus_step_loads_initial_offset_from_state():
+    application = Gtk.Application()
+    controller = FakeController()
+    controller.state.message_bus = MessageBusState(
+        backend="redis",
+        redis_url="redis://localhost:6379/0",
+        stream_prefix="atlas",
+        initial_offset="0-0",
+    )
+    window = SetupWizardWindow(
+        application=application,
+        atlas=None,
+        on_success=lambda: None,
+        on_error=lambda exc: None,
+        controller=controller,
+    )
+
+    offset_combo = window._message_widgets.get("initial_offset_mode")
+    assert isinstance(offset_combo, Gtk.ComboBoxText)
+    assert offset_combo.get_active_id() == "0-0"
+
+    collected_state = window._collect_message_bus_state(strict=True)
+    assert isinstance(collected_state, MessageBusState)
+    assert collected_state.initial_offset == "0-0"
 
     window.close()
 def test_setup_type_headers_highlight_active_mode():
