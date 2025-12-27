@@ -1432,26 +1432,6 @@ class SpeechManager:
             self.config_manager.config['DEFAULT_STT_PROVIDER'] = None
         logger.debug("STT disabled and default provider cleared.")
 
-    def configure_openai_speech(
-        self,
-        api_key: Optional[str],
-        stt_provider: str,
-        language: Optional[str],
-        task: Optional[str],
-        initial_prompt: Optional[str],
-        tts_provider: Optional[str],
-    ):
-        """Backward-compatible wrapper for legacy callers."""
-
-        self.set_openai_speech_config(
-            api_key=api_key,
-            stt_provider=stt_provider,
-            language=language,
-            task=task,
-            initial_prompt=initial_prompt,
-            tts_provider=tts_provider,
-        )
-
     def get_active_tts_summary(self) -> Tuple[str, str]:
         """Return a tuple describing the active TTS provider and voice label."""
         provider_label = "None"
