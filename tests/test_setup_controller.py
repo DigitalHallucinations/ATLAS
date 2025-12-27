@@ -22,6 +22,22 @@ from ATLAS.setup import (
 from modules.conversation_store.bootstrap import BootstrapError
 
 
+class _StubKVStoreSection:
+    def __init__(self):
+        self._settings = {
+            "default_adapter": "postgres",
+            "adapters": {"postgres": {"reuse_conversation_store": True, "url": None}},
+        }
+
+    def get_settings(self):
+        return dict(self._settings)
+
+
+class _StubPersistenceSection:
+    def __init__(self):
+        self.kv_store = _StubKVStoreSection()
+
+
 class _StubConfigManager:
     """Minimal stub providing the methods SetupWizardController expects."""
 
@@ -36,6 +52,7 @@ class _StubConfigManager:
         self.env_config = {}
         self.yaml_config: dict[str, object] = {}
         self.config: dict[str, object] = {}
+        self.persistence = _StubPersistenceSection()
 
     def get_conversation_database_config(self):
         host = self.__class__.current_host
@@ -51,7 +68,7 @@ class _StubConfigManager:
         return {}
 
     def get_kv_store_settings(self):
-        return {}
+        return self.persistence.kv_store.get_settings()
 
     def _get_provider_env_keys(self):
         return {}
