@@ -19,6 +19,7 @@ This report compares key architectural claims in the documentation against the c
 ## Front matter and link spot-checks
 
 - ✅ `docs/Personas.md`, `docs/architecture-overview.md`, `docs/conversation-store.md`, `docs/user-accounts.md`, `docs/configuration.md`, `docs/tasks/overview.md`, and `docs/tool-manifest.md` now include the standard front matter block. Quick previews confirmed heading rendering and intra-doc links remain intact after the retrofit.
+- ✅ Updated `docs/configuration.md` to remove the legacy MCP `server_config` fallback and clarify that `servers` entries are required when enabling MCP tooling.
 
 ## Visual asset workflow
 

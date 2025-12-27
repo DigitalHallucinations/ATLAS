@@ -285,7 +285,7 @@ def test_tooling_section_apply_sets_defaults():
     assert mcp_block["servers"] == {}
     assert mcp_block["allow_tools"] is None
     assert mcp_block["deny_tools"] is None
-    assert mcp_block["server_config"] == {}
+    assert "server_config" not in mcp_block
     assert mcp_block["server"] == ""
     assert mcp_block["tool"] == ""
 

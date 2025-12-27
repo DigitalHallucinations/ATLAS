@@ -240,7 +240,6 @@ class ToolingConfigSection:
 
         mcp_block["servers"] = normalized_servers
 
-        mcp_block.setdefault("server_config", {})
         mcp_block.setdefault("server", mcp_block.get("default_server", ""))
         mcp_block.setdefault("tool", "")
 

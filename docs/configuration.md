@@ -1,7 +1,7 @@
 ---
 audience: Operators and platform engineers
 status: in_review
-last_verified: 2025-12-21
+last_verified: 2026-06-01
 source_of_truth: ATLAS/config/tooling.py; ATLAS/config/persistence.py; modules/Tools/Base_Tools/kv_store.py; modules/Tools/Base_Tools/vector_store.py; modules/Tools/providers/mcp.py; modules/background_tasks/conversation_summary.py
 ---
 
@@ -56,11 +56,10 @@ ATLAS centralises runtime configuration in `ConfigManager`, which merges `.env` 
 | `health_check_interval` | Float seconds; defaults to `300.0`.【F:ATLAS/config/tooling.py†L171-L174】 | `ATLAS_MCP_HEALTH_CHECK_INTERVAL`.【F:ATLAS/config/core.py†L167-L177】 | Controls how frequently MCP provider health checks may run when routed by tool orchestrators.【F:ATLAS/config/tooling.py†L171-L246】 |
 | `allow_tools` / `deny_tools` | Optional string or list of tool names to allow/deny; defaults to `null` (no filter).【F:ATLAS/config/tooling.py†L176-L183】 | `ATLAS_MCP_ALLOW_TOOLS`, `ATLAS_MCP_DENY_TOOLS` (comma-separated).【F:ATLAS/config/core.py†L167-L177】 | Exposed to tool routing/policy layers for filtering MCP tools. |
 | `servers.*` | Mapping of per-server settings (transport defaults to `stdio`, `command`, `args`, `env`, `cwd`, `url`, `allow_tools`, `deny_tools`, `timeout_seconds`, `health_check_interval`).【F:ATLAS/config/tooling.py†L184-L246】 | Single-server overrides via `ATLAS_MCP_SERVER_TRANSPORT`, `ATLAS_MCP_SERVER_COMMAND`, `ATLAS_MCP_SERVER_ARGS` (split with `shlex`), `ATLAS_MCP_SERVER_URL`, `ATLAS_MCP_SERVER_CWD`, plus the allow/deny env vars above.【F:ATLAS/config/core.py†L167-L177】【F:ATLAS/config/tooling.py†L190-L225】 | Passed to `McpToolProvider` to build transports and connect to MCP servers.【F:modules/Tools/providers/mcp.py†L171-L195】 |
-| `server_config` | Optional legacy single-server mapping retained for backwards compatibility; defaults to `{}`.【F:ATLAS/config/tooling.py†L243-L246】 | None. | Used only when `servers` is empty to seed a default MCP server configuration.【F:modules/Tools/providers/mcp.py†L38-L49】 |
 | `tool` | Default MCP tool name to invoke when none is provided at call time; defaults to empty string.【F:ATLAS/config/tooling.py†L243-L246】【F:modules/Tools/providers/mcp.py†L50-L142】 | None. | Used by `McpToolProvider` to determine the tool target when callers omit one.【F:modules/Tools/providers/mcp.py†L50-L142】 |
 
 When enabled, MCP servers can be declared by name and transport. A minimal
-stdio-backed server configuration looks like:
+stdio-backed server configuration looks like (servers are mandatory; legacy `server_config` fallback has been removed):
 
 ```yaml
 tools:

@@ -1301,6 +1301,18 @@ class CapabilityRegistry:
             self._mcp_manifest_entries = []
             return {}, {}, {}
 
+        servers_settings = settings.get("servers")
+        if not isinstance(servers_settings, Mapping) or not servers_settings:
+            logger.warning("MCP settings enabled but no servers configured; skipping discovery")
+            self._mcp_cache_signature = signature
+            self._mcp_cache_timestamp = now
+            self._mcp_cache_payloads = {}
+            self._mcp_cache_lookup = {}
+            self._mcp_cache_persona_sources = {}
+            self._mcp_cache_manifests = []
+            self._mcp_manifest_entries = []
+            return {}, {}, {}
+
         from modules.Tools.providers.base import ToolProviderSpec
         from modules.Tools.providers.mcp import McpToolProvider
         from modules.Tools.providers.mcp_manifest import translate_mcp_tool_to_manifest
@@ -1334,10 +1346,7 @@ class CapabilityRegistry:
             for server_name, server_config in provider._servers.items():  # type: ignore[attr-defined]
                 if not isinstance(server_config, Mapping):
                     continue
-                merged_server_config: Mapping[str, Any] = {
-                    **dict(settings.get("server_config") or {}),
-                    **dict(server_config),
-                }
+                merged_server_config: Mapping[str, Any] = dict(server_config)
                 persona_value = server_config.get("persona")
                 persona_key = normalize_persona_identifier(persona_value)
                 allow_tools = server_config.get("allow_tools") or settings.get("allow_tools")
