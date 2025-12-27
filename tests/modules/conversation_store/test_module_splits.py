@@ -124,3 +124,24 @@ def test_graph_store_upsert_and_query(session_scope):
     result = graph.query_graph(tenant_id=TENANT)
     assert len(result["nodes"]) == 2
     assert len(result["edges"]) == 1
+
+
+def test_account_store_requires_tenant_context(session_scope):
+    accounts = AccountStore(session_scope, require_tenant_context=True)
+    with pytest.raises(ValueError):
+        accounts.create_user_account(
+            "tester",
+            password_hash="hashed",
+            email="tester@example.com",
+        )
+
+
+def test_conversation_store_requires_tenant_context(session_scope):
+    conversations = ConversationStore(
+        session_scope,
+        VectorStore(session_scope),
+        require_tenant_context=True,
+    )
+    conversation_id = uuid.uuid4()
+    with pytest.raises(ValueError):
+        conversations.ensure_conversation(conversation_id, tenant_id=None)

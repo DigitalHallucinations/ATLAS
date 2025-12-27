@@ -208,8 +208,10 @@ class _AtlasStub:
             raise self.password_reset_verify_error
         return self.password_reset_verify_result
 
-    async def complete_password_reset(self, username: str, token: str, password: str):
-        self.password_reset_complete_called = (username, token, password)
+    async def complete_password_reset(
+        self, username: str, token: str, password: str, *, tenant_id: Optional[str] = None
+    ):
+        self.password_reset_complete_called = (username, token, password, tenant_id)
         if self.password_reset_complete_error is not None:
             raise self.password_reset_complete_error
         return self.password_reset_complete_result

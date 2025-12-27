@@ -27,8 +27,20 @@ from .models import PasswordResetToken, UserCredential, UserLoginAttempt
 class AccountStore:
     """Encapsulates user credential and authentication helpers."""
 
-    def __init__(self, session_scope: Callable[[], ContextManager[Session]]) -> None:
+    def __init__(
+        self,
+        session_scope: Callable[[], ContextManager[Session]],
+        *,
+        require_tenant_context: bool = False,
+    ) -> None:
         self._session_scope = session_scope
+        self._require_tenant_context = bool(require_tenant_context)
+
+    def _normalize_tenant(self, tenant_id: Optional[Any]) -> Optional[str]:
+        tenant = _normalize_tenant_id(tenant_id)
+        if self._require_tenant_context and tenant is None:
+            raise ValueError("Tenant context is required for account operations")
+        return tenant
 
     # ------------------------------------------------------------------
     # Credential helpers
@@ -54,34 +66,9 @@ class AccountStore:
         normalised_name = name.strip() if isinstance(name, str) and name.strip() else None
         normalised_dob = dob.strip() if isinstance(dob, str) and dob.strip() else None
         user_uuid = _coerce_uuid(user_id) if user_id is not None else None
-        tenant = _normalize_tenant_id(tenant_id)
+        tenant = self._normalize_tenant(tenant_id)
 
         with self._session_scope() as session:
-            if tenant is not None:
-                legacy_credential = session.execute(
-                    select(UserCredential)
-                    .where(UserCredential.username == cleaned_username)
-                    .where(UserCredential.tenant_id.is_(None))
-                ).scalar_one_or_none()
-                if legacy_credential is None:
-                    legacy_credential = session.execute(
-                        select(UserCredential)
-                        .where(UserCredential.email == cleaned_email)
-                        .where(UserCredential.tenant_id.is_(None))
-                    ).scalar_one_or_none()
-                if legacy_credential is not None:
-                    legacy_credential.tenant_id = tenant
-                    legacy_credential.username = cleaned_username
-                    legacy_credential.password_hash = password_hash
-                    legacy_credential.email = cleaned_email
-                    legacy_credential.name = normalised_name
-                    legacy_credential.dob = normalised_dob
-                    legacy_credential.user_id = user_uuid
-                    if legacy_credential.failed_attempts is None:
-                        legacy_credential.failed_attempts = []
-                    session.flush()
-                    return _serialize_credential(legacy_credential)
-
             tenant_clause = _tenant_filter(UserCredential.tenant_id, tenant)
             username_conflict = session.execute(
                 select(UserCredential.id)
@@ -123,7 +110,7 @@ class AccountStore:
         if not cleaned_username:
             return None
         user_uuid = _coerce_uuid(user_id)
-        tenant = _normalize_tenant_id(tenant_id)
+        tenant = self._normalize_tenant(tenant_id)
 
         with self._session_scope() as session:
             credential = session.execute(
@@ -131,15 +118,6 @@ class AccountStore:
                 .where(UserCredential.username == cleaned_username)
                 .where(_tenant_filter(UserCredential.tenant_id, tenant))
             ).scalar_one_or_none()
-            if credential is None and tenant is not None:
-                legacy = session.execute(
-                    select(UserCredential)
-                    .where(UserCredential.username == cleaned_username)
-                    .where(UserCredential.tenant_id.is_(None))
-                ).scalar_one_or_none()
-                if legacy is not None:
-                    legacy.tenant_id = tenant
-                    credential = legacy
             if credential is None:
                 return None
             if credential.user_id == user_uuid:
@@ -155,22 +133,13 @@ class AccountStore:
         cleaned = str(username).strip()
         if not cleaned:
             return None
-        tenant = _normalize_tenant_id(tenant_id)
+        tenant = self._normalize_tenant(tenant_id)
         with self._session_scope() as session:
             record = session.execute(
                 select(UserCredential)
                 .where(UserCredential.username == cleaned)
                 .where(_tenant_filter(UserCredential.tenant_id, tenant))
             ).scalar_one_or_none()
-            if record is None and tenant is not None:
-                legacy = session.execute(
-                    select(UserCredential)
-                    .where(UserCredential.username == cleaned)
-                    .where(UserCredential.tenant_id.is_(None))
-                ).scalar_one_or_none()
-                if legacy is not None:
-                    legacy.tenant_id = tenant
-                    record = legacy
             if record is None:
                 return None
             return _serialize_credential(record)
@@ -181,22 +150,13 @@ class AccountStore:
         cleaned = str(email).strip().lower()
         if not cleaned:
             return None
-        tenant = _normalize_tenant_id(tenant_id)
+        tenant = self._normalize_tenant(tenant_id)
         with self._session_scope() as session:
             record = session.execute(
                 select(UserCredential)
                 .where(UserCredential.email == cleaned)
                 .where(_tenant_filter(UserCredential.tenant_id, tenant))
             ).scalar_one_or_none()
-            if record is None and tenant is not None:
-                legacy = session.execute(
-                    select(UserCredential)
-                    .where(UserCredential.email == cleaned)
-                    .where(UserCredential.tenant_id.is_(None))
-                ).scalar_one_or_none()
-                if legacy is not None:
-                    legacy.tenant_id = tenant
-                    record = legacy
             if record is None:
                 return None
             return _serialize_credential(record)
@@ -212,7 +172,7 @@ class AccountStore:
     def list_user_accounts(
         self, *, tenant_id: Optional[Any] = None
     ) -> List[Dict[str, Any]]:
-        tenant = _normalize_tenant_id(tenant_id)
+        tenant = self._normalize_tenant(tenant_id)
         with self._session_scope() as session:
             stmt = select(UserCredential)
             if tenant is None:
@@ -226,7 +186,7 @@ class AccountStore:
         self, query_text: Optional[str], *, tenant_id: Optional[Any] = None
     ) -> List[Dict[str, Any]]:
         search_term = str(query_text or "").strip().lower()
-        tenant = _normalize_tenant_id(tenant_id)
+        tenant = self._normalize_tenant(tenant_id)
         with self._session_scope() as session:
             stmt = select(UserCredential)
             if tenant is None:
@@ -255,22 +215,13 @@ class AccountStore:
         cleaned = str(username).strip()
         if not cleaned:
             return None
-        tenant = _normalize_tenant_id(tenant_id)
+        tenant = self._normalize_tenant(tenant_id)
         with self._session_scope() as session:
             record = session.execute(
                 select(UserCredential)
                 .where(UserCredential.username == cleaned)
                 .where(_tenant_filter(UserCredential.tenant_id, tenant))
             ).scalar_one_or_none()
-            if record is None and tenant is not None:
-                legacy = session.execute(
-                    select(UserCredential)
-                    .where(UserCredential.username == cleaned)
-                    .where(UserCredential.tenant_id.is_(None))
-                ).scalar_one_or_none()
-                if legacy is not None:
-                    legacy.tenant_id = tenant
-                    record = legacy
             if record is None:
                 return None
 
@@ -301,27 +252,27 @@ class AccountStore:
         cleaned = str(username).strip()
         if not cleaned:
             return False
-        tenant = _normalize_tenant_id(tenant_id)
+        tenant = self._normalize_tenant(tenant_id)
         with self._session_scope() as session:
             record = session.execute(
                 select(UserCredential)
                 .where(UserCredential.username == cleaned)
                 .where(_tenant_filter(UserCredential.tenant_id, tenant))
             ).scalar_one_or_none()
-            if record is None and tenant is not None:
-                record = session.execute(
-                    select(UserCredential)
-                    .where(UserCredential.username == cleaned)
-                    .where(UserCredential.tenant_id.is_(None))
-                ).scalar_one_or_none()
             if record is None:
                 return False
             session.delete(record)
             session.flush()
             return True
 
-    def set_user_password(self, username: str, password_hash: str) -> bool:
-        updated = self.update_user_account(username, password_hash=password_hash)
+    def set_user_password(
+        self, username: str, password_hash: str, *, tenant_id: Optional[Any] = None
+    ) -> bool:
+        updated = self.update_user_account(
+            username,
+            password_hash=password_hash,
+            tenant_id=tenant_id,
+        )
         return updated is not None
 
     def update_last_login(
@@ -331,21 +282,13 @@ class AccountStore:
         if not cleaned:
             return False
         moment = _coerce_dt(timestamp)
-        tenant = _normalize_tenant_id(tenant_id)
+        tenant = self._normalize_tenant(tenant_id)
         with self._session_scope() as session:
             credential = session.execute(
                 select(UserCredential)
                 .where(UserCredential.username == cleaned)
                 .where(_tenant_filter(UserCredential.tenant_id, tenant))
             ).scalar_one_or_none()
-            if credential is None and tenant is not None:
-                credential = session.execute(
-                    select(UserCredential)
-                    .where(UserCredential.username == cleaned)
-                    .where(UserCredential.tenant_id.is_(None))
-                ).scalar_one_or_none()
-                if credential is not None:
-                    credential.tenant_id = tenant
             if credential is None:
                 return False
             credential.last_login = moment

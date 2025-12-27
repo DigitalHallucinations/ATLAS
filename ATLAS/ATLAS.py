@@ -126,6 +126,7 @@ class ATLAS:
             repository = ConversationStoreRepository(
                 session_factory,
                 retention=retention,
+                require_tenant_context=True,
             )
         except Exception as exc:  # pragma: no cover - repository initialisation issues
             self.logger.error(
@@ -696,7 +697,12 @@ class ATLAS:
         )
 
     async def complete_password_reset(
-        self, username: str, token: str, new_password: str
+        self,
+        username: str,
+        token: str,
+        new_password: str,
+        *,
+        tenant_id: str | None = None,
     ) -> bool:
         """Finish the password reset process by storing a new password."""
 
@@ -704,6 +710,7 @@ class ATLAS:
             username,
             token,
             new_password,
+            tenant_id=tenant_id,
         )
 
     async def logout_active_user(self) -> None:
