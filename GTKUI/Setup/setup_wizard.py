@@ -1708,18 +1708,11 @@ class SetupWizardWindow(AtlasWindow):
                 widget.set_text(value)
 
         offset_widget = self._message_widgets.get("initial_offset_mode")
-        custom_entry = self._message_widgets.get("initial_offset_custom")
         offset_value = (state.initial_offset or "$").strip() or "$"
         if isinstance(offset_widget, Gtk.ComboBoxText):
-            if offset_value == "$":
-                offset_widget.set_active_id("tail")
-            elif offset_value == "0-0":
-                offset_widget.set_active_id("replay")
-            else:
-                offset_widget.set_active_id("custom")
-        if isinstance(custom_entry, Gtk.Entry):
-            custom_entry.set_text("" if offset_value in {"$", "0-0"} else offset_value)
-            custom_entry.set_sensitive(offset_value not in {"$", "0-0"})
+            if offset_value not in {"$", "0-0"}:
+                offset_value = "$"
+            offset_widget.set_active_id(offset_value)
 
     def _sync_kv_widgets_from_state(self) -> None:
         state = self.controller.state.kv_store
@@ -3389,7 +3382,6 @@ class SetupWizardWindow(AtlasWindow):
         redis_entry = self._message_widgets.get("redis_url")
         stream_entry = self._message_widgets.get("stream_prefix")
         offset_widget = self._message_widgets.get("initial_offset_mode")
-        custom_offset_entry = self._message_widgets.get("initial_offset_custom")
 
         if not isinstance(backend_widget, Gtk.ComboBoxText) or not isinstance(
             redis_entry, Gtk.Entry
@@ -3407,22 +3399,17 @@ class SetupWizardWindow(AtlasWindow):
 
         redis_url = redis_entry.get_text().strip() or None
         stream_prefix = stream_entry.get_text().strip() or None
-        initial_offset = (base_state.initial_offset or "$").strip() or "$"
+        base_offset = (base_state.initial_offset or "$").strip() or "$"
+        if base_offset not in {"$", "0-0"}:
+            base_offset = "$"
+        initial_offset = base_offset
 
         if backend == "redis":
-            selection = offset_widget.get_active_id() or "tail"
-            if selection == "replay":
-                initial_offset = "0-0"
-            elif selection == "custom":
-                custom_value = (
-                    custom_offset_entry.get_text().strip()
-                    if isinstance(custom_offset_entry, Gtk.Entry)
-                    else ""
-                )
-                if strict and not custom_value:
-                    raise ValueError("Custom initial offset is required when selecting 'custom'")
-                initial_offset = custom_value or initial_offset
-            else:
+            selection = offset_widget.get_active_id() or base_offset
+            initial_offset = selection.strip() or "$"
+            if initial_offset not in {"$", "0-0"}:
+                if strict:
+                    raise ValueError("Initial offset must be '$' or '0-0'")
                 initial_offset = "$"
 
         if backend != "redis":
@@ -3753,48 +3740,40 @@ class SetupWizardWindow(AtlasWindow):
             grid, 2, "Stream prefix", state.stream_prefix or ""
         )
 
-        offset_label = Gtk.Label(label="Initial offset")
+        offset_label = Gtk.Label(label="Replay behavior")
         offset_label.set_xalign(0.0)
         grid.attach(offset_label, 0, 3, 1, 1)
 
         offset_combo = Gtk.ComboBoxText()
-        offset_combo.append("tail", "Tail (new messages only)")
-        offset_combo.append("replay", "Replay from start")
-        offset_combo.append("custom", "Custom stream ID")
+        offset_combo.append("$", "Tail new messages")
+        offset_combo.append("0-0", "Replay from start")
         offset_combo.set_hexpand(False)
         offset_combo.set_halign(Gtk.Align.START)
         offset_combo.set_size_request(self._get_entry_pixel_width(), -1)
 
         initial_offset = (state.initial_offset or "$").strip() or "$"
-        if initial_offset == "$":
-            offset_combo.set_active_id("tail")
-        elif initial_offset == "0-0":
-            offset_combo.set_active_id("replay")
-        else:
-            offset_combo.set_active_id("custom")
+        if initial_offset not in {"$", "0-0"}:
+            initial_offset = "$"
+        offset_combo.set_active_id(initial_offset)
 
         grid.attach(offset_combo, 1, 3, 1, 1)
         self._message_widgets["initial_offset_mode"] = offset_combo
 
-        custom_offset_entry = Gtk.Entry()
-        custom_offset_entry.set_text("" if initial_offset in {"$", "0-0"} else initial_offset)
-        custom_offset_entry.set_placeholder_text("Custom Redis stream ID (e.g., 0-0)")
-        custom_offset_entry.set_sensitive(initial_offset not in {"$", "0-0"})
-        grid.attach(custom_offset_entry, 1, 4, 1, 1)
-        self._message_widgets["initial_offset_custom"] = custom_offset_entry
-
-        def _sync_custom_entry(combo: Gtk.ComboBoxText) -> None:
-            active = combo.get_active_id() or "tail"
-            custom_offset_entry.set_sensitive(active == "custom")
-
-        offset_combo.connect("changed", _sync_custom_entry)
+        replay_instructions = Gtk.Label(
+            label=(
+                "Choose whether Redis consumers start from new traffic only or replay existing stream entries."
+            )
+        )
+        replay_instructions.set_wrap(True)
+        replay_instructions.set_xalign(0.0)
+        grid.attach(replay_instructions, 0, 4, 2, 1)
 
         self._register_hosting_summary_trigger(backend_combo)
         self._register_hosting_summary_trigger(self._message_widgets["redis_url"])
 
         instructions = (
             "Choose the message bus backend. Redis keeps multiple workers in sync, while in-memory suits single instances. "
-            "Select whether to tail new messages or replay existing Redis stream entries."
+            "Set the replay behavior to control whether consumers start at the tail or replay from the beginning."
         )
 
         return self._wrap_with_instructions(grid, instructions, "Configure Message Bus")
