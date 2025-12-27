@@ -241,19 +241,14 @@ def _load_adapter_defaults(
         return {}
 
     kv_section = getattr(getattr(config_manager, "persistence", None), "kv_store", None)
-    settings: Mapping[str, Any] | None = None
-
-    if kv_section is not None and hasattr(kv_section, "get_settings"):
-        try:
-            settings = kv_section.get_settings()
-        except Exception:  # pragma: no cover - fallback to legacy accessor
-            settings = None
-
-    if settings is None and hasattr(config_manager, "get_kv_store_settings"):
-        try:
-            settings = config_manager.get_kv_store_settings()  # type: ignore[attr-defined]
-        except Exception:  # pragma: no cover - defensive fallback
-            settings = None
+    if kv_section is None or not hasattr(kv_section, "get_settings"):
+        raise KeyValueStoreError(
+            "ConfigManager.persistence.kv_store.get_settings() is required to load KV store defaults."
+        )
+    try:
+        settings = kv_section.get_settings()
+    except Exception as exc:  # pragma: no cover - defensive guard
+        raise KeyValueStoreError("Failed to load KV store settings from the config manager.") from exc
 
     if isinstance(settings, Mapping):
         adapters = settings.get("adapters")
@@ -261,8 +256,13 @@ def _load_adapter_defaults(
             adapter_settings = adapters.get(adapter_name)
             if isinstance(adapter_settings, Mapping):
                 return adapter_settings
+            raise KeyValueStoreError(
+                f"KV store adapter '{adapter_name}' is not configured in persistence settings."
+            )
 
-    return {}
+        raise KeyValueStoreError("KV store settings are missing the 'adapters' mapping.")
+
+    raise KeyValueStoreError("KV store settings must be a mapping.")
 
 
 def create_kv_store_adapter(

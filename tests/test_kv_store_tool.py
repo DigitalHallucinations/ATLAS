@@ -79,7 +79,10 @@ router_module = _load_module(
     ROOT / "modules" / "Tools" / "providers" / "router.py",
 )
 
+PG_CTL = shutil.which("pg_ctl")
+
 KeyValueStoreService = kv_store_module.KeyValueStoreService
+KeyValueStoreError = kv_store_module.KeyValueStoreError
 NamespaceQuotaExceededError = kv_store_module.NamespaceQuotaExceededError
 
 ToolProviderRouter = router_module.ToolProviderRouter
@@ -88,6 +91,17 @@ ToolProviderRouter = router_module.ToolProviderRouter
 def test_available_kv_adapters_expose_sqlite():
     adapters = kv_store_module.available_kv_store_adapters()
     assert "sqlite" in adapters
+
+
+def test_adapter_defaults_require_persistence_section():
+    class LegacyConfigManager:
+        persistence = None
+
+    with pytest.raises(KeyValueStoreError, match="kv_store\\.get_settings"):
+        kv_store_module.create_kv_store_adapter(
+            "postgres",
+            config_manager=LegacyConfigManager(),
+        )
 
 
 def _normalize_dsn(dsn: str) -> str:
@@ -117,6 +131,7 @@ def _build_service(
     )
 
 
+@pytest.mark.skipif(PG_CTL is None, reason="pg_ctl executable not available")
 def test_concurrent_increments_are_atomic(postgresql) -> None:
     async def _run() -> None:
         service = _build_service(postgresql.dsn())
@@ -132,6 +147,7 @@ def test_concurrent_increments_are_atomic(postgresql) -> None:
     asyncio.run(_run())
 
 
+@pytest.mark.skipif(PG_CTL is None, reason="pg_ctl executable not available")
 def test_ttl_expiry_removes_values(postgresql) -> None:
     async def _run() -> None:
         service = _build_service(postgresql.dsn())
@@ -146,6 +162,7 @@ def test_ttl_expiry_removes_values(postgresql) -> None:
     asyncio.run(_run())
 
 
+@pytest.mark.skipif(PG_CTL is None, reason="pg_ctl executable not available")
 def test_quota_enforcement(postgresql) -> None:
     async def _run() -> None:
         service = _build_service(postgresql.dsn(), namespace_quota=128, global_quota=256)
@@ -158,6 +175,7 @@ def test_quota_enforcement(postgresql) -> None:
     asyncio.run(_run())
 
 
+@pytest.mark.skipif(PG_CTL is None, reason="pg_ctl executable not available")
 def test_namespace_isolation(postgresql) -> None:
     async def _run() -> None:
         service = _build_service(postgresql.dsn())
@@ -171,8 +189,3 @@ def test_namespace_isolation(postgresql) -> None:
         assert beta["value"] == "second"
 
     asyncio.run(_run())
-PG_CTL = shutil.which("pg_ctl")
-
-if PG_CTL is None:
-    pytestmark = pytest.mark.skip(reason="pg_ctl executable not available")
-
