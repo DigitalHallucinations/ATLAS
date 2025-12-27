@@ -3,6 +3,13 @@
 from __future__ import annotations
 
 import uuid
+import importlib.util
+
+if importlib.util.find_spec("pgvector") is None:  # pragma: no cover - import guard
+    raise ImportError(
+        "pgvector is required for the conversation store. Install with "
+        "`pip install pgvector psycopg[binary]` to enable PostgreSQL vector support."
+    )
 
 from sqlalchemy import (
     Boolean,
@@ -17,23 +24,13 @@ from sqlalchemy import (
     UniqueConstraint,
     text,
 )
+from sqlalchemy.dialects.postgresql import JSONB as _PG_JSONB  # type: ignore
+from sqlalchemy.dialects.postgresql import TSVECTOR as _PG_TSVECTOR  # type: ignore
+from sqlalchemy.dialects.postgresql import UUID as _PG_UUID  # type: ignore
+from sqlalchemy.orm import declarative_base, relationship
 from sqlalchemy.types import JSON, TypeDecorator
 
-try:  # pragma: no cover - optional dependency for pgvector support
-    from pgvector.sqlalchemy import Vector as PGVector  # type: ignore
-except Exception:  # pragma: no cover - fallback when pgvector is unavailable
-    PGVector = None  # type: ignore
-
-try:  # pragma: no cover - optional dependency when PostgreSQL types are available
-    from sqlalchemy.dialects.postgresql import JSONB as _PG_JSONB  # type: ignore
-    from sqlalchemy.dialects.postgresql import TSVECTOR as _PG_TSVECTOR  # type: ignore
-    from sqlalchemy.dialects.postgresql import UUID as _PG_UUID  # type: ignore
-except Exception:  # pragma: no cover - gracefully degrade when dialect not installed
-    _PG_JSONB = None  # type: ignore
-    _PG_TSVECTOR = None  # type: ignore
-    _PG_UUID = None  # type: ignore
-
-from sqlalchemy.orm import declarative_base, relationship
+from pgvector.sqlalchemy import Vector as PGVector  # type: ignore
 
 from modules.store_common.model_utils import generate_uuid, utcnow
 
@@ -47,10 +44,10 @@ class PortableJSON(TypeDecorator):
     cache_ok = True
 
     _json_impl = JSON()
-    _jsonb_impl = _PG_JSONB() if _PG_JSONB is not None else None
+    _jsonb_impl = _PG_JSONB()
 
     def load_dialect_impl(self, dialect):  # type: ignore[override]
-        if dialect.name == "postgresql" and self._jsonb_impl is not None:
+        if dialect.name == "postgresql":
             return dialect.type_descriptor(self._jsonb_impl)
         return dialect.type_descriptor(self._json_impl)
 
@@ -62,14 +59,14 @@ class GUID(TypeDecorator):
     cache_ok = True
 
     def load_dialect_impl(self, dialect):  # type: ignore[override]
-        if dialect.name == "postgresql" and _PG_UUID is not None:
+        if dialect.name == "postgresql":
             return dialect.type_descriptor(_PG_UUID(as_uuid=True))
         return dialect.type_descriptor(String(36))
 
     def process_bind_param(self, value, dialect):  # type: ignore[override]
         if value is None:
             return None
-        if dialect.name == "postgresql" and _PG_UUID is not None:
+        if dialect.name == "postgresql":
             return value
         if isinstance(value, uuid.UUID):
             return str(value)
@@ -90,7 +87,7 @@ class TextSearchVector(TypeDecorator):
     cache_ok = True
 
     def load_dialect_impl(self, dialect):  # type: ignore[override]
-        if dialect.name == "postgresql" and _PG_TSVECTOR is not None:
+        if dialect.name == "postgresql":
             return dialect.type_descriptor(_PG_TSVECTOR())
         return dialect.type_descriptor(Text())
 
@@ -102,7 +99,7 @@ class EmbeddingVector(TypeDecorator):
     cache_ok = True
 
     def load_dialect_impl(self, dialect):  # type: ignore[override]
-        if dialect.name == "postgresql" and PGVector is not None:
+        if dialect.name == "postgresql":
             return dialect.type_descriptor(PGVector())
         return dialect.type_descriptor(JSON())
 
@@ -626,4 +623,3 @@ for _model in (
     GraphEdge,
 ):
     _attach_metadata_property(_model)
-
