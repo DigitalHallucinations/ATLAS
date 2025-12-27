@@ -51,6 +51,7 @@ from GTKUI.Setup.wizard.pages.overview import build_overview_page
 from GTKUI.Setup.wizard.pages.preflight import build_preflight_page
 from GTKUI.Setup.wizard.pages.setup_type import build_setup_type_page
 from modules.logging.audit_templates import get_audit_template, get_audit_templates
+from modules.Tools.Base_Tools.vector_store import available_vector_store_adapters
 from modules.conversation_store.bootstrap import BootstrapError
 DATABASE_LOCAL_TIP = (
     "SQLite keeps data on this device and avoids service management on low-resource hosts."
@@ -963,10 +964,12 @@ class SetupWizardWindow(AtlasWindow):
         administrator_form = self._build_user_page()
         storage_intro_page = self._build_database_intro_page()
         storage_architecture_page = self._build_storage_architecture_page()
+        vector_store_page = self._build_vector_store_page()
         storage_advanced_page = self._build_database_page()
         self._storage_pages = [
             storage_intro_page,
             storage_architecture_page,
+            vector_store_page,
             storage_advanced_page,
         ]
         job_scheduling_intro = self._build_job_scheduling_intro_page()
@@ -2295,8 +2298,9 @@ class SetupWizardWindow(AtlasWindow):
             "Storage Intro",
             [
                 "ATLAS keeps conversations and configuration in a dedicated database.",
-                "Choose between PostgreSQL, SQLite, or MongoDB/Atlas based on your deployment.",
-                "We'll verify the backend you select, including connection strings and Atlas SRV URLs.",
+                "Choose between PostgreSQL, SQLite, or MongoDB/Atlas based on your deployment, and pair it with a vector store.",
+                "We'll verify the backend you select, including connection strings, Atlas SRV URLs, and vector store availability.",
+                "You'll get a quick tour of vector database options next so you can align with your architecture choice.",
             ],
             "Keep the relevant connection details or URI nearby so entering them is quick.",
         )
@@ -2323,6 +2327,115 @@ class SetupWizardWindow(AtlasWindow):
             recommendation_handoff,
             "We'll preselect the recommended preset on the next storage configuration screen.",
         )
+        return page
+
+    def _build_vector_store_page(self) -> Gtk.Widget:
+        registered_adapters = available_vector_store_adapters()
+        default_adapters = ("in_memory", "mongodb", "faiss", "chroma", "pinecone")
+        adapter_names = list(dict.fromkeys(registered_adapters or default_adapters))
+        adapter_descriptions = {
+            "in_memory": "Fast, ephemeral index ideal for local testing or single-user desktops.",
+            "mongodb": "MongoDB/Atlas vector search for teams that already run MongoDB clusters.",
+            "faiss": "FAISS-backed similarity search tuned for high-performance local or colocated hosts.",
+            "chroma": "Chroma collections for lightweight managed or local vector storage with simple ops.",
+            "pinecone": "Pinecone for a fully managed vector database when you want scale without self-hosting.",
+        }
+
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        page.set_hexpand(True)
+        page.set_vexpand(True)
+
+        heading = Gtk.Label(label="Vector store choices")
+        heading.set_wrap(True)
+        heading.set_xalign(0.0)
+        if hasattr(heading, "add_css_class"):
+            heading.add_css_class("heading")
+        page.append(heading)
+
+        summary = Gtk.Label(
+            label=(
+                "Vector databases keep embeddings searchable. You can keep them local for privacy or use "
+                "a managed backend for scale. Pick the adapter that matches your environment."
+            )
+        )
+        summary.set_wrap(True)
+        summary.set_xalign(0.0)
+        page.append(summary)
+
+        available_frame = Gtk.Frame()
+        available_frame.set_hexpand(True)
+        available_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        available_box.set_margin_top(6)
+        available_box.set_margin_bottom(6)
+        available_box.set_margin_start(12)
+        available_box.set_margin_end(12)
+
+        available_label = Gtk.Label(label="Registered adapters")
+        available_label.set_wrap(True)
+        available_label.set_xalign(0.0)
+        if hasattr(available_label, "add_css_class"):
+            available_label.add_css_class("heading")
+        available_box.append(available_label)
+
+        if adapter_names:
+            for name in adapter_names:
+                bullet = Gtk.Label(label=f"• {name.replace('_', ' ').title()}")
+                bullet.set_wrap(True)
+                bullet.set_xalign(0.0)
+                available_box.append(bullet)
+        else:
+            fallback = Gtk.Label(
+                label="No vector adapters are registered yet. Add providers or enable plugins to populate this list."
+            )
+            fallback.set_wrap(True)
+            fallback.set_xalign(0.0)
+            available_box.append(fallback)
+
+        if hasattr(available_frame, "set_child"):
+            available_frame.set_child(available_box)
+        else:  # pragma: no cover - GTK3 fallback
+            available_frame.add(available_box)
+        page.append(available_frame)
+
+        guidance_frame = Gtk.Frame()
+        guidance_frame.set_hexpand(True)
+        guidance_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        guidance_box.set_margin_top(6)
+        guidance_box.set_margin_bottom(6)
+        guidance_box.set_margin_start(12)
+        guidance_box.set_margin_end(12)
+
+        guidance_label = Gtk.Label(label="Backend guidance")
+        guidance_label.set_wrap(True)
+        guidance_label.set_xalign(0.0)
+        if hasattr(guidance_label, "add_css_class"):
+            guidance_label.add_css_class("heading")
+        guidance_box.append(guidance_label)
+
+        for key in default_adapters:
+            description = adapter_descriptions.get(key, "")
+            detail = Gtk.Label(label=f"• {key.replace('_', ' ').title()}: {description}")
+            detail.set_wrap(True)
+            detail.set_xalign(0.0)
+            guidance_box.append(detail)
+
+        hosting_hint = Gtk.Label(label=VECTOR_HOSTING_TIP)
+        hosting_hint.set_wrap(True)
+        hosting_hint.set_xalign(0.0)
+        guidance_box.append(hosting_hint)
+
+        if hasattr(guidance_frame, "set_child"):
+            guidance_frame.set_child(guidance_box)
+        else:  # pragma: no cover - GTK3 fallback
+            guidance_frame.add(guidance_box)
+        page.append(guidance_frame)
+
+        instructions = (
+            "Review the registered vector adapters before choosing presets or manual storage options. "
+            "The next storage page lets you pick adapters; use this guide to decide when to keep vectors local "
+            "versus leaning on managed services."
+        )
+        self._register_instructions(page, instructions)
         return page
 
     def _build_storage_architecture_page(self) -> Gtk.Widget:
@@ -2528,7 +2641,8 @@ class SetupWizardWindow(AtlasWindow):
             box,
             (
                 "Choose a preset to quickly align the conversation database, key-value cache, and vector store. "
-                "Use manual mode to mix adapters while keeping the recommended PerformanceMode handy."
+                "Use manual mode to mix adapters while keeping the recommended PerformanceMode handy. "
+                "If you're unsure which vector backend fits, review the vector store options before saving."
             ),
         )
         return box
