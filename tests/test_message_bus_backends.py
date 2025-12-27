@@ -126,6 +126,39 @@ def test_redis_backend_requeues_without_skipping_entries():
     assert replayed.backend_id != initial.backend_id
 
 
+async def _consume_existing_entries() -> list[int]:
+    fake_redis = _FakeRedisStream()
+    backend = RedisStreamBackend(
+        "redis://example",
+        stream_prefix="existing_entries",
+        blocking_timeout=50,
+        redis_client=fake_redis,
+        initial_stream_id="0-0",
+    )
+
+    first = BusMessage(topic="events", payload={"seq": 1})
+    second = BusMessage(topic="events", payload={"seq": 2})
+    await backend.publish(first)
+    await backend.publish(second)
+
+    received_first = await asyncio.wait_for(backend.get("events"), timeout=0.5)
+    backend.acknowledge(received_first)
+    await asyncio.sleep(0)
+
+    received_second = await asyncio.wait_for(backend.get("events"), timeout=0.5)
+    backend.acknowledge(received_second)
+    await asyncio.sleep(0)
+
+    await backend.close()
+    return [int(received_first.payload["seq"]), int(received_second.payload["seq"])]
+
+
+def test_redis_backend_consumes_existing_stream_entries():
+    consumed = asyncio.run(_consume_existing_entries())
+
+    assert consumed == [1, 2]
+
+
 async def _capture_parallel_consumption() -> tuple[int, list[int]]:
     redis_client = _TrackingRedisStream()
     backend = RedisStreamBackend(

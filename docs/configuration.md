@@ -134,6 +134,7 @@ Review the [conversation store data model](conversation-store.md) for table-leve
 | `backend` | String; defaults to `in_memory` and normalised to lowercase.【F:ATLAS/config/messaging.py†L23-L34】 | None. | `ConfigManager.configure_message_bus` instantiates the configured backend.【F:ATLAS/config/config_manager.py†L246-L288】 |
 | `redis_url` | Redis connection URI; defaults to `.env` `REDIS_URL` when backend is `redis`, otherwise optional.【F:ATLAS/config/messaging.py†L27-L34】 | `REDIS_URL`. | Redis-backed message bus initialisation. See [messaging bus operations](ops/messaging.md).【F:ATLAS/config/config_manager.py†L246-L288】【F:docs/ops/messaging.md†L3-L41】 |
 | `stream_prefix` | String; defaults to `atlas_bus` for Redis backends.【F:ATLAS/config/messaging.py†L27-L34】 | None. | Namespaces Redis streams created by the bus.【F:ATLAS/config/config_manager.py†L246-L288】 |
+| `initial_stream_id` | Stream offset for new Redis consumers; defaults to `$` (only consume future entries). Set to `0-0` or a specific Redis stream ID to replay existing entries from that point.【F:ATLAS/config/messaging.py†L27-L34】【F:modules/orchestration/message_bus.py†L120-L170】 | None. | Passed to the Redis Streams backend when constructing the message bus.【F:ATLAS/config/config_manager.py†L246-L288】【F:modules/orchestration/message_bus.py†L120-L170】 |
 
 ### `conversation_summary`
 | Key | Type & default | Environment overrides | Consumed by |

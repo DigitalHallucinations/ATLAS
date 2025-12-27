@@ -125,6 +125,7 @@ class RedisStreamBackend(MessageBackend):
         blocking_timeout: int = 1000,
         *,
         redis_client: Any | None = None,
+        initial_stream_id: str | None = None,
     ) -> None:
         if redis_client is None:
             try:
@@ -140,6 +141,12 @@ class RedisStreamBackend(MessageBackend):
 
         self._stream_prefix = stream_prefix
         self._blocking_timeout = blocking_timeout
+        self._initial_stream_id = (initial_stream_id or "$").strip() or "$"
+        if self._initial_stream_id != "$":
+            try:
+                self._parse_stream_id(self._initial_stream_id)
+            except ValueError:
+                self._initial_stream_id = "$"
         self._pending: Dict[str, set[str]] = defaultdict(set)
         self._last_ids: Dict[str, str] = {}
         self._locks: Dict[str, asyncio.Lock] = {}
@@ -174,6 +181,8 @@ class RedisStreamBackend(MessageBackend):
             _, entries = response[0]
             entry_id, payload = entries[0]
             async with lock:
+                if entry_id in self._pending.get(topic, set()):
+                    continue
                 self._pending[topic].add(entry_id)
             message = BusMessage(
                 topic=topic,
@@ -245,8 +254,8 @@ class RedisStreamBackend(MessageBackend):
         if last_ack:
             candidates.append(last_ack)
         if not candidates:
-            return "$"
-        return self._max_stream_id(candidates) or "$"
+            return self._initial_stream_id
+        return self._max_stream_id(candidates) or self._initial_stream_id
 
     @staticmethod
     def _serialize_payload(payload: Any) -> str:

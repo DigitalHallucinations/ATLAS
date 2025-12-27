@@ -20,9 +20,10 @@ def test_setup_message_bus_redis_backend(monkeypatch):
     created: dict[str, Any] = {}
 
     class StubRedisBackend:
-        def __init__(self, url: str, stream_prefix: str) -> None:
+        def __init__(self, url: str, stream_prefix: str, initial_stream_id: str) -> None:
             created["url"] = url
             created["prefix"] = stream_prefix
+            created["initial_id"] = initial_stream_id
 
     sentinel_bus = object()
 
@@ -34,7 +35,12 @@ def test_setup_message_bus_redis_backend(monkeypatch):
     monkeypatch.setattr(messaging, "configure_message_bus", fake_configure)
 
     backend, bus = messaging.setup_message_bus(
-        {"backend": "redis", "redis_url": "redis://localhost:6379/0", "stream_prefix": "atlas"},
+        {
+            "backend": "redis",
+            "redis_url": "redis://localhost:6379/0",
+            "stream_prefix": "atlas",
+            "initial_stream_id": "0-0",
+        },
         logger=DummyLogger(),
     )
 
@@ -42,6 +48,7 @@ def test_setup_message_bus_redis_backend(monkeypatch):
     assert created["configured"] is backend
     assert created["url"] == "redis://localhost:6379/0"
     assert created["prefix"] == "atlas"
+    assert created["initial_id"] == "0-0"
     assert bus is sentinel_bus
 
 

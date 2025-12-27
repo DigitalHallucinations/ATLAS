@@ -1,7 +1,7 @@
 ---
 audience: Documentation maintainers and contributors
 status: draft
-last_verified: 2026-02-22
+last_verified: 2026-07-02
 source_of_truth: docs/_audit/style-guide.md
 ---
 
@@ -49,3 +49,4 @@ This report captures documentation drift risks and remediation plans for high-tr
 - [ ] Update documentation and diagrams as fixes land; link the commits/issues here.
 - [ ] Re-run link checks after applying fixes and refresh inventory statuses.
 - [ ] Mark `alignment_status` in [`inventory.md`](./inventory.md) as `Aligned` once verification is complete.
+- [x] Refresh messaging bus documentation for Redis initial stream offsets and default behaviors (2026-07-02).

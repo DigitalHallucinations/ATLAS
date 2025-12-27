@@ -1,8 +1,8 @@
 ---
 audience: Operators and backend developers
 status: in_review
-last_verified: 2025-12-21
-last_updated_hint: Documented Redis vs in-memory defaults and clarified fallback behavior.
+last_verified: 2026-07-02
+last_updated_hint: Documented Redis initial stream offsets alongside Redis vs in-memory defaults.
 source_of_truth: modules/orchestration/message_bus.py
 ---
 
@@ -23,6 +23,7 @@ messaging:
   backend: in_memory  # or "redis"
   redis_url: redis://localhost:6379/0
   stream_prefix: atlas_bus
+  initial_stream_id: "$"  # use "0-0" to replay existing entries
 ```
 
 * `backend` — defaults to `in_memory`. Use `redis` to enable Redis Streams.
@@ -31,6 +32,9 @@ messaging:
   `redis://localhost:6379/0`.
 * `stream_prefix` — namespace prefix applied to all stream keys created by the
   bus when using Redis.
+* `initial_stream_id` — starting offset for new consumers on a Redis stream. The
+  default value `$` only delivers entries published after the consumer starts;
+  set to `0-0` or a saved checkpoint to replay existing messages from that ID.
 
 Changes take effect on the next application start. The bus is configured during
 `ATLAS` initialization via `ConfigManager.configure_message_bus()`.
