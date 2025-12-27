@@ -854,12 +854,8 @@ class SetupUtility:
         if backend == "redis":
             redis_url = self._ask("Redis URL", redis_url or "") or None
             stream_prefix = self._ask("Stream prefix", stream_prefix or "") or None
-            offset_default = self._describe_offset_choice(initial_offset)
-            offset_choice = self._ask(
-                "Initial offset (tail=replay new entries only, replay=read from start)",
-                offset_default,
-            )
-            initial_offset = self._normalize_offset_choice(offset_choice, fallback=initial_offset)
+            offset_choice = self._ask("Message replay behavior (tail/replay)", "tail")
+            initial_offset = self._normalize_offset_choice(offset_choice, fallback="$")
         else:
             backend = "in_memory"
             redis_url = None
@@ -1031,14 +1027,6 @@ class SetupUtility:
         if not normalized:
             return default
         return normalized in {"y", "yes"}
-
-    def _describe_offset_choice(self, offset: str | None) -> str:
-        normalized = (offset or "$").strip() or "$"
-        if normalized == "$":
-            return "tail"
-        if normalized == "0-0":
-            return "replay"
-        return normalized
 
     def _normalize_offset_choice(self, value: str | None, *, fallback: str) -> str:
         candidate = (value or "").strip()
