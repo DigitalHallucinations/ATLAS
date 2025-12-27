@@ -664,6 +664,36 @@ def test_configure_message_bus_persists_initial_offset():
     assert controller.state.message_bus.initial_offset == "0-0"
 
 
+def test_configure_message_bus_defaults_to_tail_on_blank_choice():
+    controller = DummyController()
+    controller.state.message_bus = dataclasses.replace(
+        controller.state.message_bus,
+        initial_offset="0-0",
+    )
+    responses = iter(
+        [
+            "redis",  # backend
+            "redis://localhost:6379/0",  # redis url
+            "atlas",  # stream prefix
+            "",  # blank replay behavior defaults to tail
+        ]
+    )
+
+    utility = SetupUtility(
+        controller=controller,
+        input_func=lambda prompt: next(responses),
+        getpass_func=lambda prompt: "",
+        print_func=lambda message: None,
+    )
+
+    utility.configure_message_bus()
+
+    assert controller.state.message_bus.backend == "redis"
+    assert controller.state.message_bus.redis_url == "redis://localhost:6379/0"
+    assert controller.state.message_bus.stream_prefix == "atlas"
+    assert controller.state.message_bus.initial_offset == "$"
+
+
 def test_configure_user_stages_profile_and_normalizes_date():
     controller = DummyController()
     controller.set_privileged_credentials(("dbadmin", "dbpass"))
