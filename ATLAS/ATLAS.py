@@ -306,7 +306,17 @@ class ATLAS:
 
     @user.setter
     def user(self, value: str) -> None:
-        self._require_user_account_facade().override_user_identity(value)
+        facade = self._require_user_account_facade()
+
+        if facade.legacy_identity_override_enabled():
+            facade.override_user_identity(value)
+            return
+
+        self.logger.warning(
+            "Manual user identity overrides are deprecated; refreshing from configured "
+            "repositories instead.",
+        )
+        facade.refresh_active_user_identity()
 
     @property
     def task_manager(self) -> TaskManager | None:

@@ -11,6 +11,9 @@ from modules.conversation_store import ConversationStoreRepository
 from modules.user_accounts.user_account_service import PasswordRequirements
 
 
+LEGACY_IDENTITY_OVERRIDE_FLAG = "ALLOW_LEGACY_IDENTITY_OVERRIDE"
+
+
 class UserAccountFacade:
     """Coordinate account lookups and lifecycle events for ATLAS."""
 
@@ -28,6 +31,22 @@ class UserAccountFacade:
         self._user_identifier: Optional[str] = None
         self._user_display_name: Optional[str] = None
         self._active_user_change_listeners: List[Callable[[str, str], None]] = []
+
+    @staticmethod
+    def _coerce_flag(value: object) -> bool:
+        """Coerce truthy flag representations into booleans."""
+
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {"1", "true", "yes", "on"}:
+                return True
+            if normalized in {"0", "false", "no", "off"}:
+                return False
+
+        try:
+            return bool(value)
+        except Exception:
+            return False
 
     # ------------------------------------------------------------------
     # Conversation repository lifecycle
@@ -161,6 +180,23 @@ class UserAccountFacade:
 
         return self._user_identifier, self._user_display_name
 
+    def legacy_identity_override_enabled(self) -> bool:
+        """Return ``True`` when manual identity overrides are explicitly enabled."""
+
+        getter = getattr(self._config_manager, "get_config", None)
+        if not callable(getter):
+            return False
+
+        try:
+            configured = getter(LEGACY_IDENTITY_OVERRIDE_FLAG, False)
+        except Exception:  # pragma: no cover - defensive logging only
+            self._logger.debug(
+                "Legacy identity override flag lookup failed", exc_info=True
+            )
+            return False
+
+        return self._coerce_flag(configured)
+
     def get_user_display_name(self) -> str:
         """Return the friendly name for the active user."""
 
@@ -170,11 +206,30 @@ class UserAccountFacade:
     def override_user_identity(self, value: str) -> None:
         """Manually override the cached identity (legacy behaviour)."""
 
+        if not self.legacy_identity_override_enabled():
+            raise RuntimeError(
+                "Manual user identity overrides are deprecated. Update user profiles and "
+                "call refresh_active_user_identity()/ensure_user_identity() instead. Set "
+                f"{LEGACY_IDENTITY_OVERRIDE_FLAG}=1 to opt in temporarily."
+            )
+
         sanitized = (value or "").strip()
         if not sanitized:
             sanitized = "User"
+
+        previous_username = self._user_identifier
+        previous_display = self._user_display_name
+
         self._user_identifier = sanitized
         self._user_display_name = sanitized
+
+        if sanitized != previous_username or sanitized != previous_display:
+            self._dispatch_active_user_change(sanitized, sanitized)
+
+        self._logger.warning(
+            "ALLOW_LEGACY_IDENTITY_OVERRIDE is deprecated; migrate to repository-driven "
+            "identity refresh via refresh_active_user_identity()/ensure_user_identity()."
+        )
 
     # ------------------------------------------------------------------
     # Listener management
