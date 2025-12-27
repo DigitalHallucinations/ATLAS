@@ -37,6 +37,7 @@ class MessagingConfigSection:
             default_url = self.env_config.get("REDIS_URL", "redis://localhost:6379/0")
             messaging_block.setdefault("redis_url", default_url)
             messaging_block.setdefault("stream_prefix", "atlas_bus")
+            messaging_block.setdefault("initial_stream_id", "$")
 
         self.config["messaging"] = messaging_block
 
@@ -52,6 +53,7 @@ class MessagingConfigSection:
         backend: str,
         redis_url: str | None = None,
         stream_prefix: str | None = None,
+        initial_stream_id: str | None = None,
     ) -> dict[str, Any]:
         sanitized_backend = str(backend or "in_memory").strip().lower()
         if sanitized_backend not in {"in_memory", "redis"}:
@@ -63,6 +65,8 @@ class MessagingConfigSection:
                 block["redis_url"] = str(redis_url).strip()
             if stream_prefix:
                 block["stream_prefix"] = str(stream_prefix).strip()
+            if initial_stream_id:
+                block["initial_stream_id"] = str(initial_stream_id).strip()
 
         self.yaml_config["messaging"] = dict(block)
         self.config["messaging"] = dict(block)
@@ -79,8 +83,13 @@ def setup_message_bus(settings: Mapping[str, Any], *, logger: Any) -> Tuple[Any,
     if backend_name == "redis":
         redis_url = settings.get("redis_url")
         stream_prefix = settings.get("stream_prefix", "atlas_bus")
+        initial_stream_id = settings.get("initial_stream_id", "$")
         try:
-            backend = RedisStreamBackend(str(redis_url), stream_prefix=str(stream_prefix))
+            backend = RedisStreamBackend(
+                str(redis_url),
+                stream_prefix=str(stream_prefix),
+                initial_stream_id=str(initial_stream_id),
+            )
         except Exception as exc:  # pragma: no cover - Redis optional dependency
             logger.warning(
                 "Falling back to in-memory message bus backend due to Redis configuration error: %s",
