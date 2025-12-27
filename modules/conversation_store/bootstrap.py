@@ -13,6 +13,14 @@ from pathlib import Path
 from typing import Callable, Iterable
 from urllib.parse import urlparse
 
+_SQLALCHEMY_REQUIRED = (
+    "SQLAlchemy is required for the conversation store. Install it alongside pgvector "
+    "and the PostgreSQL dialect extras (e.g. `pip install SQLAlchemy pgvector psycopg[binary]`)."
+)
+
+if importlib.util.find_spec("sqlalchemy") is None:
+    raise ImportError(_SQLALCHEMY_REQUIRED)
+
 from sqlalchemy.engine.url import URL, make_url
 
 # Allow importing this module directly (e.g., via importlib.util.spec_from_file_location)

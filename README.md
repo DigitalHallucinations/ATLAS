@@ -75,6 +75,7 @@ flowchart TD
 * **Python 3.10+** – uses modern union type syntax (e.g., `ATLAS | None`).
 * **PostgreSQL 14+** – backs conversation history, key-value state, and scheduling primitives.
 * **Redis (optional)** – durable message-bus backend; in-memory queues available for local dev.
+* **SQLAlchemy with PostgreSQL dialect and pgvector** – required for the conversation store bootstrap flow; install with `pip install SQLAlchemy pgvector psycopg[binary]`.
 
 Follow the [developer environment setup runbook](docs/ops/developer-setup.md) to create the virtual environment, install dependencies, and choose between CLI or GTK setup flows.
 Review the [configuration reference](docs/configuration.md) to map environment variables and YAML blocks before first launch.

@@ -1,18 +1,61 @@
 from __future__ import annotations
 
+import importlib.util
+import sys
 import types
 from pathlib import Path
 
 import pytest
-from sqlalchemy.engine.url import make_url as sa_make_url
 
-from modules.conversation_store import bootstrap as bootstrap_module
-from modules.conversation_store.bootstrap import BootstrapError
+_BOOTSTRAP_PATH = Path(__file__).resolve().parents[3] / "modules" / "conversation_store" / "bootstrap.py"
+_BOOTSTRAP_SPEC = importlib.util.spec_from_file_location(
+    "modules.conversation_store.bootstrap",
+    _BOOTSTRAP_PATH,
+)
+if _BOOTSTRAP_SPEC is None or _BOOTSTRAP_SPEC.loader is None:  # pragma: no cover - defensive guard
+    raise RuntimeError("Unable to load conversation store bootstrap module")
+
+bootstrap_module = importlib.util.module_from_spec(_BOOTSTRAP_SPEC)
+_BOOTSTRAP_SPEC.loader.exec_module(bootstrap_module)
+
+BootstrapError = bootstrap_module.BootstrapError
+sa_make_url = bootstrap_module.make_url
 
 
 class _Result(types.SimpleNamespace):
     def __init__(self, returncode: int = 0) -> None:
         super().__init__(returncode=returncode)
+
+
+def test_bootstrap_import_requires_sqlalchemy(tmp_path, monkeypatch):
+    bootstrap_path = Path(bootstrap_module.__file__).resolve()
+    fake_root = tmp_path / "fake_packages"
+    fake_sqlalchemy = fake_root / "sqlalchemy"
+    fake_sqlalchemy.mkdir(parents=True)
+    (fake_sqlalchemy / "__init__.py").write_text("raise ImportError('sqlalchemy unavailable')")
+
+    monkeypatch.syspath_prepend(str(fake_root))
+
+    cached_sqlalchemy = {
+        name: sys.modules.pop(name)
+        for name in list(sys.modules)
+        if name.startswith("sqlalchemy")
+    }
+    try:
+        spec = importlib.util.spec_from_file_location(
+            "modules.conversation_store.bootstrap_missing_sqlalchemy",
+            bootstrap_path,
+        )
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        with pytest.raises(ImportError):
+            spec.loader.exec_module(module)
+    finally:
+        for name in list(sys.modules):
+            if name.startswith("sqlalchemy") and name not in cached_sqlalchemy:
+                sys.modules.pop(name, None)
+        sys.modules.pop("modules.conversation_store.bootstrap_missing_sqlalchemy", None)
+        sys.modules.update(cached_sqlalchemy)
 
 
 def test_install_postgres_client_prompts_for_password_and_uses_sudo():
