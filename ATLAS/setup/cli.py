@@ -8,6 +8,7 @@ import os
 import platform
 import subprocess
 import sys
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, Mapping
@@ -465,15 +466,19 @@ class SetupUtility:
         if stream_prefix == "":
             stream_prefix = None
 
+        initial_offset = (state.initial_offset or "$").strip() or "$"
+
         if backend != "redis":
             redis_url = None
             stream_prefix = None
+            initial_offset = "$"
 
         self.controller.state.message_bus = dataclasses.replace(
             state,
             backend=backend,
             redis_url=redis_url,
             stream_prefix=stream_prefix,
+            initial_offset=initial_offset,
         )
 
     def _apply_vector_store_env_overrides(self) -> None:
@@ -845,14 +850,28 @@ class SetupUtility:
         ).lower() or "in_memory"
         redis_url = state.redis_url
         stream_prefix = state.stream_prefix
+        initial_offset = state.initial_offset or "$"
         if backend == "redis":
             redis_url = self._ask("Redis URL", redis_url or "") or None
             stream_prefix = self._ask("Stream prefix", stream_prefix or "") or None
+            offset_default = self._describe_offset_choice(initial_offset)
+            offset_choice = self._ask(
+                "Initial offset (tail=replay new entries only, replay=read from start)",
+                offset_default,
+            )
+            initial_offset = self._normalize_offset_choice(offset_choice, fallback=initial_offset)
         else:
             backend = "in_memory"
             redis_url = None
             stream_prefix = None
-        new_state = dataclasses.replace(state, backend=backend, redis_url=redis_url, stream_prefix=stream_prefix)
+            initial_offset = "$"
+        new_state = dataclasses.replace(
+            state,
+            backend=backend,
+            redis_url=redis_url,
+            stream_prefix=stream_prefix,
+            initial_offset=initial_offset,
+        )
         return self.controller.apply_message_bus(new_state)
 
     def configure_providers(self) -> ProviderState:
@@ -1012,6 +1031,27 @@ class SetupUtility:
         if not normalized:
             return default
         return normalized in {"y", "yes"}
+
+    def _describe_offset_choice(self, offset: str | None) -> str:
+        normalized = (offset or "$").strip() or "$"
+        if normalized == "$":
+            return "tail"
+        if normalized == "0-0":
+            return "replay"
+        return normalized
+
+    def _normalize_offset_choice(self, value: str | None, *, fallback: str) -> str:
+        candidate = (value or "").strip()
+        if not candidate:
+            return fallback
+        lowered = candidate.lower()
+        if lowered in {"tail", "$"}:
+            return "$"
+        if lowered in {"replay", "from_start", "from-start", "all"}:
+            return "0-0"
+        if re.match(r"^\d+-\d+$", candidate):
+            return candidate
+        return fallback
 
     def _ask(self, prompt: str, default: str | int | float | None) -> str:
         self._ensure_prompts_enabled()

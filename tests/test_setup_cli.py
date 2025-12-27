@@ -66,6 +66,8 @@ config_module.__path__ = []
 _real_config_module = importlib.import_module("ATLAS.config")
 config_module.ConfigManager = type("ConfigManager", (), {"UNSET": object()})
 config_module.StorageArchitecture = _real_config_module.StorageArchitecture
+config_module.PerformanceMode = _real_config_module.PerformanceMode
+config_module.PERFORMANCE_PRESETS = getattr(_real_config_module, "PERFORMANCE_PRESETS", {})
 config_module._DEFAULT_CONVERSATION_STORE_DSN_BY_BACKEND = {
     "postgresql": "postgresql+psycopg://atlas@localhost:5432/atlas",
 }
@@ -247,6 +249,7 @@ class DummyController:
                 backend="in_memory",
                 redis_url=None,
                 stream_prefix=None,
+                initial_offset="$",
             )
             current_job = self.state.job_scheduling
             self.state.job_scheduling = dataclasses.replace(
@@ -284,6 +287,7 @@ class DummyController:
                 backend="redis",
                 redis_url=redis_url,
                 stream_prefix=stream_prefix,
+                initial_offset=current_message_bus.initial_offset or "$",
             )
             current_job = self.state.job_scheduling
             job_store_url = current_job.job_store_url or (
@@ -328,6 +332,7 @@ class DummyController:
                 backend="redis",
                 redis_url=redis_url,
                 stream_prefix=stream_prefix,
+                initial_offset=current_message_bus.initial_offset or "$",
             )
             current_job = self.state.job_scheduling
             job_store_url = current_job.job_store_url or (
@@ -479,6 +484,7 @@ def test_choose_setup_type_defaults_to_personal_settings():
     assert result.mode == "personal"
     assert controller.state.message_bus.backend == "in_memory"
     assert controller.state.message_bus.redis_url is None
+    assert controller.state.message_bus.initial_offset == "$"
     assert controller.state.job_scheduling.enabled is False
     assert controller.state.job_scheduling.job_store_url is None
     assert controller.state.kv_store.reuse_conversation_store is True
@@ -502,6 +508,7 @@ def test_choose_setup_type_switches_to_enterprise_defaults():
     assert result.mode == "enterprise"
     assert controller.state.message_bus.backend == "redis"
     assert controller.state.message_bus.redis_url == "redis://localhost:6379/0"
+    assert controller.state.message_bus.initial_offset == "$"
     assert controller.state.job_scheduling.enabled is True
     assert (
         controller.state.job_scheduling.job_store_url
@@ -533,6 +540,7 @@ def test_choose_setup_type_handles_regulatory_defaults():
     assert controller.applied_setup_modes == ["regulatory"]
     assert result.mode == "regulatory"
     assert controller.state.message_bus.backend == "redis"
+    assert controller.state.message_bus.initial_offset == "$"
     assert controller.state.job_scheduling.enabled is True
     assert controller.state.job_scheduling.timezone == "UTC"
     assert controller.state.kv_store.reuse_conversation_store is False
@@ -628,6 +636,32 @@ def test_configure_vector_store_updates_adapter():
 
     assert controller.state.vector_store.adapter == "pinecone"
     assert settings["default_adapter"] == "pinecone"
+
+
+def test_configure_message_bus_persists_initial_offset():
+    controller = DummyController()
+    responses = iter(
+        [
+            "redis",  # backend
+            "redis://localhost:6379/0",  # redis url
+            "atlas",  # stream prefix
+            "replay",  # offset
+        ]
+    )
+
+    utility = SetupUtility(
+        controller=controller,
+        input_func=lambda prompt: next(responses),
+        getpass_func=lambda prompt: "",
+        print_func=lambda message: None,
+    )
+
+    utility.configure_message_bus()
+
+    assert controller.state.message_bus.backend == "redis"
+    assert controller.state.message_bus.redis_url == "redis://localhost:6379/0"
+    assert controller.state.message_bus.stream_prefix == "atlas"
+    assert controller.state.message_bus.initial_offset == "0-0"
 
 
 def test_configure_user_stages_profile_and_normalizes_date():

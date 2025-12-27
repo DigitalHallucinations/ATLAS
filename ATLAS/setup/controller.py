@@ -90,6 +90,7 @@ class MessageBusState:
     backend: str = "in_memory"
     redis_url: Optional[str] = None
     stream_prefix: Optional[str] = None
+    initial_offset: Optional[str] = "$"
 
 
 @dataclass
@@ -469,6 +470,7 @@ class SetupWizardController:
             backend=backend,
             redis_url=messaging.get("redis_url"),
             stream_prefix=messaging.get("stream_prefix"),
+            initial_offset=messaging.get("initial_offset") or "$",
         )
 
         kv_settings = self.config_manager.get_kv_store_settings()
@@ -731,6 +733,7 @@ class SetupWizardController:
                 backend="in_memory",
                 redis_url=None,
                 stream_prefix=None,
+                initial_offset="$",
             )
             self.state.job_scheduling = dataclasses.replace(
                 self.state.job_scheduling,
@@ -781,6 +784,7 @@ class SetupWizardController:
                 backend="redis",
                 redis_url=redis_url,
                 stream_prefix=stream_prefix,
+                initial_offset=self.state.message_bus.initial_offset or "$",
             )
             default_workers, default_queue_size = self._resolve_queue_defaults(
                 backend=self.state.message_bus.backend
@@ -842,6 +846,7 @@ class SetupWizardController:
                 backend="redis",
                 redis_url=redis_url,
                 stream_prefix=stream_prefix,
+                initial_offset=self.state.message_bus.initial_offset or "$",
             )
             default_workers, default_queue_size = self._resolve_queue_defaults(
                 backend=self.state.message_bus.backend
@@ -898,6 +903,7 @@ class SetupWizardController:
                 backend="redis",
                 redis_url=redis_url,
                 stream_prefix=stream_prefix,
+                initial_offset=self.state.message_bus.initial_offset or "$",
             )
             default_workers, default_queue_size = self._resolve_queue_defaults(
                 backend=self.state.message_bus.backend
@@ -1191,6 +1197,7 @@ class SetupWizardController:
             backend=state.backend,
             redis_url=state.redis_url,
             stream_prefix=state.stream_prefix,
+            initial_offset=state.initial_offset,
         )
         self.state.message_bus = dataclasses.replace(state)
         return settings

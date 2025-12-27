@@ -20,10 +20,12 @@ def test_setup_message_bus_redis_backend(monkeypatch):
     created: dict[str, Any] = {}
 
     class StubRedisBackend:
-        def __init__(self, url: str, stream_prefix: str, initial_stream_id: str) -> None:
+        def __init__(
+            self, url: str, stream_prefix: str, initial_offset: str | None = None, **_kwargs: Any
+        ) -> None:
             created["url"] = url
             created["prefix"] = stream_prefix
-            created["initial_id"] = initial_stream_id
+            created["initial_id"] = initial_offset
 
     sentinel_bus = object()
 

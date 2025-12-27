@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any, Callable, MutableMapping, Tuple
 from collections.abc import Mapping
@@ -37,15 +38,26 @@ class MessagingConfigSection:
             default_url = self.env_config.get("REDIS_URL", "redis://localhost:6379/0")
             messaging_block.setdefault("redis_url", default_url)
             messaging_block.setdefault("stream_prefix", "atlas_bus")
-            messaging_block.setdefault("initial_stream_id", "$")
+            raw_offset = messaging_block.get("initial_offset")
+            if raw_offset is None:
+                raw_offset = messaging_block.get("initial_stream_id")
+            messaging_block["initial_offset"] = _normalize_initial_offset(raw_offset)
+            if "initial_stream_id" in messaging_block:
+                messaging_block["initial_stream_id"] = messaging_block["initial_offset"]
 
         self.config["messaging"] = messaging_block
 
     def get_settings(self) -> dict[str, Any]:
         configured = self.config.get("messaging")
         if isinstance(configured, Mapping):
-            return dict(configured)
-        return {"backend": "in_memory"}
+            block = dict(configured)
+            if block.get("backend") == "redis":
+                raw_offset = block.get("initial_offset")
+                if raw_offset is None:
+                    raw_offset = block.get("initial_stream_id")
+                block["initial_offset"] = _normalize_initial_offset(raw_offset)
+            return block
+        return {"backend": "in_memory", "initial_offset": "$"}
 
     def set_settings(
         self,
@@ -53,6 +65,7 @@ class MessagingConfigSection:
         backend: str,
         redis_url: str | None = None,
         stream_prefix: str | None = None,
+        initial_offset: str | None = None,
         initial_stream_id: str | None = None,
     ) -> dict[str, Any]:
         sanitized_backend = str(backend or "in_memory").strip().lower()
@@ -65,8 +78,11 @@ class MessagingConfigSection:
                 block["redis_url"] = str(redis_url).strip()
             if stream_prefix:
                 block["stream_prefix"] = str(stream_prefix).strip()
-            if initial_stream_id:
-                block["initial_stream_id"] = str(initial_stream_id).strip()
+            normalized_offset = _normalize_initial_offset(
+                initial_offset if initial_offset is not None else initial_stream_id
+            )
+            block["initial_offset"] = normalized_offset
+            block["initial_stream_id"] = normalized_offset
 
         self.yaml_config["messaging"] = dict(block)
         self.config["messaging"] = dict(block)
@@ -83,12 +99,14 @@ def setup_message_bus(settings: Mapping[str, Any], *, logger: Any) -> Tuple[Any,
     if backend_name == "redis":
         redis_url = settings.get("redis_url")
         stream_prefix = settings.get("stream_prefix", "atlas_bus")
-        initial_stream_id = settings.get("initial_stream_id", "$")
+        initial_offset = _normalize_initial_offset(
+            settings.get("initial_offset") or settings.get("initial_stream_id")
+        )
         try:
             backend = RedisStreamBackend(
                 str(redis_url),
                 stream_prefix=str(stream_prefix),
-                initial_stream_id=str(initial_stream_id),
+                initial_offset=str(initial_offset),
             )
         except Exception as exc:  # pragma: no cover - Redis optional dependency
             logger.warning(
@@ -101,3 +119,15 @@ def setup_message_bus(settings: Mapping[str, Any], *, logger: Any) -> Tuple[Any,
 
     bus = configure_message_bus(backend)
     return backend, bus
+
+
+_STREAM_ID_PATTERN = re.compile(r"^\d+-\d+$")
+
+
+def _normalize_initial_offset(value: Any | None) -> str:
+    candidate = (str(value).strip() if value is not None else "") or "$"
+    if candidate == "$":
+        return "$"
+    if _STREAM_ID_PATTERN.match(candidate):
+        return candidate
+    return "$"

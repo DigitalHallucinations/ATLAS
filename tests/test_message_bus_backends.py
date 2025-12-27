@@ -133,7 +133,7 @@ async def _consume_existing_entries() -> list[int]:
         stream_prefix="existing_entries",
         blocking_timeout=50,
         redis_client=fake_redis,
-        initial_stream_id="0-0",
+        initial_offset="0-0",
     )
 
     first = BusMessage(topic="events", payload={"seq": 1})
@@ -157,6 +157,35 @@ def test_redis_backend_consumes_existing_stream_entries():
     consumed = asyncio.run(_consume_existing_entries())
 
     assert consumed == [1, 2]
+
+
+async def _tail_only_consumes_new_entries() -> int:
+    fake_redis = _FakeRedisStream()
+    backend = RedisStreamBackend(
+        "redis://example",
+        stream_prefix="tail_only",
+        blocking_timeout=200,
+        redis_client=fake_redis,
+        initial_offset="$",
+    )
+
+    await backend.publish(BusMessage(topic="events", payload={"seq": 1}))
+    async def _publish_new_message() -> None:
+        await asyncio.sleep(0.05)
+        await backend.publish(BusMessage(topic="events", payload={"seq": 2}))
+
+    publish_task = asyncio.create_task(_publish_new_message())
+    next_message = await asyncio.wait_for(backend.get("events"), timeout=1.0)
+    await publish_task
+    backend.acknowledge(next_message)
+    await backend.close()
+    return int(next_message.payload["seq"])
+
+
+def test_redis_backend_tail_offset_skips_existing_entries():
+    consumed = asyncio.run(_tail_only_consumes_new_entries())
+
+    assert consumed == 2
 
 
 async def _capture_parallel_consumption() -> tuple[int, list[int]]:
