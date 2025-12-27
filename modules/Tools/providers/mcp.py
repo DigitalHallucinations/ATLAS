@@ -37,11 +37,8 @@ class McpToolProvider(ToolProvider):
 
         raw_servers = self.config.get("servers")
         self._servers: Mapping[str, Mapping[str, Any]] = self._normalize_servers(raw_servers)
-
-        single_server = self.config.get("server_config")
-        if not self._servers and isinstance(single_server, Mapping):
-            default_server_name = str(self.config.get("server") or "default").strip() or "default"
-            self._servers = {default_server_name: dict(single_server)}
+        if not self._servers:
+            raise ValueError("MCP provider requires at least one server entry under 'servers'")
 
         self._default_server = str(self.config.get("server") or "").strip()
         if not self._default_server and self._servers:
