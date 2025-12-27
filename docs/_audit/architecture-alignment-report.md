@@ -53,3 +53,7 @@ This report compares key architectural claims in the documentation against the c
 - ✅ **Task metadata plumbing** – Task manifests live under `modules/Tasks/` (with persona overrides), are loaded by `manifest_loader`, and surface through `CapabilityRegistry.summary()`.  
 - ✅ **Lifecycle orchestration** – `TaskService` delegates to `TaskStoreRepository`, emits lifecycle analytics, and enforces transition rules that match the documented state machine.  
 - ✅ **Dashboard payloads** – Capability registry summaries combine tool/skill/task/job catalogs with lifecycle metrics for dashboards, as described.
+
+## docs/conversation-store.md
+
+- ✅ **Tenant context enforcement** – Credential and conversation lookups now reject missing tenant context when strict mode is enabled, and legacy tenantless auto-upgrades have been removed. A one-time helper (`scripts/migrations/tenantless_account_backfill.py`) migrates tenantless `users` and `user_credentials` rows before enabling strict tenancy.

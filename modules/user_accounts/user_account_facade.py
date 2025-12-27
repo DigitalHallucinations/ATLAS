@@ -378,7 +378,12 @@ class UserAccountFacade:
         )
 
     async def complete_password_reset(
-        self, username: str, token: str, new_password: str
+        self,
+        username: str,
+        token: str,
+        new_password: str,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> bool:
         service = self._get_user_account_service()
         return await run_async_in_thread(
@@ -386,6 +391,7 @@ class UserAccountFacade:
             username,
             token,
             new_password,
+            tenant_id=tenant_id,
         )
 
     async def logout_active_user(self) -> None:

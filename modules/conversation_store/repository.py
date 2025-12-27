@@ -24,18 +24,28 @@ class ConversationStoreRepository:
         session_factory: sessionmaker,
         *,
         retention: Optional[Dict[str, Any]] = None,
+        require_tenant_context: bool = False,
     ) -> None:
         self._session_factory = session_factory
         self._retention = retention or {}
+        self._require_tenant_context = bool(require_tenant_context)
 
         self._vectors = VectorStore(self._session_scope)
         self._conversations = ConversationStore(
             self._session_scope,
             self._vectors,
             retention=self._retention,
+            require_tenant_context=require_tenant_context,
         )
-        self._accounts = AccountStore(self._session_scope)
+        self._accounts = AccountStore(
+            self._session_scope,
+            require_tenant_context=require_tenant_context,
+        )
         self._graph = GraphStore(self._session_scope)
+
+    @property
+    def require_tenant_context(self) -> bool:
+        return self._require_tenant_context
 
     @contextlib.contextmanager
     def _session_scope(self) -> Iterator[Session]:
@@ -123,8 +133,14 @@ class ConversationStoreRepository:
     ) -> bool:
         return self._accounts.delete_user_account(username, tenant_id=tenant_id)
 
-    def set_user_password(self, username: str, password_hash: str) -> bool:
-        return self._accounts.set_user_password(username, password_hash)
+    def set_user_password(
+        self, username: str, password_hash: str, *, tenant_id: Optional[Any] = None
+    ) -> bool:
+        return self._accounts.set_user_password(
+            username,
+            password_hash,
+            tenant_id=tenant_id,
+        )
 
     def update_last_login(
         self, username: str, timestamp: Any, *, tenant_id: Optional[Any] = None

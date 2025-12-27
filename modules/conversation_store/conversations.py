@@ -51,14 +51,22 @@ class ConversationStore:
         vector_store: VectorStore,
         *,
         retention: Optional[Dict[str, Any]] = None,
+        require_tenant_context: bool = False,
     ) -> None:
         self._session_scope = session_scope
         self._vectors = vector_store
         self._retention = retention or {}
+        self._require_tenant_context = bool(require_tenant_context)
         self._vectors.set_message_serializer(self._serialize_message)
 
     # ------------------------------------------------------------------
     # Internal helpers
+
+    def _normalize_tenant(self, tenant_id: Optional[Any]) -> Optional[str]:
+        tenant = _normalize_tenant_id(tenant_id)
+        if self._require_tenant_context and tenant is None:
+            raise ValueError("Tenant context is required for conversation operations")
+        return tenant
 
     def _retention_days(self, key: str) -> Optional[int]:
         value = self._retention.get(key)
@@ -181,7 +189,7 @@ class ConversationStore:
         cleaned = str(username).strip()
         if not cleaned:
             return None
-        tenant = _normalize_tenant_id(tenant_id)
+        tenant = self._normalize_tenant(tenant_id)
 
         credential = session.execute(
             select(UserCredential)
@@ -190,33 +198,12 @@ class ConversationStore:
             .where(_tenant_filter(UserCredential.tenant_id, tenant))
         ).scalar_one_or_none()
 
-        if credential is None and tenant is not None:
-            legacy_credential = session.execute(
-                select(UserCredential)
-                .options(joinedload(UserCredential.user))
-                .where(UserCredential.username == cleaned)
-                .where(UserCredential.tenant_id.is_(None))
-            ).scalar_one_or_none()
-            if legacy_credential is not None:
-                legacy_credential.tenant_id = tenant
-                credential = legacy_credential
-
         if credential and credential.user is not None:
             return credential.user
 
         user_stmt = select(User).where(User.external_id == cleaned)
         user_stmt = user_stmt.where(_tenant_filter(User.tenant_id, tenant))
         user = session.execute(user_stmt).scalar_one_or_none()
-
-        if user is None and tenant is not None:
-            legacy_user = session.execute(
-                select(User)
-                .where(User.external_id == cleaned)
-                .where(User.tenant_id.is_(None))
-            ).scalar_one_or_none()
-            if legacy_user is not None:
-                legacy_user.tenant_id = tenant
-                user = legacy_user
 
         if user is not None:
             if credential and credential.user_id != user.id:
@@ -252,22 +239,12 @@ class ConversationStore:
 
         display = display_name.strip() if isinstance(display_name, str) else None
         metadata_payload = dict(metadata or {})
-        tenant = _normalize_tenant_id(tenant_id)
+        tenant = self._normalize_tenant(tenant_id)
 
         with self._session_scope() as session:
             stmt = select(User).where(User.external_id == identifier)
             stmt = stmt.where(_tenant_filter(User.tenant_id, tenant))
             record = session.execute(stmt).scalar_one_or_none()
-
-            if record is None and tenant is not None:
-                legacy_record = session.execute(
-                    select(User)
-                    .where(User.external_id == identifier)
-                    .where(User.tenant_id.is_(None))
-                ).scalar_one_or_none()
-                if legacy_record is not None:
-                    legacy_record.tenant_id = tenant
-                    record = legacy_record
 
             if record is None:
                 record = User(
@@ -346,7 +323,7 @@ class ConversationStore:
     def list_user_profiles(
         self, *, tenant_id: Optional[Any] = None
     ) -> List[Dict[str, Any]]:
-        tenant = _normalize_tenant_id(tenant_id)
+        tenant = self._normalize_tenant(tenant_id)
         with self._session_scope() as session:
             stmt = select(User)
             if tenant is None:
@@ -542,7 +519,7 @@ class ConversationStore:
         """Ensure that a conversation row exists and return its UUID."""
 
         conversation_uuid = _coerce_uuid(conversation_id)
-        tenant_key = _normalize_tenant_id(tenant_id)
+        tenant_key = self._normalize_tenant(tenant_id)
         session_uuid = _coerce_uuid(session_id) if session_id is not None else None
         with self._session_scope() as session:
             conversation = session.get(Conversation, conversation_uuid)
@@ -576,7 +553,7 @@ class ConversationStore:
         before: Optional[datetime] = None,
     ) -> List[Dict[str, Any]]:
         conversation_uuid = _coerce_uuid(conversation_id)
-        tenant_key = _normalize_tenant_id(tenant_id)
+        tenant_key = self._normalize_tenant(tenant_id)
         before_dt = _coerce_dt(before) if before is not None else None
         limit_value = None if limit is None else max(int(limit), 0)
 
@@ -614,7 +591,7 @@ class ConversationStore:
         events: Optional[List[Dict[str, Any]]] = None,
         vectors: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
-        tenant_key = _normalize_tenant_id(tenant_id)
+        tenant_key = self._normalize_tenant(tenant_id)
         conversation_uuid = self.ensure_conversation(
             conversation_id,
             tenant_id=tenant_key,
@@ -667,7 +644,7 @@ class ConversationStore:
         vectors: Optional[List[Dict[str, Any]]] = None,
         assets: Optional[List[Dict[str, Any]]] = None,
     ) -> Optional[Dict[str, Any]]:
-        tenant_key = _normalize_tenant_id(tenant_id)
+        tenant_key = self._normalize_tenant(tenant_id)
         message_uuid = _coerce_uuid(message_id)
 
         with self._session_scope() as session:
@@ -690,7 +667,7 @@ class ConversationStore:
             return self._serialize_message(record)
 
     def soft_delete_message(self, message_id: Any, *, tenant_id: Any) -> bool:
-        tenant_key = _normalize_tenant_id(tenant_id)
+        tenant_key = self._normalize_tenant(tenant_id)
         message_uuid = _coerce_uuid(message_id)
         with self._session_scope() as session:
             record = session.get(Message, message_uuid)
@@ -704,7 +681,7 @@ class ConversationStore:
             return True
 
     def hard_delete_conversation(self, conversation_id: Any, *, tenant_id: Any) -> None:
-        tenant_key = _normalize_tenant_id(tenant_id)
+        tenant_key = self._normalize_tenant(tenant_id)
         conversation_uuid = _coerce_uuid(conversation_id)
         with self._session_scope() as session:
             session.execute(
@@ -729,7 +706,7 @@ class ConversationStore:
             )
 
     def archive_conversation(self, conversation_id: Any, *, tenant_id: Any) -> bool:
-        tenant_key = _normalize_tenant_id(tenant_id)
+        tenant_key = self._normalize_tenant(tenant_id)
         conversation_uuid = _coerce_uuid(conversation_id)
         with self._session_scope() as session:
             record = session.get(Conversation, conversation_uuid)
@@ -742,7 +719,7 @@ class ConversationStore:
             return True
 
     def reset_conversation(self, conversation_id: Any, *, tenant_id: Any) -> None:
-        tenant_key = _normalize_tenant_id(tenant_id)
+        tenant_key = self._normalize_tenant(tenant_id)
         conversation_uuid = _coerce_uuid(conversation_id)
         with self._session_scope() as session:
             session.execute(
@@ -786,7 +763,7 @@ class ConversationStore:
         if content is None:
             raise ValueError("Episode content must not be None")
 
-        tenant_key = _normalize_tenant_id(tenant_id)
+        tenant_key = self._normalize_tenant(tenant_id)
         conversation_uuid = _coerce_uuid(conversation_id) if conversation_id is not None else None
         message_uuid = _coerce_uuid(message_id) if message_id is not None else None
         user_uuid = _coerce_uuid(user_id) if user_id is not None else None
@@ -838,7 +815,7 @@ class ConversationStore:
     ) -> List[Dict[str, Any]]:
         """Query episodic memories for a tenant with optional filters."""
 
-        tenant_key = _normalize_tenant_id(tenant_id)
+        tenant_key = self._normalize_tenant(tenant_id)
         from_dt = _coerce_dt(from_time) if from_time is not None else None
         to_dt = _coerce_dt(to_time) if to_time is not None else None
         order_value = str(order or "desc").lower()
@@ -907,7 +884,7 @@ class ConversationStore:
     ) -> int:
         """Delete episodic memories matching filters and return the number removed."""
 
-        tenant_key = _normalize_tenant_id(tenant_id)
+        tenant_key = self._normalize_tenant(tenant_id)
         cutoff = _coerce_dt(before) if before is not None else None
         now = datetime.now(timezone.utc)
         limit_value = None if limit is None else max(int(limit), 0)
@@ -940,7 +917,7 @@ class ConversationStore:
     def get_conversation(
         self, conversation_id: Any, *, tenant_id: Any
     ) -> Optional[Dict[str, Any]]:
-        tenant_key = _normalize_tenant_id(tenant_id)
+        tenant_key = self._normalize_tenant(tenant_id)
         conversation_uuid = _coerce_uuid(conversation_id)
         with self._session_scope() as session:
             record = session.get(Conversation, conversation_uuid)
@@ -960,7 +937,7 @@ class ConversationStore:
     def get_message(
         self, message_id: Any, *, tenant_id: Any
     ) -> Optional[Dict[str, Any]]:
-        tenant_key = _normalize_tenant_id(tenant_id)
+        tenant_key = self._normalize_tenant(tenant_id)
         message_uuid = _coerce_uuid(message_id)
         with self._session_scope() as session:
             record = session.get(Message, message_uuid)
@@ -977,7 +954,7 @@ class ConversationStore:
         order: str = "desc",
         include_archived: bool = True,
     ) -> List[Dict[str, Any]]:
-        tenant_key = _normalize_tenant_id(tenant_id)
+        tenant_key = self._normalize_tenant(tenant_id)
         limit_value = None if limit is None else max(int(limit), 0)
         offset_value = max(int(offset), 0)
         order_value = str(order or "desc").lower()
@@ -1037,7 +1014,7 @@ class ConversationStore:
         include_deleted: bool = False,
     ) -> List[Dict[str, Any]]:
         conversation_uuid = _coerce_uuid(conversation_id)
-        tenant_key = _normalize_tenant_id(tenant_id)
+        tenant_key = self._normalize_tenant(tenant_id)
         limit_value = None if limit is None else max(int(limit), 0)
         offset_value = max(int(offset), 0)
         order_value = str(order or "desc").lower()
@@ -1075,7 +1052,7 @@ class ConversationStore:
         batch_size: int = 200,
     ) -> Iterator[Dict[str, Any]]:
         conversation_uuid = _coerce_uuid(conversation_id)
-        tenant_key = _normalize_tenant_id(tenant_id)
+        tenant_key = self._normalize_tenant(tenant_id)
         limit_value = None if limit is None else max(int(limit), 0)
         offset_value = max(int(offset), 0)
         order_value = str(order or "desc").lower()
@@ -1136,7 +1113,7 @@ class ConversationStore:
         if not conversation_uuids:
             return
 
-        tenant_key = _normalize_tenant_id(tenant_id)
+        tenant_key = self._normalize_tenant(tenant_id)
         normalized_text = (str(query_text or "").strip())
         order = "asc" if str(order or "").lower() == "asc" else "desc"
         batch_size = max(int(batch_size), 1)
@@ -1207,7 +1184,7 @@ class ConversationStore:
         message_id: Any,
         tenant_id: Any,
     ) -> List[Dict[str, Any]]:
-        tenant_key = _normalize_tenant_id(tenant_id)
+        tenant_key = self._normalize_tenant(tenant_id)
         message_uuid = _coerce_uuid(message_id)
         with self._session_scope() as session:
             rows = session.execute(
@@ -1330,7 +1307,7 @@ class ConversationStore:
                     if limit < 1:
                         continue
                     try:
-                        normalized_tenant = _normalize_tenant_id(tenant_key)
+                        normalized_tenant = self._normalize_tenant(tenant_key)
                     except ValueError:
                         continue
                     rows = (

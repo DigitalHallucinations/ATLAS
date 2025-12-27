@@ -268,10 +268,16 @@ class ConversationCredentialStore:
     def delete_lockout_entry(self, username: str) -> bool:
         return self._repository.clear_lockout_state(username)
 
-    def set_user_password(self, username: str, password: str) -> bool:
+    def set_user_password(
+        self, username: str, password: str, *, tenant_id: Optional[str] = None
+    ) -> bool:
         hashed_password = self._hash_password(password)
         try:
-            return self._repository.set_user_password(username, hashed_password)
+            return self._repository.set_user_password(
+                username,
+                hashed_password,
+                tenant_id=tenant_id,
+            )
         except IntegrityError as exc:
             raise DuplicateUserError(_DUPLICATE_USER_MESSAGE) from exc
 
@@ -1526,7 +1532,12 @@ class UserAccountService:
         return True
 
     def complete_password_reset(
-        self, username: str, token: str, new_password: str
+        self,
+        username: str,
+        token: str,
+        new_password: str,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> bool:
         """Update the password using a valid reset token."""
 
@@ -1540,11 +1551,18 @@ class UserAccountService:
         if not isinstance(new_password, str) or not new_password:
             raise ValueError("New password must not be empty")
 
-        if not self.verify_password_reset_token(normalised_username, token.strip()):
+        if not self.verify_password_reset_token(
+            normalised_username,
+            token.strip(),
+        ):
             return False
 
         validated_password = self._validate_password(new_password)
-        updated = self._database.set_user_password(normalised_username, validated_password)
+        updated = self._database.set_user_password(
+            normalised_username,
+            validated_password,
+            tenant_id=tenant_id,
+        )
         if not updated:
             return False
 

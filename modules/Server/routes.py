@@ -283,7 +283,11 @@ class AtlasServer:
         if not retention:
             retention_getter = getattr(self._config_manager, "get_conversation_retention_policies", None)
             retention = retention_getter() if callable(retention_getter) else {}
-        repository = ConversationStoreRepository(session_factory, retention=retention)
+        repository = ConversationStoreRepository(
+            session_factory,
+            retention=retention,
+            require_tenant_context=True,
+        )
         try:
             repository.create_schema()
         except Exception as exc:  # pragma: no cover - defensive logging only
