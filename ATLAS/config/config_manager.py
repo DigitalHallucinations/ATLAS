@@ -336,6 +336,13 @@ class ConfigManager(ProviderConfigMixin, PersistenceConfigMixin, ConfigCore):
         redis_url: Optional[str] = None,
         stream_prefix: Optional[str] = None,
         initial_offset: Optional[str] = None,
+        replay_start: Optional[str] = None,
+        batch_size: Optional[int] = None,
+        blocking_timeout_ms: Optional[int] = None,
+        auto_claim_idle_ms: Optional[int] = None,
+        auto_claim_count: Optional[int] = None,
+        delete_acknowledged: Optional[bool] = None,
+        trim_max_length: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Persist messaging backend preferences and clear cached bus instances."""
 
@@ -344,6 +351,13 @@ class ConfigManager(ProviderConfigMixin, PersistenceConfigMixin, ConfigCore):
             redis_url=redis_url,
             stream_prefix=stream_prefix,
             initial_offset=initial_offset,
+            replay_start=replay_start,
+            batch_size=batch_size,
+            blocking_timeout_ms=blocking_timeout_ms,
+            auto_claim_idle_ms=auto_claim_idle_ms,
+            auto_claim_count=auto_claim_count,
+            delete_acknowledged=delete_acknowledged,
+            trim_max_length=trim_max_length,
         )
         self._message_backend = None
         self._message_bus = None

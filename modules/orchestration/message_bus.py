@@ -21,7 +21,7 @@ import uuid
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable, Dict, Iterable, Optional
+from typing import Any, Awaitable, Callable, Dict, Optional
 
 from modules.orchestration.policy import MessagePolicy, PolicyResolver
 
@@ -112,23 +112,23 @@ class InMemoryQueueBackend(MessageBackend):
         return None
 
 
-class RedisStreamBackend(MessageBackend):
-    """Redis Streams based backend.
-
-    The implementation is intentionally lazy to avoid importing redis unless it
-    is required at runtime.  Messages are stored as JSON friendly dictionaries
-    in Redis streams using the pattern ``{stream_prefix}:{topic}``.
-    """
+class RedisStreamGroupBackend(MessageBackend):
+    """Redis Streams backend backed by consumer groups."""
 
     def __init__(
         self,
         dsn: str,
         stream_prefix: str = "atlas_bus",
-        blocking_timeout: int = 1000,
         *,
         redis_client: Any | None = None,
-        initial_stream_id: str | None = None,
-        initial_offset: str | None = None,
+        replay_start: str | None = None,
+        blocking_timeout: int = 1000,
+        batch_size: int = 1,
+        auto_claim_idle_ms: int = 60_000,
+        auto_claim_count: int = 10,
+        delete_acknowledged: bool = True,
+        trim_max_length: int | None = None,
+        consumer_name: str | None = None,
     ) -> None:
         if redis_client is None:
             try:
@@ -143,17 +143,20 @@ class RedisStreamBackend(MessageBackend):
             self._redis = redis_client
 
         self._stream_prefix = stream_prefix
-        self._blocking_timeout = blocking_timeout
-        offset_source = initial_offset if initial_offset is not None else initial_stream_id
-        self._initial_offset = self._normalize_initial_offset(offset_source)
-        self._pending: Dict[str, set[str]] = defaultdict(set)
-        self._last_ids: Dict[str, str] = {}
-        self._pending_locks: Dict[str, asyncio.Lock] = {}
-        self._last_id_locks: Dict[str, asyncio.Lock] = {}
+        self._blocking_timeout = int(blocking_timeout)
+        self._batch_size = max(int(batch_size), 1)
+        self._replay_start = self._normalize_start(replay_start)
+        self._auto_claim_idle_ms = max(int(auto_claim_idle_ms), 0)
+        self._auto_claim_count = max(int(auto_claim_count), 1)
+        self._delete_acknowledged = bool(delete_acknowledged)
+        self._trim_max_length = trim_max_length
+        self._consumer_name = consumer_name or uuid.uuid4().hex
+        self._known_groups: set[str] = set()
+        self._auto_claim_cursors: Dict[str, str] = defaultdict(lambda: "0-0")
 
     async def publish(self, message: BusMessage) -> None:
         stream_name = self._stream_name(message.topic)
-        await self._redis.xadd(
+        entry_id = await self._redis.xadd(
             stream_name,
             {
                 "priority": message.priority,
@@ -165,63 +168,52 @@ class RedisStreamBackend(MessageBackend):
                 "delivery_attempts": message.delivery_attempts,
             },
         )
+        message.backend_id = entry_id
 
     async def get(self, topic: str) -> BusMessage:
         stream_name = self._stream_name(topic)
-        start_id = await self._start_snapshot(topic)
+        group_name = self._group_name(topic)
+        await self._ensure_group(stream_name, group_name)
 
         while True:
-            response = await self._redis.xread(
-                {stream_name: start_id}, count=1, block=self._blocking_timeout
-            )
-            if not response:
-                start_id = await self._start_snapshot(topic)
-                continue
-            _, entries = response[0]
-            entry_id, payload = entries[0]
-            claimed = await self._claim_pending(topic, entry_id)
-            if not claimed:
-                start_id = entry_id
-                continue
-            message = BusMessage(
-                topic=topic,
-                priority=int(payload.get("priority", MessagePriority.NORMAL)),
-                payload=self._deserialize_payload(payload.get("payload")),
-                correlation_id=payload.get("correlation_id") or uuid.uuid4().hex,
-                tracing=self._deserialize_payload(payload.get("tracing")),
-                metadata=self._deserialize_payload(payload.get("metadata")),
-            )
-            message.backend_id = entry_id
-            message.delivery_attempts = int(payload.get("delivery_attempts", 0))
-            message.enqueued_time = float(payload.get("enqueued_time", time.time()))
-            message.__post_init__()  # recompute sort key
-            return message
+            entries = await self._read_group(stream_name, group_name)
+            if entries:
+                entry_id, payload = entries[0]
+                return self._to_message(topic, entry_id, payload)
+
+            reclaimed = await self._recover_pending(stream_name, group_name)
+            if reclaimed:
+                entry_id, payload = reclaimed[0]
+                return self._to_message(topic, entry_id, payload)
 
     async def requeue(self, message: BusMessage) -> None:
-        await self.publish(message)
+        replacement = BusMessage(
+            topic=message.topic,
+            payload=message.payload,
+            priority=message.priority,
+            correlation_id=message.correlation_id,
+            tracing=message.tracing,
+            metadata=dict(message.metadata),
+        )
+        replacement.delivery_attempts = message.delivery_attempts
+        replacement.enqueued_time = message.enqueued_time
+        replacement.__post_init__()
+        await self.publish(replacement)
 
     def acknowledge(self, message: BusMessage) -> None:
         entry_id = getattr(message, "backend_id", None)
         topic = message.topic
+        if not entry_id:
+            return
 
         async def _acknowledge() -> None:
-            pending_snapshot: set[str] = set()
-            pending_lock = self._pending_lock(topic)
-            async with pending_lock:
-                pending_ids = self._pending.get(topic)
-                if pending_ids and entry_id in pending_ids:
-                    pending_ids.remove(entry_id)
-                    if not pending_ids:
-                        self._pending.pop(topic, None)
-                if pending_ids:
-                    pending_snapshot = set(pending_ids)
-
-            candidate_id = entry_id or self._max_stream_id(pending_snapshot)
-            if candidate_id:
-                await self._promote_last_id_atomic(topic, candidate_id)
-            if entry_id:
-                stream_name = self._stream_name(topic)
+            stream_name = self._stream_name(topic)
+            group_name = self._group_name(topic)
+            await self._redis.xack(stream_name, group_name, entry_id)
+            if self._delete_acknowledged:
                 await self._redis.xdel(stream_name, entry_id)
+            elif self._trim_max_length is not None:
+                await self._redis.xtrim(stream_name, maxlen=self._trim_max_length, approximate=True)
 
         try:
             loop = asyncio.get_running_loop()
@@ -236,39 +228,8 @@ class RedisStreamBackend(MessageBackend):
     def _stream_name(self, topic: str) -> str:
         return f"{self._stream_prefix}:{topic}"
 
-    def _pending_lock(self, topic: str) -> asyncio.Lock:
-        lock = self._pending_locks.get(topic)
-        if lock is None:
-            lock = asyncio.Lock()
-            self._pending_locks[topic] = lock
-        return lock
-
-    def _last_id_lock(self, topic: str) -> asyncio.Lock:
-        lock = self._last_id_locks.get(topic)
-        if lock is None:
-            lock = asyncio.Lock()
-            self._last_id_locks[topic] = lock
-        return lock
-
-    async def _start_snapshot(self, topic: str) -> str:
-        pending_ids: set[str] = set()
-        pending_lock = self._pending_lock(topic)
-        async with pending_lock:
-            pending_ids = set(self._pending.get(topic, set()))
-        last_ack = await self._last_id_snapshot(topic)
-        return self._start_id(topic, pending_ids, last_ack)
-
-    def _start_id(self, topic: str, pending_ids: Iterable[str] | None, last_ack: str | None) -> str:
-        candidates: list[str] = []
-        if pending_ids:
-            latest_pending = self._max_stream_id(pending_ids)
-            if latest_pending:
-                candidates.append(latest_pending)
-        if last_ack:
-            candidates.append(last_ack)
-        if not candidates:
-            return self._initial_offset
-        return self._max_stream_id(candidates) or self._initial_offset
+    def _group_name(self, topic: str) -> str:
+        return f"{self._stream_prefix}:{topic}:group"
 
     @staticmethod
     def _serialize_payload(payload: Any) -> str:
@@ -291,75 +252,88 @@ class RedisStreamBackend(MessageBackend):
         return {"value": data}
 
     @staticmethod
-    def _max_stream_id(ids: Iterable[str]) -> Optional[str]:
-        selected: Optional[tuple[int, int]] = None
-        selected_id: Optional[str] = None
-        for candidate in ids:
-            try:
-                parsed = RedisStreamBackend._parse_stream_id(candidate)
-            except ValueError:
-                continue
-            if selected is None or parsed > selected:
-                selected = parsed
-                selected_id = candidate
-        return selected_id
-
-    @staticmethod
     def _parse_stream_id(entry_id: str) -> tuple[int, int]:
         timestamp_str, sequence_str = entry_id.split("-", maxsplit=1)
         return int(timestamp_str), int(sequence_str)
 
-    @staticmethod
-    def _normalize_initial_offset(entry_id: str | None) -> str:
+    @classmethod
+    def _normalize_start(cls, entry_id: str | None) -> str:
         candidate = (entry_id or "$").strip()
         if not candidate:
             return "$"
         if candidate == "$":
             return "$"
         try:
-            RedisStreamBackend._parse_stream_id(candidate)
+            cls._parse_stream_id(candidate)
         except ValueError:
             return "$"
         return candidate
 
-    async def _claim_pending(self, topic: str, entry_id: str) -> bool:
-        lock = self._pending_lock(topic)
-        async with lock:
-            pending = self._pending[topic]
-            if entry_id in pending:
-                return False
-            pending.add(entry_id)
-            return True
-
-    async def _promote_last_id_atomic(self, topic: str, candidate_id: str) -> None:
-        lock = self._last_id_lock(topic)
-        async with lock:
-            self._promote_last_id(topic, candidate_id)
-
-    async def _last_id_snapshot(self, topic: str) -> str | None:
-        lock = self._last_id_lock(topic)
-        async with lock:
-            return self._last_ids.get(topic)
-
-    def _promote_last_id(self, topic: str, candidate_id: str) -> None:
-        existing = self._last_ids.get(topic)
+    async def _ensure_group(self, stream_name: str, group_name: str) -> None:
+        if group_name in self._known_groups:
+            return
         try:
-            candidate_tuple = self._parse_stream_id(candidate_id)
-        except ValueError:
-            return
+            await self._redis.xgroup_create(
+                stream_name,
+                group_name,
+                id=self._replay_start,
+                mkstream=True,
+            )
+        except Exception as exc:  # pragma: no cover - defensive BUSYGROUP handling
+            if "BUSYGROUP" not in str(exc):
+                raise
+        self._known_groups.add(group_name)
 
-        if existing is None:
-            self._last_ids[topic] = candidate_id
-            return
+    async def _read_group(self, stream_name: str, group_name: str) -> list[tuple[str, dict]]:
+        response = await self._redis.xreadgroup(
+            group_name,
+            self._consumer_name,
+            {stream_name: ">"},
+            count=self._batch_size,
+            block=self._blocking_timeout,
+        )
+        if not response:
+            return []
+        _, entries = response[0]
+        return entries
 
+    async def _recover_pending(self, stream_name: str, group_name: str) -> list[tuple[str, dict]]:
+        if self._auto_claim_idle_ms <= 0:
+            return []
+        cursor_key = f"{stream_name}:{group_name}"
+        start_id = self._auto_claim_cursors[cursor_key]
         try:
-            existing_tuple = self._parse_stream_id(existing)
-        except ValueError:
-            self._last_ids[topic] = candidate_id
-            return
+            new_start, entries = await self._redis.xautoclaim(
+                stream_name,
+                group_name,
+                self._consumer_name,
+                min_idle_time=self._auto_claim_idle_ms,
+                start_id=start_id,
+                count=self._auto_claim_count,
+            )
+        except AttributeError:  # pragma: no cover - older redis-py shims
+            return []
 
-        if candidate_tuple > existing_tuple:
-            self._last_ids[topic] = candidate_id
+        self._auto_claim_cursors[cursor_key] = new_start or start_id
+        return list(entries or [])
+
+    def _to_message(self, topic: str, entry_id: str, payload: dict[str, Any]) -> BusMessage:
+        message = BusMessage(
+            topic=topic,
+            priority=int(payload.get("priority", MessagePriority.NORMAL)),
+            payload=self._deserialize_payload(payload.get("payload")),
+            correlation_id=payload.get("correlation_id") or uuid.uuid4().hex,
+            tracing=self._deserialize_payload(payload.get("tracing")),
+            metadata=self._deserialize_payload(payload.get("metadata")),
+        )
+        message.backend_id = entry_id
+        message.delivery_attempts = int(payload.get("delivery_attempts", 0))
+        message.enqueued_time = float(payload.get("enqueued_time", time.time()))
+        message.__post_init__()
+        return message
+
+
+RedisStreamBackend = RedisStreamGroupBackend
 
 
 class Subscription:

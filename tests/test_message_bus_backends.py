@@ -3,7 +3,7 @@ import time
 from collections import defaultdict
 from typing import Any, Dict, List, Tuple
 
-from modules.orchestration.message_bus import BusMessage, MessageBus, MessagePriority, RedisStreamBackend
+from modules.orchestration.message_bus import BusMessage, MessageBus, MessagePriority, RedisStreamGroupBackend
 from modules.orchestration.policy import MessagePolicy, PolicyResolver
 
 
@@ -14,6 +14,8 @@ class _FakeRedisStream:
         self._streams: Dict[str, List[Tuple[str, dict]]] = defaultdict(list)
         self._latest: Dict[str, str] = {}
         self._events: Dict[str, asyncio.Event] = defaultdict(asyncio.Event)
+        self._groups: Dict[Tuple[str, str], dict] = {}
+        self._pending: Dict[Tuple[str, str], Dict[str, dict]] = defaultdict(dict)
 
     async def xadd(self, stream_name: str, payload: dict) -> str:
         entry_id = f"{int(time.time() * 1000)}-{len(self._streams[stream_name]) + 1}"
@@ -22,20 +24,43 @@ class _FakeRedisStream:
         self._events[stream_name].set()
         return entry_id
 
-    async def xread(self, streams: dict, count: int = 1, block: int = 0):
-        stream_name, last_id = next(iter(streams.items()))
-        baseline = self._latest.get(stream_name)
-        start_after = baseline if last_id == "$" else last_id
+    async def xgroup_create(self, stream_name: str, group_name: str, *, id: str, mkstream: bool = False):
+        key = (stream_name, group_name)
+        if key in self._groups:
+            raise RuntimeError("BUSYGROUP")
+        if mkstream and stream_name not in self._streams:
+            self._streams[stream_name] = []
+        if id == "$":
+            last_id = self._latest.get(stream_name)
+            if last_id is None and self._streams.get(stream_name):
+                last_id = self._streams[stream_name][-1][0]
+            id = last_id or "0-0"
+        self._groups[key] = {"last_id": id or "0-0"}
+        self._pending[key] = {}
+
+    async def xreadgroup(self, group_name: str, consumer_name: str, streams: dict, count: int = 1, block: int = 0):
+        stream_name, start_id = next(iter(streams.items()))
+        group_key = (stream_name, group_name)
+        group = self._groups[group_key]
+        start_after = group["last_id"] if start_id == ">" else start_id
         deadline = time.time() + (block / 1000.0 if block else 0.0)
 
         while True:
             entries = [
                 (entry_id, payload)
                 for entry_id, payload in self._streams.get(stream_name, [])
-                if self._greater(entry_id, start_after)
+                if self._greater(entry_id, start_after) and entry_id not in self._pending[group_key]
             ]
             if entries:
-                return [(stream_name, entries[:count])]
+                selected = entries[:count]
+                for entry_id, payload in selected:
+                    group["last_id"] = entry_id
+                    self._pending[group_key][entry_id] = {
+                        "payload": payload,
+                        "consumer": consumer_name,
+                        "timestamp": time.time(),
+                    }
+                return [(stream_name, selected)]
 
             if block <= 0:
                 return []
@@ -51,16 +76,64 @@ class _FakeRedisStream:
             finally:
                 self._events[stream_name].clear()
 
+    async def xack(self, stream_name: str, group_name: str, *entry_ids: str):
+        group_key = (stream_name, group_name)
+        pending = self._pending.get(group_key, {})
+        for entry_id in entry_ids:
+            pending.pop(entry_id, None)
+        self._pending[group_key] = pending
+
     async def xdel(self, stream_name: str, entry_id: str):
         items = self._streams.get(stream_name, [])
         self._streams[stream_name] = [(eid, payload) for eid, payload in items if eid != entry_id]
+        for key in list(self._pending.keys()):
+            self._pending[key].pop(entry_id, None)
+
+    async def xtrim(self, stream_name: str, *, maxlen: int, approximate: bool = True):
+        items = self._streams.get(stream_name, [])
+        if maxlen is None or len(items) <= maxlen:
+            return
+        self._streams[stream_name] = items[-maxlen:]
+
+    async def xautoclaim(
+        self,
+        stream_name: str,
+        group_name: str,
+        consumer_name: str,
+        *,
+        min_idle_time: int,
+        start_id: str,
+        count: int = 1,
+    ):
+        group_key = (stream_name, group_name)
+        now = time.time()
+        pending = self._pending.get(group_key, {})
+        entries: list[Tuple[str, dict]] = []
+        for entry_id, payload in pending.items():
+            if not self._greater(entry_id, start_id):
+                continue
+            idle_ms = (now - payload["timestamp"]) * 1000
+            if idle_ms < min_idle_time:
+                continue
+            payload["timestamp"] = now
+            payload["consumer"] = consumer_name
+            entries.append((entry_id, payload["payload"]))
+            if len(entries) >= count:
+                break
+        new_start = entries[-1][0] if entries else start_id
+        return new_start, entries
+
+    def age_pending(self, stream_name: str, group_name: str, entry_id: str, *, seconds: float) -> None:
+        group_key = (stream_name, group_name)
+        if entry_id in self._pending.get(group_key, {}):
+            self._pending[group_key][entry_id]["timestamp"] -= seconds
 
     async def close(self):
         return None
 
     @staticmethod
     def _greater(candidate: str, floor: str | None) -> bool:
-        if floor is None:
+        if floor is None or floor == "$":
             return True
         try:
             cand_ts, cand_seq = candidate.split("-", maxsplit=1)
@@ -78,18 +151,18 @@ class _TrackingRedisStream(_FakeRedisStream):
         self.max_concurrent_reads = 0
         self._inflight_reads = 0
 
-    async def xread(self, streams: dict, count: int = 1, block: int = 0):
+    async def xreadgroup(self, group_name: str, consumer_name: str, streams: dict, count: int = 1, block: int = 0):
         self._inflight_reads += 1
         self.max_concurrent_reads = max(self.max_concurrent_reads, self._inflight_reads)
         try:
-            return await super().xread(streams, count=count, block=block)
+            return await super().xreadgroup(group_name, consumer_name, streams, count=count, block=block)
         finally:
             self._inflight_reads -= 1
 
 
 async def _roundtrip_requeue() -> tuple[BusMessage, BusMessage, BusMessage]:
     fake_redis = _FakeRedisStream()
-    backend = RedisStreamBackend(
+    backend = RedisStreamGroupBackend(
         "redis://example",
         stream_prefix="test_bus",
         blocking_timeout=50,
@@ -124,12 +197,12 @@ def test_redis_backend_requeues_without_skipping_entries():
 
 async def _consume_existing_entries() -> list[int]:
     fake_redis = _FakeRedisStream()
-    backend = RedisStreamBackend(
+    backend = RedisStreamGroupBackend(
         "redis://example",
         stream_prefix="existing_entries",
         blocking_timeout=50,
         redis_client=fake_redis,
-        initial_offset="0-0",
+        replay_start="0-0",
     )
 
     first = BusMessage(topic="events", payload={"seq": 1})
@@ -157,12 +230,12 @@ def test_redis_backend_consumes_existing_stream_entries():
 
 async def _tail_only_consumes_new_entries() -> int:
     fake_redis = _FakeRedisStream()
-    backend = RedisStreamBackend(
+    backend = RedisStreamGroupBackend(
         "redis://example",
         stream_prefix="tail_only",
         blocking_timeout=200,
         redis_client=fake_redis,
-        initial_offset="$",
+        replay_start="$",
     )
 
     await backend.publish(BusMessage(topic="events", payload={"seq": 1}))
@@ -186,7 +259,7 @@ def test_redis_backend_tail_offset_skips_existing_entries():
 
 async def _capture_parallel_consumption() -> tuple[int, list[int]]:
     redis_client = _TrackingRedisStream()
-    backend = RedisStreamBackend(
+    backend = RedisStreamGroupBackend(
         "redis://example",
         stream_prefix="concurrent_bus",
         blocking_timeout=50,
@@ -224,7 +297,7 @@ def test_message_bus_redis_subscription_allows_parallel_stream_reads():
 
 async def _concurrent_workers_receive_unique_messages() -> list[int]:
     redis_client = _FakeRedisStream()
-    backend = RedisStreamBackend(
+    backend = RedisStreamGroupBackend(
         "redis://example",
         stream_prefix="dedupe_bus",
         blocking_timeout=50,
@@ -261,9 +334,39 @@ def test_redis_backend_deduplicates_parallel_consumers():
     assert sorted(processed) == [1, 2, 3, 4, 5]
 
 
+async def _reclaims_idle_pending_message() -> tuple[str, str]:
+    stream_prefix = "recover_bus"
+    redis_client = _FakeRedisStream()
+    backend = RedisStreamGroupBackend(
+        "redis://example",
+        stream_prefix=stream_prefix,
+        blocking_timeout=10,
+        auto_claim_idle_ms=1,
+        redis_client=redis_client,
+        replay_start="0-0",
+    )
+    await backend.publish(BusMessage(topic="events", payload={"seq": 1}))
+
+    first_delivery = await asyncio.wait_for(backend.get("events"), timeout=0.5)
+    stream_name = f"{stream_prefix}:events"
+    group_name = f"{stream_prefix}:events:group"
+    redis_client.age_pending(stream_name, group_name, str(first_delivery.backend_id), seconds=2)
+
+    reclaimed = await asyncio.wait_for(backend.get("events"), timeout=0.5)
+    backend.acknowledge(reclaimed)
+    await backend.close()
+    return str(first_delivery.backend_id), str(reclaimed.backend_id)
+
+
+def test_redis_backend_recovers_idle_pending_entries():
+    first_id, reclaimed_id = asyncio.run(_reclaims_idle_pending_message())
+
+    assert first_id == reclaimed_id
+
+
 async def _redis_dlq_delivery() -> dict:
     redis_client = _FakeRedisStream()
-    backend = RedisStreamBackend(
+    backend = RedisStreamGroupBackend(
         "redis://example",
         stream_prefix="dlq_bus",
         blocking_timeout=50,
@@ -285,6 +388,7 @@ async def _redis_dlq_delivery() -> dict:
         raise RuntimeError("boom")
 
     bus.subscribe("alerts", failing_handler)
+    await asyncio.sleep(0)
     await bus.publish("alerts", {"value": "payload"})
     await asyncio.wait_for(dlq_received.wait(), timeout=1.0)
     await bus.close()

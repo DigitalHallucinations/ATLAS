@@ -21,11 +21,18 @@ def test_setup_message_bus_redis_backend(monkeypatch):
 
     class StubRedisBackend:
         def __init__(
-            self, url: str, stream_prefix: str, initial_offset: str | None = None, **_kwargs: Any
+            self,
+            url: str,
+            stream_prefix: str,
+            replay_start: str | None = None,
+            **kwargs: Any,
         ) -> None:
             created["url"] = url
             created["prefix"] = stream_prefix
-            created["initial_id"] = initial_offset
+            created["replay_start"] = replay_start
+            created["batch_size"] = kwargs.get("batch_size")
+            created["blocking_timeout"] = kwargs.get("blocking_timeout")
+            created["auto_claim_idle_ms"] = kwargs.get("auto_claim_idle_ms")
 
     sentinel_bus = object()
 
@@ -33,7 +40,7 @@ def test_setup_message_bus_redis_backend(monkeypatch):
         created["configured"] = backend
         return sentinel_bus
 
-    monkeypatch.setattr(messaging, "RedisStreamBackend", StubRedisBackend)
+    monkeypatch.setattr(messaging, "RedisStreamGroupBackend", StubRedisBackend)
     monkeypatch.setattr(messaging, "configure_message_bus", fake_configure)
 
     backend, bus = messaging.setup_message_bus(
@@ -50,7 +57,10 @@ def test_setup_message_bus_redis_backend(monkeypatch):
     assert created["configured"] is backend
     assert created["url"] == "redis://localhost:6379/0"
     assert created["prefix"] == "atlas"
-    assert created["initial_id"] == "0-0"
+    assert created["replay_start"] == "0-0"
+    assert created["batch_size"] == 1
+    assert created["blocking_timeout"] == 1000
+    assert created["auto_claim_idle_ms"] == 60000
     assert bus is sentinel_bus
 
 
@@ -66,7 +76,7 @@ def test_setup_message_bus_falls_back_to_memory(monkeypatch):
 
     sentinel_bus = object()
 
-    monkeypatch.setattr(messaging, "RedisStreamBackend", RaisingRedisBackend)
+    monkeypatch.setattr(messaging, "RedisStreamGroupBackend", RaisingRedisBackend)
     monkeypatch.setattr(messaging, "InMemoryQueueBackend", StubMemoryBackend)
     monkeypatch.setattr(messaging, "configure_message_bus", lambda backend: sentinel_bus)
 
