@@ -158,3 +158,63 @@ async def test_message_bus_publishes_dlq_on_exhaustion():
     await bus.close()
 
     assert dlq_messages and dlq_messages[0]["original_topic"] == "critical.topic"
+
+
+@pytest.mark.asyncio
+async def test_message_bus_skips_duplicates_with_idempotency_policy():
+    loop = asyncio.get_running_loop()
+    resolver = PolicyResolver(
+        {"idempotent": MessagePolicy(idempotency_key_field="id", idempotency_ttl_seconds=10)}
+    )
+    bus = MessageBus(backend=InMemoryQueueBackend(), loop=loop, policy_resolver=resolver)
+    received = []
+    done = asyncio.Event()
+
+    async def handler(message):
+        received.append(message.payload["id"])
+        if len(received) == 2:
+            done.set()
+
+    subscription = bus.subscribe("idempotent.topic", handler)
+
+    await bus.publish("idempotent.topic", {"id": "one"})
+    await bus.publish("idempotent.topic", {"id": "one"})
+    await bus.publish("idempotent.topic", {"id": "two"})
+
+    await asyncio.wait_for(done.wait(), timeout=1.0)
+    subscription.cancel()
+    await bus.close()
+
+    assert received == ["one", "two"]
+
+
+@pytest.mark.asyncio
+async def test_message_bus_honors_idempotency_ttl():
+    loop = asyncio.get_running_loop()
+    resolver = PolicyResolver(
+        {"expiring": MessagePolicy(idempotency_key_field="id", idempotency_ttl_seconds=0.05)}
+    )
+    bus = MessageBus(backend=InMemoryQueueBackend(), loop=loop, policy_resolver=resolver)
+    received = []
+    first = asyncio.Event()
+    done = asyncio.Event()
+
+    async def handler(message):
+        received.append(message.payload["id"])
+        if len(received) == 1:
+            first.set()
+        if len(received) == 2:
+            done.set()
+
+    subscription = bus.subscribe("expiring.topic", handler)
+
+    await bus.publish("expiring.topic", {"id": "repeat"})
+    await asyncio.wait_for(first.wait(), timeout=1.0)
+    await asyncio.sleep(0.06)
+    await bus.publish("expiring.topic", {"id": "repeat"})
+
+    await asyncio.wait_for(done.wait(), timeout=1.0)
+    subscription.cancel()
+    await bus.close()
+
+    assert received == ["repeat", "repeat"]

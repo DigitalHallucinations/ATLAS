@@ -21,8 +21,9 @@ import uuid
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable, Dict, Optional
+from typing import Any, Awaitable, Callable, Dict, Mapping, Optional
 
+from ATLAS.messaging.idempotency import IdempotencyStore
 from modules.orchestration.policy import MessagePolicy, PolicyResolver
 
 _LOGGER = logging.getLogger(__name__)
@@ -364,6 +365,8 @@ class MessageBus:
         self._subscriptions: Dict[str, set[Any]] = defaultdict(set)
         self._thread: Optional[threading.Thread] = None
         self._policy_resolver = policy_resolver
+        backend_redis = getattr(self._backend, "_redis", None)
+        self._idempotency_store = IdempotencyStore(redis_client=backend_redis)
         if self._loop is None:
             try:
                 self._loop = asyncio.get_running_loop()
@@ -460,9 +463,29 @@ class MessageBus:
             policy = _resolve_policy()
             effective_retry_attempts = retry_attempts if retry_attempts is not None else policy.retry_attempts
             effective_retry_delay = retry_delay if retry_delay is not None else policy.retry_delay
+            idempotency_field = (policy.idempotency_key_field or "").strip()
+            idempotency_ttl = self._normalize_idempotency_ttl(policy.idempotency_ttl_seconds)
             while True:
                 message = await self._backend.get(topic)
                 try:
+                    duplicate = False
+                    idempotency_key = None
+                    if idempotency_field and idempotency_ttl is not None:
+                        idempotency_key = self._extract_idempotency_key(message, idempotency_field)
+                        if idempotency_key is not None:
+                            duplicate = not await self._idempotency_store.check_and_set(
+                                idempotency_key, idempotency_ttl
+                            )
+                            if duplicate:
+                                _LOGGER.debug(
+                                    "Skipping duplicate message for topic '%s' with idempotency key '%s'.",
+                                    topic,
+                                    idempotency_key,
+                                )
+
+                    if duplicate:
+                        continue
+
                     await handler(message)
                 except Exception:  # pylint: disable=broad-except
                     message.delivery_attempts += 1
@@ -592,6 +615,38 @@ class MessageBus:
             asyncio.run(coro)
         else:
             loop.create_task(coro)
+
+    @staticmethod
+    def _get_nested_field(mapping: Mapping[str, Any] | None, path: str) -> Any:
+        if not isinstance(mapping, Mapping):
+            return None
+        current: Any = mapping
+        for part in path.split("."):
+            if not isinstance(current, Mapping) or part not in current:
+                return None
+            current = current[part]
+        return current
+
+    def _extract_idempotency_key(self, message: BusMessage, field_path: str) -> str | None:
+        key = self._get_nested_field(message.payload, field_path)
+        if key is None:
+            key = self._get_nested_field(message.metadata, field_path)
+        if key is None:
+            return None
+        normalized = str(key).strip()
+        return normalized or None
+
+    @staticmethod
+    def _normalize_idempotency_ttl(value: float | int | None) -> float | None:
+        if value is None:
+            return None
+        try:
+            ttl = float(value)
+        except (TypeError, ValueError):
+            return None
+        if ttl <= 0:
+            return None
+        return ttl
 
 
 _global_bus: Optional[MessageBus] = None
