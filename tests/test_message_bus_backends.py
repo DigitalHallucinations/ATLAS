@@ -1,14 +1,10 @@
 import asyncio
 import time
 from collections import defaultdict
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Tuple
 
-from modules.orchestration.message_bus import (
-    BusMessage,
-    MessageBus,
-    MessagePriority,
-    RedisStreamBackend,
-)
+from modules.orchestration.message_bus import BusMessage, MessageBus, MessagePriority, RedisStreamBackend
+from modules.orchestration.policy import MessagePolicy, PolicyResolver
 
 
 class _FakeRedisStream:
@@ -263,3 +259,39 @@ def test_redis_backend_deduplicates_parallel_consumers():
     processed = asyncio.run(_concurrent_workers_receive_unique_messages())
 
     assert sorted(processed) == [1, 2, 3, 4, 5]
+
+
+async def _redis_dlq_delivery() -> dict:
+    redis_client = _FakeRedisStream()
+    backend = RedisStreamBackend(
+        "redis://example",
+        stream_prefix="dlq_bus",
+        blocking_timeout=50,
+        redis_client=redis_client,
+    )
+    resolver = PolicyResolver({"alerts": MessagePolicy(retry_attempts=0)})
+    bus = MessageBus(backend=backend, policy_resolver=resolver)
+    dlq_received = asyncio.Event()
+    dlq_payload: dict[str, Any] = {}
+
+    async def dlq_handler(message: BusMessage) -> None:
+        nonlocal dlq_payload
+        dlq_payload = dict(message.payload)
+        dlq_received.set()
+
+    bus.subscribe("dlq.alerts", dlq_handler)
+
+    async def failing_handler(message: BusMessage) -> None:
+        raise RuntimeError("boom")
+
+    bus.subscribe("alerts", failing_handler)
+    await bus.publish("alerts", {"value": "payload"})
+    await asyncio.wait_for(dlq_received.wait(), timeout=1.0)
+    await bus.close()
+    return dlq_payload
+
+
+def test_redis_backend_publishes_dlq_on_failure():
+    payload = asyncio.run(_redis_dlq_delivery())
+
+    assert payload.get("original_topic") == "alerts"
