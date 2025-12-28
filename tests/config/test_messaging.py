@@ -85,3 +85,60 @@ def test_setup_message_bus_falls_back_to_memory(monkeypatch):
     assert isinstance(backend, StubMemoryBackend)
     assert bus is sentinel_bus
     assert warnings.messages and "Falling back" in warnings.messages[0]
+
+
+def test_messaging_apply_includes_kafka_defaults():
+    config: dict[str, Any] = {}
+    yaml_config: dict[str, Any] = {}
+
+    section = messaging.MessagingConfigSection(
+        config=config,
+        yaml_config=yaml_config,
+        env_config={},
+        logger=DummyLogger(),
+        write_yaml_callback=lambda: None,
+    )
+    section.apply()
+    settings = section.get_settings()
+    kafka_block = settings.get("kafka")
+
+    assert kafka_block is not None
+    assert kafka_block["enabled"] is False
+    assert kafka_block["topic_prefix"] == "atlas.bus"
+    assert kafka_block["bridge"]["source_prefix"] == "redis_kafka"
+    assert kafka_block["bridge"]["dlq_topic"] == "atlas.bridge.dlq"
+
+
+def test_set_settings_normalizes_kafka_block():
+    writes: list[bool] = []
+    section = messaging.MessagingConfigSection(
+        config={},
+        yaml_config={},
+        env_config={"KAFKA_BOOTSTRAP_SERVERS": "env.kafka:9092"},
+        logger=DummyLogger(),
+        write_yaml_callback=lambda: writes.append(True),
+    )
+
+    settings = section.set_settings(
+        backend="in_memory",
+        kafka={
+            "enabled": True,
+            "topic_prefix": "custom.bus",
+            "bridge": {
+                "topics": ["audit", "metrics"],
+                "topic_map": {"audit": "external.audit"},
+                "max_attempts": 9,
+                "backoff_seconds": 0.25,
+            },
+        },
+    )
+
+    kafka_block = settings["kafka"]
+    assert kafka_block["enabled"] is True
+    assert kafka_block["bootstrap_servers"] == "env.kafka:9092"
+    assert kafka_block["topic_prefix"] == "custom.bus"
+    assert kafka_block["bridge"]["topics"] == ["audit", "metrics"]
+    assert kafka_block["bridge"]["topic_map"]["audit"] == "external.audit"
+    assert kafka_block["bridge"]["max_attempts"] == 9
+    assert kafka_block["bridge"]["backoff_seconds"] == 0.25
+    assert writes
