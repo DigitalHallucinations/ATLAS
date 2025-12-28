@@ -1395,6 +1395,7 @@ class SetupWizardWindow(AtlasWindow):
             database_recommendation_for_state(database_state),
             VECTOR_HOSTING_TIP,
             MODEL_HOSTING_TIP,
+            "Redis streams keep workers coordinated; enable Kafka when bridging to existing brokers.",
         ]
         return " ".join(summary_parts)
 
@@ -1713,6 +1714,120 @@ class SetupWizardWindow(AtlasWindow):
             if offset_value not in {"$", "0-0"}:
                 offset_value = "$"
             offset_widget.set_active_id(offset_value)
+
+        policy_tier = self._message_widgets.get("policy_tier")
+        if isinstance(policy_tier, Gtk.ComboBoxText):
+            tier_value = state.policy_tier or "standard"
+            try:
+                policy_tier.set_active_id(tier_value)
+            except Exception:
+                pass
+            if policy_tier.get_active_id() is None:
+                try:
+                    policy_tier.set_active(0)
+                except Exception:
+                    pass
+
+        mappings = {
+            "policy_retry_attempts": str(state.policy_retry_attempts),
+            "policy_retry_delay": self._format_float(state.policy_retry_delay),
+            "policy_dlq_template": state.policy_dlq_template or "",
+            "policy_retention_seconds": self._optional_to_text(state.policy_retention_seconds),
+            "policy_replay_start": state.replay_start or "$",
+            "policy_idempotency_key": state.policy_idempotency_key_field or "",
+            "policy_idempotency_ttl": self._optional_to_text(state.policy_idempotency_ttl_seconds),
+            "redis_min_idle": str(state.min_idle_ms),
+            "redis_trim_maxlen": self._optional_to_text(state.trim_maxlen),
+            "kafka_bootstrap": state.kafka_bootstrap_servers or "",
+            "kafka_topic_prefix": state.kafka_topic_prefix or "atlas.bus",
+            "kafka_bridge_topics": ", ".join(state.kafka_bridge_topics),
+            "kafka_bridge_batch_size": str(state.kafka_bridge_batch_size),
+            "kafka_bridge_max_attempts": str(state.kafka_bridge_max_attempts),
+            "kafka_bridge_backoff_seconds": self._format_float(state.kafka_bridge_backoff_seconds),
+            "kafka_bridge_dlq_topic": state.kafka_bridge_dlq_topic or "",
+        }
+        for key, value in mappings.items():
+            widget = self._message_widgets.get(key)
+            if isinstance(widget, Gtk.Entry):
+                widget.set_text(value)
+
+        dlq_toggle = self._message_widgets.get("policy_dlq_enabled")
+        if isinstance(dlq_toggle, Gtk.CheckButton):
+            dlq_toggle.set_active(state.policy_dlq_enabled)
+        idempotency_toggle = self._message_widgets.get("policy_idempotency_enabled")
+        if isinstance(idempotency_toggle, Gtk.CheckButton):
+            idempotency_toggle.set_active(state.policy_idempotency_enabled)
+        delete_toggle = self._message_widgets.get("redis_delete_on_ack")
+        if isinstance(delete_toggle, Gtk.CheckButton):
+            delete_toggle.set_active(state.delete_on_ack)
+        kafka_toggle = self._message_widgets.get("kafka_enabled")
+        if isinstance(kafka_toggle, Gtk.CheckButton):
+            kafka_toggle.set_active(state.kafka_enabled)
+        bridge_toggle = self._message_widgets.get("kafka_bridge_enabled")
+        if isinstance(bridge_toggle, Gtk.CheckButton):
+            bridge_toggle.set_active(state.kafka_bridge_enabled)
+        self._refresh_message_bus_sensitivity()
+
+    def _refresh_message_bus_sensitivity(self) -> None:
+        backend_widget = self._message_widgets.get("backend")
+        backend = backend_widget.get_active_id() if isinstance(backend_widget, Gtk.ComboBoxText) else "in_memory"
+        is_redis = backend == "redis"
+        redis_keys = [
+            "redis_url",
+            "stream_prefix",
+            "initial_offset_mode",
+            "redis_min_idle",
+            "redis_trim_maxlen",
+            "redis_delete_on_ack",
+        ]
+        for key in redis_keys:
+            widget = self._message_widgets.get(key)
+            if isinstance(widget, Gtk.Widget):
+                widget.set_sensitive(is_redis)
+
+        dlq_toggle = self._message_widgets.get("policy_dlq_enabled")
+        dlq_entry = self._message_widgets.get("policy_dlq_template")
+        if isinstance(dlq_entry, Gtk.Widget):
+            dlq_entry.set_sensitive(isinstance(dlq_toggle, Gtk.CheckButton) and dlq_toggle.get_active())
+
+        idempotency_toggle = self._message_widgets.get("policy_idempotency_enabled")
+        idempotency_fields = ["policy_idempotency_key", "policy_idempotency_ttl"]
+        for key in idempotency_fields:
+            widget = self._message_widgets.get(key)
+            if isinstance(widget, Gtk.Widget):
+                widget.set_sensitive(isinstance(idempotency_toggle, Gtk.CheckButton) and idempotency_toggle.get_active())
+
+        kafka_toggle = self._message_widgets.get("kafka_enabled")
+        kafka_sensitive = isinstance(kafka_toggle, Gtk.CheckButton) and kafka_toggle.get_active()
+        kafka_keys = ["kafka_bootstrap", "kafka_topic_prefix", "kafka_bridge_enabled"]
+        for key in kafka_keys:
+            widget = self._message_widgets.get(key)
+            if isinstance(widget, Gtk.Widget):
+                widget.set_sensitive(kafka_sensitive)
+
+        bridge_toggle = self._message_widgets.get("kafka_bridge_enabled")
+        bridge_sensitive = kafka_sensitive and isinstance(bridge_toggle, Gtk.CheckButton) and bridge_toggle.get_active()
+        bridge_keys = [
+            "kafka_bridge_topics",
+            "kafka_bridge_batch_size",
+            "kafka_bridge_max_attempts",
+            "kafka_bridge_backoff_seconds",
+            "kafka_bridge_dlq_topic",
+        ]
+        for key in bridge_keys:
+            widget = self._message_widgets.get(key)
+            if isinstance(widget, Gtk.Widget):
+                widget.set_sensitive(bridge_sensitive)
+
+    def _on_message_backend_changed(self, *_args: object) -> None:
+        self._refresh_message_bus_sensitivity()
+        self._refresh_hosting_summary()
+
+    def _on_message_policy_toggle_changed(self, *_args: object) -> None:
+        self._refresh_message_bus_sensitivity()
+
+    def _on_kafka_toggle_changed(self, *_args: object) -> None:
+        self._refresh_message_bus_sensitivity()
 
     def _sync_kv_widgets_from_state(self) -> None:
         state = self.controller.state.kv_store
@@ -2669,9 +2784,9 @@ class SetupWizardWindow(AtlasWindow):
             "About the Message Bus",
             [
                 "The message bus keeps ATLAS services talking to each other.",
-                "Common choices include NATS, RabbitMQ, or Redis streams—pick what fits your stack.",
+                "Common choices include Redis streams or bridging into Kafka—pick what fits your stack.",
             ],
-            "Have the broker URL and credentials ready for the next screen.",
+            "Have the broker URL, Kafka bootstrap servers, and retention/DLQ expectations ready for the next screen.",
         )
 
     def _build_kv_store_intro_page(self) -> Gtk.Widget:
@@ -3418,11 +3533,151 @@ class SetupWizardWindow(AtlasWindow):
             stream_prefix = None
             initial_offset = "$"
 
+        policy_tier_widget = self._message_widgets.get("policy_tier")
+        policy_tier = policy_tier_widget.get_active_id() if isinstance(policy_tier_widget, Gtk.ComboBoxText) else None
+        if not policy_tier:
+            policy_tier = base_state.policy_tier
+
+        def _parse_required_positive(widget: Gtk.Entry | None, label: str, default: int | float):
+            if not isinstance(widget, Gtk.Entry):
+                return default
+            text = widget.get_text()
+            if not text.strip():
+                return default
+            try:
+                if isinstance(default, float):
+                    return parse_required_float(text, label)
+                return parse_required_positive_int(text, label)
+            except ValueError:
+                if strict:
+                    raise
+                return default
+
+        def _parse_optional(widget: Gtk.Entry | None, label: str) -> Optional[int]:
+            if not isinstance(widget, Gtk.Entry):
+                return None
+            text = widget.get_text()
+            try:
+                return parse_optional_int(text, label)
+            except ValueError:
+                if strict:
+                    raise
+                return None
+
+        retry_attempts = _parse_required_positive(
+            self._message_widgets.get("policy_retry_attempts"), "Retry attempts", base_state.policy_retry_attempts
+        )
+        retry_delay = _parse_required_positive(
+            self._message_widgets.get("policy_retry_delay"), "Retry delay", base_state.policy_retry_delay
+        )
+
+        dlq_toggle = self._message_widgets.get("policy_dlq_enabled")
+        dlq_enabled = bool(dlq_toggle.get_active()) if isinstance(dlq_toggle, Gtk.CheckButton) else base_state.policy_dlq_enabled
+        dlq_template_entry = self._message_widgets.get("policy_dlq_template")
+        dlq_template = dlq_template_entry.get_text().strip() if isinstance(dlq_template_entry, Gtk.Entry) else ""
+        if not dlq_template:
+            dlq_template = base_state.policy_dlq_template or "dlq.{topic}"
+
+        retention_seconds = _parse_optional(
+            self._message_widgets.get("policy_retention_seconds"), "Retention seconds"
+        )
+
+        replay_entry = self._message_widgets.get("policy_replay_start")
+        replay_start = replay_entry.get_text().strip() if isinstance(replay_entry, Gtk.Entry) else base_state.replay_start
+        if replay_start not in {"$", "0-0"} and not replay_start.replace("-", "").isdigit():
+            replay_start = base_state.replay_start or "$"
+
+        idempotency_toggle = self._message_widgets.get("policy_idempotency_enabled")
+        idempotency_enabled = (
+            idempotency_toggle.get_active() if isinstance(idempotency_toggle, Gtk.CheckButton) else base_state.policy_idempotency_enabled
+        )
+        idempotency_key_entry = self._message_widgets.get("policy_idempotency_key")
+        idempotency_key = idempotency_key_entry.get_text().strip() if isinstance(idempotency_key_entry, Gtk.Entry) else ""
+        if idempotency_enabled and strict and not idempotency_key:
+            raise ValueError("Idempotency key field is required when idempotency is enabled")
+        idempotency_ttl = _parse_optional(
+            self._message_widgets.get("policy_idempotency_ttl"), "Idempotency TTL (seconds)"
+        )
+
+        min_idle_ms = _parse_required_positive(
+            self._message_widgets.get("redis_min_idle"), "Minimum idle ms", base_state.min_idle_ms
+        )
+        trim_maxlen = _parse_optional(self._message_widgets.get("redis_trim_maxlen"), "Trim maxlen")
+        delete_toggle = self._message_widgets.get("redis_delete_on_ack")
+        delete_on_ack = delete_toggle.get_active() if isinstance(delete_toggle, Gtk.CheckButton) else base_state.delete_on_ack
+
+        kafka_toggle = self._message_widgets.get("kafka_enabled")
+        kafka_enabled = kafka_toggle.get_active() if isinstance(kafka_toggle, Gtk.CheckButton) else base_state.kafka_enabled
+        kafka_bootstrap_entry = self._message_widgets.get("kafka_bootstrap")
+        kafka_bootstrap = kafka_bootstrap_entry.get_text().strip() if isinstance(kafka_bootstrap_entry, Gtk.Entry) else ""
+        if not kafka_bootstrap:
+            kafka_bootstrap = None
+        kafka_prefix_entry = self._message_widgets.get("kafka_topic_prefix")
+        kafka_topic_prefix = (
+            kafka_prefix_entry.get_text().strip() if isinstance(kafka_prefix_entry, Gtk.Entry) else base_state.kafka_topic_prefix
+        )
+        kafka_topic_prefix = kafka_topic_prefix or base_state.kafka_topic_prefix or "atlas.bus"
+
+        bridge_toggle = self._message_widgets.get("kafka_bridge_enabled")
+        kafka_bridge_enabled = bridge_toggle.get_active() if isinstance(bridge_toggle, Gtk.CheckButton) else base_state.kafka_bridge_enabled
+        bridge_topics_entry = self._message_widgets.get("kafka_bridge_topics")
+        bridge_topics_text = bridge_topics_entry.get_text() if isinstance(bridge_topics_entry, Gtk.Entry) else ""
+        bridge_topics = tuple(
+            topic.strip()
+            for topic in bridge_topics_text.split(",")
+            if topic and topic.strip()
+        )
+        batch_size = _parse_required_positive(
+            self._message_widgets.get("kafka_bridge_batch_size"),
+            "Bridge batch size",
+            base_state.kafka_bridge_batch_size,
+        )
+        max_attempts = _parse_required_positive(
+            self._message_widgets.get("kafka_bridge_max_attempts"),
+            "Bridge max attempts",
+            base_state.kafka_bridge_max_attempts,
+        )
+        backoff_seconds = _parse_required_positive(
+            self._message_widgets.get("kafka_bridge_backoff_seconds"),
+            "Bridge backoff seconds",
+            base_state.kafka_bridge_backoff_seconds,
+        )
+        bridge_dlq_entry = self._message_widgets.get("kafka_bridge_dlq_topic")
+        bridge_dlq_topic = (
+            bridge_dlq_entry.get_text().strip() if isinstance(bridge_dlq_entry, Gtk.Entry) else base_state.kafka_bridge_dlq_topic
+        ) or "atlas.bridge.dlq"
+
+        if not kafka_enabled:
+            kafka_bridge_enabled = False
+            bridge_topics = ()
+
         return MessageBusState(
             backend=backend,
             redis_url=redis_url,
             stream_prefix=stream_prefix,
             initial_offset=initial_offset,
+            replay_start=replay_start,
+            min_idle_ms=min_idle_ms,
+            delete_on_ack=delete_on_ack,
+            trim_maxlen=trim_maxlen,
+            policy_tier=policy_tier or base_state.policy_tier,
+            policy_retry_attempts=retry_attempts,
+            policy_retry_delay=retry_delay,
+            policy_dlq_enabled=dlq_enabled,
+            policy_dlq_template=dlq_template,
+            policy_retention_seconds=retention_seconds,
+            policy_idempotency_enabled=idempotency_enabled,
+            policy_idempotency_key_field=idempotency_key or None,
+            policy_idempotency_ttl_seconds=idempotency_ttl,
+            kafka_enabled=kafka_enabled,
+            kafka_bootstrap_servers=kafka_bootstrap,
+            kafka_topic_prefix=kafka_topic_prefix,
+            kafka_bridge_enabled=kafka_bridge_enabled,
+            kafka_bridge_topics=bridge_topics,
+            kafka_bridge_batch_size=batch_size,
+            kafka_bridge_max_attempts=max_attempts,
+            kafka_bridge_backoff_seconds=backoff_seconds,
+            kafka_bridge_dlq_topic=bridge_dlq_topic,
         )
 
     def _build_provider_pages(self) -> list[Gtk.Widget]:
@@ -3730,6 +3985,7 @@ class SetupWizardWindow(AtlasWindow):
         backend_combo.set_hexpand(False)
         backend_combo.set_halign(Gtk.Align.START)
         backend_combo.set_size_request(self._get_entry_pixel_width(), -1)
+        backend_combo.connect("changed", self._on_message_backend_changed)
         grid.attach(backend_combo, 1, 0, 1, 1)
         self._message_widgets["backend"] = backend_combo
 
@@ -3740,7 +3996,7 @@ class SetupWizardWindow(AtlasWindow):
             grid, 2, "Stream prefix", state.stream_prefix or ""
         )
 
-        offset_label = Gtk.Label(label="Replay behavior")
+        offset_label = Gtk.Label(label="Replay behavior (Redis)")
         offset_label.set_xalign(0.0)
         grid.attach(offset_label, 0, 3, 1, 1)
 
@@ -3759,24 +4015,218 @@ class SetupWizardWindow(AtlasWindow):
         grid.attach(offset_combo, 1, 3, 1, 1)
         self._message_widgets["initial_offset_mode"] = offset_combo
 
+        policy_frame = Gtk.Frame()
+        policy_frame.set_hexpand(True)
+        policy_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        policy_box.set_margin_top(6)
+        policy_box.set_margin_bottom(6)
+        policy_box.set_margin_start(12)
+        policy_box.set_margin_end(12)
+
+        policy_label = Gtk.Label(label="Policy defaults")
+        policy_label.set_xalign(0.0)
+        if hasattr(policy_label, "add_css_class"):
+            policy_label.add_css_class("heading")
+        policy_box.append(policy_label)
+
+        policy_grid = Gtk.Grid(column_spacing=12, row_spacing=6)
+        policy_grid.set_hexpand(True)
+
+        tier_label = Gtk.Label(label="Tier")
+        tier_label.set_xalign(0.0)
+        policy_grid.attach(tier_label, 0, 0, 1, 1)
+        tier_combo = Gtk.ComboBoxText()
+        tier_combo.append("redis_only", "Redis only")
+        tier_combo.append("redis_kafka", "Redis + Kafka bridge")
+        tier_combo.append("kafka_only", "Kafka only")
+        tier_combo.append("standard", "Standard")
+        tier_combo.set_active_id(state.policy_tier or "standard")
+        policy_grid.attach(tier_combo, 1, 0, 1, 1)
+        self._message_widgets["policy_tier"] = tier_combo
+
+        self._message_widgets["policy_retry_attempts"] = self._create_labeled_entry(
+            policy_grid, 1, "Retry attempts", str(state.policy_retry_attempts)
+        )
+        self._message_widgets["policy_retry_delay"] = self._create_labeled_entry(
+            policy_grid, 2, "Retry delay (seconds)", self._format_float(state.policy_retry_delay)
+        )
+
+        self._message_widgets["policy_replay_start"] = self._create_labeled_entry(
+            policy_grid, 3, "Replay start", state.replay_start or "$"
+        )
+        self._message_widgets["policy_retention_seconds"] = self._create_labeled_entry(
+            policy_grid,
+            4,
+            "Retention seconds",
+            self._optional_to_text(state.policy_retention_seconds),
+        )
+
+        dlq_toggle = Gtk.CheckButton(label="Enable DLQ template")
+        dlq_toggle.set_active(state.policy_dlq_enabled)
+        dlq_toggle.connect("toggled", self._on_message_policy_toggle_changed)
+        self._message_widgets["policy_dlq_enabled"] = dlq_toggle
+        policy_grid.attach(dlq_toggle, 0, 5, 1, 1)
+
+        self._message_widgets["policy_dlq_template"] = self._create_labeled_entry(
+            policy_grid, 6, "DLQ topic template", state.policy_dlq_template or "dlq.{topic}"
+        )
+
+        idempotency_toggle = Gtk.CheckButton(label="Enable idempotency")
+        idempotency_toggle.set_active(state.policy_idempotency_enabled)
+        idempotency_toggle.connect("toggled", self._on_message_policy_toggle_changed)
+        self._message_widgets["policy_idempotency_enabled"] = idempotency_toggle
+        policy_grid.attach(idempotency_toggle, 0, 7, 1, 1)
+
+        self._message_widgets["policy_idempotency_key"] = self._create_labeled_entry(
+            policy_grid, 8, "Idempotency key field", state.policy_idempotency_key_field or ""
+        )
+        self._message_widgets["policy_idempotency_ttl"] = self._create_labeled_entry(
+            policy_grid,
+            9,
+            "Idempotency TTL (seconds)",
+            self._optional_to_text(state.policy_idempotency_ttl_seconds),
+        )
+
+        policy_box.append(policy_grid)
+        if hasattr(policy_frame, "set_child"):
+            policy_frame.set_child(policy_box)
+        else:  # pragma: no cover - GTK3 fallback
+            policy_frame.add(policy_box)
+
+        redis_frame = Gtk.Frame()
+        redis_frame.set_hexpand(True)
+        redis_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        redis_box.set_margin_top(6)
+        redis_box.set_margin_bottom(6)
+        redis_box.set_margin_start(12)
+        redis_box.set_margin_end(12)
+
+        redis_label = Gtk.Label(label="Redis stream retention")
+        redis_label.set_xalign(0.0)
+        if hasattr(redis_label, "add_css_class"):
+            redis_label.add_css_class("heading")
+        redis_box.append(redis_label)
+
+        redis_grid = Gtk.Grid(column_spacing=12, row_spacing=6)
+        redis_grid.set_hexpand(True)
+
+        self._message_widgets["redis_min_idle"] = self._create_labeled_entry(
+            redis_grid, 0, "Minimum idle ms (auto-claim)", str(state.min_idle_ms)
+        )
+        self._message_widgets["redis_trim_maxlen"] = self._create_labeled_entry(
+            redis_grid, 1, "Trim maxlen", self._optional_to_text(state.trim_maxlen)
+        )
+        delete_toggle = Gtk.CheckButton(label="Delete on ack")
+        delete_toggle.set_active(state.delete_on_ack)
+        delete_toggle.connect("toggled", self._on_message_policy_toggle_changed)
+        self._message_widgets["redis_delete_on_ack"] = delete_toggle
+        redis_grid.attach(delete_toggle, 0, 2, 2, 1)
+
+        redis_box.append(redis_grid)
+        if hasattr(redis_frame, "set_child"):
+            redis_frame.set_child(redis_box)
+        else:  # pragma: no cover - GTK3 fallback
+            redis_frame.add(redis_box)
+
+        kafka_frame = Gtk.Frame()
+        kafka_frame.set_hexpand(True)
+        kafka_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        kafka_box.set_margin_top(6)
+        kafka_box.set_margin_bottom(6)
+        kafka_box.set_margin_start(12)
+        kafka_box.set_margin_end(12)
+
+        kafka_label = Gtk.Label(label="Kafka publishing")
+        kafka_label.set_xalign(0.0)
+        if hasattr(kafka_label, "add_css_class"):
+            kafka_label.add_css_class("heading")
+        kafka_box.append(kafka_label)
+
+        kafka_toggle = Gtk.CheckButton(label="Enable Kafka producer")
+        kafka_toggle.set_active(state.kafka_enabled)
+        kafka_toggle.connect("toggled", self._on_kafka_toggle_changed)
+        self._message_widgets["kafka_enabled"] = kafka_toggle
+        kafka_box.append(kafka_toggle)
+
+        kafka_grid = Gtk.Grid(column_spacing=12, row_spacing=6)
+        kafka_grid.set_hexpand(True)
+
+        self._message_widgets["kafka_bootstrap"] = self._create_labeled_entry(
+            kafka_grid,
+            0,
+            "Bootstrap servers",
+            state.kafka_bootstrap_servers or "",
+            placeholder="kafka:9092 or host1:9092,host2:9092",
+        )
+        self._message_widgets["kafka_topic_prefix"] = self._create_labeled_entry(
+            kafka_grid, 1, "Topic prefix", state.kafka_topic_prefix or "atlas.bus"
+        )
+
+        bridge_toggle = Gtk.CheckButton(label="Enable Redis → Kafka bridge")
+        bridge_toggle.set_active(state.kafka_bridge_enabled)
+        bridge_toggle.connect("toggled", self._on_kafka_toggle_changed)
+        self._message_widgets["kafka_bridge_enabled"] = bridge_toggle
+        kafka_grid.attach(bridge_toggle, 0, 2, 2, 1)
+
+        self._message_widgets["kafka_bridge_topics"] = self._create_labeled_entry(
+            kafka_grid,
+            3,
+            "Bridge topics (comma separated)",
+            ", ".join(state.kafka_bridge_topics),
+            placeholder="tasks.*, notifications.*",
+        )
+        self._message_widgets["kafka_bridge_batch_size"] = self._create_labeled_entry(
+            kafka_grid, 4, "Bridge batch size", str(state.kafka_bridge_batch_size)
+        )
+        self._message_widgets["kafka_bridge_max_attempts"] = self._create_labeled_entry(
+            kafka_grid, 5, "Bridge max attempts", str(state.kafka_bridge_max_attempts)
+        )
+        self._message_widgets["kafka_bridge_backoff_seconds"] = self._create_labeled_entry(
+            kafka_grid,
+            6,
+            "Bridge backoff seconds",
+            self._format_float(state.kafka_bridge_backoff_seconds),
+        )
+        self._message_widgets["kafka_bridge_dlq_topic"] = self._create_labeled_entry(
+            kafka_grid, 7, "Bridge DLQ topic", state.kafka_bridge_dlq_topic or "atlas.bridge.dlq"
+        )
+
+        kafka_box.append(kafka_grid)
+        if hasattr(kafka_frame, "set_child"):
+            kafka_frame.set_child(kafka_box)
+        else:  # pragma: no cover - GTK3 fallback
+            kafka_frame.add(kafka_box)
+
+        container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        container.set_hexpand(True)
+        container.set_vexpand(True)
+        container.append(grid)
+        container.append(policy_frame)
+        container.append(redis_frame)
+        container.append(kafka_frame)
+
         replay_instructions = Gtk.Label(
             label=(
-                "Choose whether Redis consumers start from new traffic only or replay existing stream entries."
+                "Pick Redis or Kafka tiers, add DLQ and idempotency hints, and shape retention for durable streams. "
+                "Bridge settings let you forward Redis topics into Kafka with retries and DLQ coverage."
             )
         )
         replay_instructions.set_wrap(True)
         replay_instructions.set_xalign(0.0)
-        grid.attach(replay_instructions, 0, 4, 2, 1)
+        container.append(replay_instructions)
 
         self._register_hosting_summary_trigger(backend_combo)
         self._register_hosting_summary_trigger(self._message_widgets["redis_url"])
+        self._register_hosting_summary_trigger(self._message_widgets["kafka_bootstrap"])
+
+        self._refresh_message_bus_sensitivity()
 
         instructions = (
             "Choose the message bus backend. Redis keeps multiple workers in sync, while in-memory suits single instances. "
-            "Set the replay behavior to control whether consumers start at the tail or replay from the beginning."
+            "Add policy defaults for retries, DLQs, and idempotency, tune Redis retention, and optionally publish or bridge into Kafka."
         )
 
-        return self._wrap_with_instructions(grid, instructions, "Configure Message Bus")
+        return self._wrap_with_instructions(container, instructions, "Configure Message Bus")
 
     def _build_speech_page(self) -> Gtk.Widget:
         state = self.controller.state.speech
