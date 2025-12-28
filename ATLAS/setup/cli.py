@@ -467,11 +467,140 @@ class SetupUtility:
             stream_prefix = None
 
         initial_offset = (state.initial_offset or "$").strip() or "$"
+        replay_start = (state.replay_start or initial_offset).strip() or initial_offset
+
+        offset_override = self._env_get("ATLAS_MESSAGING_INITIAL_OFFSET")
+        if offset_override is not None:
+            initial_offset = self._normalize_offset_choice(offset_override, fallback=initial_offset)
+
+        replay_override = self._env_get("ATLAS_MESSAGING_REPLAY_START")
+        if replay_override is not None:
+            replay_start = self._normalize_offset_choice(replay_override, fallback=replay_start)
 
         if backend != "redis":
             redis_url = None
             stream_prefix = None
             initial_offset = "$"
+            replay_start = "$"
+
+        policy_tier = self._env_get("ATLAS_MESSAGING_TIER") or state.policy_tier
+        dlq_enabled_override = self._env_bool("ATLAS_MESSAGING_DLQ_ENABLED")
+        policy_dlq_enabled = state.policy_dlq_enabled if dlq_enabled_override is None else dlq_enabled_override
+
+        dlq_template_override = self._env_get("ATLAS_MESSAGING_DLQ_TEMPLATE")
+        policy_dlq_template = (
+            dlq_template_override if dlq_template_override is not None else state.policy_dlq_template
+        )
+        if policy_dlq_template == "":
+            policy_dlq_template = None
+        if not policy_dlq_enabled:
+            policy_dlq_template = None
+
+        retention_override = self._env_int("ATLAS_MESSAGING_RETENTION_SECONDS")
+        policy_retention_seconds = (
+            retention_override if retention_override is not None else state.policy_retention_seconds
+        )
+
+        trim_override = self._env_int("ATLAS_MESSAGING_TRIM_MAXLEN")
+        trim_maxlen = trim_override if trim_override is not None else state.trim_maxlen
+
+        idempotency_enabled_override = self._env_bool("ATLAS_MESSAGING_IDEMPOTENCY_ENABLED")
+        policy_idempotency_enabled = (
+            state.policy_idempotency_enabled if idempotency_enabled_override is None else idempotency_enabled_override
+        )
+        idempotency_key_override = self._env_get("ATLAS_MESSAGING_IDEMPOTENCY_KEY")
+        policy_idempotency_key_field = (
+            idempotency_key_override if idempotency_key_override is not None else state.policy_idempotency_key_field
+        )
+        if policy_idempotency_key_field == "":
+            policy_idempotency_key_field = None
+        idempotency_ttl_override = self._env_int("ATLAS_MESSAGING_IDEMPOTENCY_TTL")
+        policy_idempotency_ttl_seconds = (
+            idempotency_ttl_override
+            if idempotency_ttl_override is not None
+            else state.policy_idempotency_ttl_seconds
+        )
+        if not policy_idempotency_enabled:
+            policy_idempotency_key_field = None
+            policy_idempotency_ttl_seconds = None
+
+        kafka_enabled_override = self._env_bool("ATLAS_KAFKA_ENABLED")
+        kafka_enabled = state.kafka_enabled if kafka_enabled_override is None else kafka_enabled_override
+        kafka_bootstrap_override = self._env_get("ATLAS_KAFKA_BOOTSTRAP")
+        kafka_bootstrap_servers = (
+            kafka_bootstrap_override
+            if kafka_bootstrap_override is not None
+            else state.kafka_bootstrap_servers
+        )
+        if kafka_bootstrap_servers == "":
+            kafka_bootstrap_servers = None
+
+        topic_prefix_override = self._env_get("ATLAS_KAFKA_TOPIC_PREFIX")
+        kafka_topic_prefix = topic_prefix_override if topic_prefix_override is not None else state.kafka_topic_prefix
+
+        kafka_client_id_override = self._env_get("ATLAS_KAFKA_CLIENT_ID")
+        kafka_client_id = kafka_client_id_override if kafka_client_id_override is not None else state.kafka_client_id
+
+        kafka_driver_override = self._env_get("ATLAS_KAFKA_DRIVER")
+        kafka_driver = kafka_driver_override if kafka_driver_override is not None else state.kafka_driver
+        if kafka_driver == "":
+            kafka_driver = None
+
+        kafka_idempotence_override = self._env_bool("ATLAS_KAFKA_IDEMPOTENCE")
+        kafka_enable_idempotence = (
+            state.kafka_enable_idempotence if kafka_idempotence_override is None else kafka_idempotence_override
+        )
+
+        kafka_acks_override = self._env_get("ATLAS_KAFKA_ACKS")
+        kafka_acks = kafka_acks_override if kafka_acks_override is not None else state.kafka_acks
+
+        kafka_max_in_flight_override = self._env_int("ATLAS_KAFKA_MAX_IN_FLIGHT")
+        kafka_max_in_flight = (
+            kafka_max_in_flight_override
+            if kafka_max_in_flight_override is not None
+            else state.kafka_max_in_flight
+        )
+
+        kafka_delivery_timeout_override = self._env_float("ATLAS_KAFKA_DELIVERY_TIMEOUT")
+        kafka_delivery_timeout = (
+            kafka_delivery_timeout_override
+            if kafka_delivery_timeout_override is not None
+            else state.kafka_delivery_timeout
+        )
+
+        bridge_enabled_override = self._env_bool("ATLAS_BRIDGE_ENABLED")
+        kafka_bridge_enabled = (
+            state.kafka_bridge_enabled if bridge_enabled_override is None else bridge_enabled_override
+        )
+
+        bridge_topics_override = self._env_get("ATLAS_BRIDGE_TOPICS")
+        kafka_bridge_topics = state.kafka_bridge_topics
+        if bridge_topics_override is not None:
+            kafka_bridge_topics = tuple(
+                topic.strip() for topic in bridge_topics_override.split(",") if topic.strip()
+            )
+
+        bridge_batch_override = self._env_int("ATLAS_BRIDGE_BATCH_SIZE")
+        kafka_bridge_batch_size = (
+            bridge_batch_override if bridge_batch_override is not None else state.kafka_bridge_batch_size
+        )
+
+        bridge_attempts_override = self._env_int("ATLAS_BRIDGE_MAX_ATTEMPTS")
+        kafka_bridge_max_attempts = (
+            bridge_attempts_override if bridge_attempts_override is not None else state.kafka_bridge_max_attempts
+        )
+
+        bridge_backoff_override = self._env_float("ATLAS_BRIDGE_BACKOFF_SECONDS")
+        kafka_bridge_backoff_seconds = (
+            bridge_backoff_override if bridge_backoff_override is not None else state.kafka_bridge_backoff_seconds
+        )
+
+        bridge_dlq_override = self._env_get("ATLAS_BRIDGE_DLQ_TOPIC")
+        kafka_bridge_dlq_topic = bridge_dlq_override if bridge_dlq_override is not None else state.kafka_bridge_dlq_topic
+
+        if not kafka_enabled:
+            kafka_bridge_enabled = False
+            kafka_bridge_topics = ()
 
         self.controller.state.message_bus = dataclasses.replace(
             state,
@@ -479,6 +608,30 @@ class SetupUtility:
             redis_url=redis_url,
             stream_prefix=stream_prefix,
             initial_offset=initial_offset,
+            replay_start=replay_start,
+            trim_maxlen=trim_maxlen,
+            policy_tier=policy_tier or "standard",
+            policy_dlq_enabled=policy_dlq_enabled,
+            policy_dlq_template=policy_dlq_template,
+            policy_retention_seconds=policy_retention_seconds,
+            policy_idempotency_enabled=policy_idempotency_enabled,
+            policy_idempotency_key_field=policy_idempotency_key_field,
+            policy_idempotency_ttl_seconds=policy_idempotency_ttl_seconds,
+            kafka_enabled=kafka_enabled,
+            kafka_bootstrap_servers=kafka_bootstrap_servers,
+            kafka_topic_prefix=kafka_topic_prefix or "atlas.bus",
+            kafka_client_id=kafka_client_id or "atlas-message-bridge",
+            kafka_driver=kafka_driver,
+            kafka_enable_idempotence=kafka_enable_idempotence,
+            kafka_acks=kafka_acks or "all",
+            kafka_max_in_flight=kafka_max_in_flight,
+            kafka_delivery_timeout=kafka_delivery_timeout,
+            kafka_bridge_enabled=kafka_bridge_enabled,
+            kafka_bridge_topics=kafka_bridge_topics,
+            kafka_bridge_batch_size=kafka_bridge_batch_size,
+            kafka_bridge_max_attempts=kafka_bridge_max_attempts,
+            kafka_bridge_backoff_seconds=kafka_bridge_backoff_seconds,
+            kafka_bridge_dlq_topic=kafka_bridge_dlq_topic or "atlas.bridge.dlq",
         )
 
     def _apply_vector_store_env_overrides(self) -> None:
@@ -851,22 +1004,158 @@ class SetupUtility:
         redis_url = state.redis_url
         stream_prefix = state.stream_prefix
         initial_offset = state.initial_offset or "$"
+        replay_start = state.replay_start or initial_offset
+        trim_maxlen = state.trim_maxlen
+        policy_tier = state.policy_tier or "standard"
+        policy_dlq_enabled = state.policy_dlq_enabled
+        policy_dlq_template = state.policy_dlq_template
+        policy_retention_seconds = state.policy_retention_seconds
+        policy_idempotency_enabled = state.policy_idempotency_enabled
+        policy_idempotency_key_field = state.policy_idempotency_key_field
+        policy_idempotency_ttl_seconds = state.policy_idempotency_ttl_seconds
+        kafka_enabled = state.kafka_enabled
+        kafka_bootstrap_servers = state.kafka_bootstrap_servers
+        kafka_topic_prefix = state.kafka_topic_prefix
+        kafka_client_id = state.kafka_client_id
+        kafka_driver = state.kafka_driver
+        kafka_enable_idempotence = state.kafka_enable_idempotence
+        kafka_acks = state.kafka_acks
+        kafka_max_in_flight = state.kafka_max_in_flight
+        kafka_delivery_timeout = state.kafka_delivery_timeout
+        kafka_bridge_enabled = state.kafka_bridge_enabled
+        kafka_bridge_topics = state.kafka_bridge_topics
+        kafka_bridge_batch_size = state.kafka_bridge_batch_size
+        kafka_bridge_max_attempts = state.kafka_bridge_max_attempts
+        kafka_bridge_backoff_seconds = state.kafka_bridge_backoff_seconds
+        kafka_bridge_dlq_topic = state.kafka_bridge_dlq_topic
+
         if backend == "redis":
             redis_url = self._ask("Redis URL", redis_url or "") or None
             stream_prefix = self._ask("Stream prefix", stream_prefix or "") or None
             offset_choice = self._ask("Message replay behavior (tail/replay)", "tail")
             initial_offset = self._normalize_offset_choice(offset_choice, fallback="$")
+            replay_default = replay_start or initial_offset
+            if replay_default == "$" and initial_offset != "$":
+                replay_default = initial_offset
+            replay_choice = self._ask("Replay start (tail/replay)", replay_default)
+            replay_start = self._normalize_offset_choice(replay_choice, fallback=initial_offset)
+            trim_maxlen = self._ask_optional_int("Stream trim maxlen (blank to disable)", trim_maxlen)
         else:
             backend = "in_memory"
             redis_url = None
             stream_prefix = None
             initial_offset = "$"
+            replay_start = "$"
+            trim_maxlen = None
+
+        policy_tier = self._ask("Default policy tier", policy_tier) or "standard"
+        policy_dlq_enabled = self._confirm("Enable dead-letter queue? [Y/n]: ", default=policy_dlq_enabled)
+        if policy_dlq_enabled:
+            policy_dlq_template = self._ask("DLQ topic template", policy_dlq_template or "dlq.{topic}") or None
+        else:
+            policy_dlq_template = None
+        policy_retention_seconds = self._ask_optional_int(
+            "Retention seconds (blank for backend default)",
+            policy_retention_seconds,
+        )
+        policy_idempotency_enabled = self._confirm(
+            "Enable idempotency hints? [y/N]: ", default=policy_idempotency_enabled
+        )
+        if policy_idempotency_enabled:
+            policy_idempotency_key_field = (
+                self._ask("Idempotency key field", policy_idempotency_key_field or "") or None
+            )
+            policy_idempotency_ttl_seconds = self._ask_optional_int(
+                "Idempotency TTL (seconds)", policy_idempotency_ttl_seconds
+            )
+        else:
+            policy_idempotency_key_field = None
+            policy_idempotency_ttl_seconds = None
+
+        kafka_enabled = self._confirm("Enable Kafka sink? [y/N]: ", default=kafka_enabled)
+        if kafka_enabled:
+            kafka_bootstrap_servers = self._ask("Kafka bootstrap servers", kafka_bootstrap_servers or "") or None
+            kafka_topic_prefix = self._ask("Kafka topic prefix", kafka_topic_prefix or "atlas.bus") or "atlas.bus"
+            kafka_client_id = (
+                self._ask("Kafka client ID", kafka_client_id or "atlas-message-bridge") or "atlas-message-bridge"
+            )
+            kafka_driver = self._ask(
+                "Preferred Kafka driver (confluent/kafka_python/auto)",
+                kafka_driver or "",
+            ) or None
+            kafka_enable_idempotence = self._confirm(
+                "Enable Kafka idempotence? [Y/n]: ",
+                default=kafka_enable_idempotence,
+            )
+            kafka_acks = self._ask("Kafka acknowledgements (all/1/0)", kafka_acks or "all") or "all"
+            kafka_max_in_flight = self._ask_required_positive_int(
+                "Kafka max in-flight requests", kafka_max_in_flight
+            )
+            kafka_delivery_timeout = self._ask_float(
+                "Kafka delivery timeout (seconds)",
+                kafka_delivery_timeout,
+            )
+            kafka_bridge_enabled = self._confirm(
+                "Enable Kafka bridge from Redis streams? [y/N]: ",
+                default=kafka_bridge_enabled,
+            )
+            if kafka_bridge_enabled:
+                topics_input = self._ask(
+                    "Kafka bridge topics (comma-separated)",
+                    ", ".join(kafka_bridge_topics),
+                )
+                kafka_bridge_topics = tuple(topic.strip() for topic in topics_input.split(",") if topic.strip())
+                kafka_bridge_batch_size = self._ask_required_positive_int(
+                    "Bridge batch size",
+                    kafka_bridge_batch_size,
+                )
+                kafka_bridge_max_attempts = self._ask_required_positive_int(
+                    "Bridge max attempts",
+                    kafka_bridge_max_attempts,
+                )
+                kafka_bridge_backoff_seconds = self._ask_float(
+                    "Bridge backoff seconds",
+                    kafka_bridge_backoff_seconds,
+                )
+                kafka_bridge_dlq_topic = (
+                    self._ask("Bridge DLQ topic", kafka_bridge_dlq_topic or "atlas.bridge.dlq") or "atlas.bridge.dlq"
+                )
+            else:
+                kafka_bridge_topics = ()
+        else:
+            kafka_bootstrap_servers = None
+            kafka_bridge_enabled = False
+            kafka_bridge_topics = ()
         new_state = dataclasses.replace(
             state,
             backend=backend,
             redis_url=redis_url,
             stream_prefix=stream_prefix,
             initial_offset=initial_offset,
+            replay_start=replay_start,
+            trim_maxlen=trim_maxlen,
+            policy_tier=policy_tier or "standard",
+            policy_dlq_enabled=policy_dlq_enabled,
+            policy_dlq_template=policy_dlq_template,
+            policy_retention_seconds=policy_retention_seconds,
+            policy_idempotency_enabled=policy_idempotency_enabled,
+            policy_idempotency_key_field=policy_idempotency_key_field,
+            policy_idempotency_ttl_seconds=policy_idempotency_ttl_seconds,
+            kafka_enabled=kafka_enabled,
+            kafka_bootstrap_servers=kafka_bootstrap_servers,
+            kafka_topic_prefix=kafka_topic_prefix or "atlas.bus",
+            kafka_client_id=kafka_client_id or "atlas-message-bridge",
+            kafka_driver=kafka_driver,
+            kafka_enable_idempotence=kafka_enable_idempotence,
+            kafka_acks=kafka_acks or "all",
+            kafka_max_in_flight=kafka_max_in_flight,
+            kafka_delivery_timeout=kafka_delivery_timeout,
+            kafka_bridge_enabled=kafka_bridge_enabled,
+            kafka_bridge_topics=kafka_bridge_topics,
+            kafka_bridge_batch_size=kafka_bridge_batch_size,
+            kafka_bridge_max_attempts=kafka_bridge_max_attempts,
+            kafka_bridge_backoff_seconds=kafka_bridge_backoff_seconds,
+            kafka_bridge_dlq_topic=kafka_bridge_dlq_topic or "atlas.bridge.dlq",
         )
         return self.controller.apply_message_bus(new_state)
 

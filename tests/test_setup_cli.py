@@ -61,6 +61,79 @@ sys.modules["sqlalchemy.engine"] = sqlalchemy_engine_module
 sys.modules["sqlalchemy.engine.url"] = sqlalchemy_url_module
 sys.modules["sqlalchemy.orm"] = sqlalchemy_orm_module
 
+# Stub heavy tool imports to avoid optional dependencies during config import.
+base_tools_pkg = types.ModuleType("modules.Tools.Base_Tools")
+base_tools_pkg.__path__ = []
+vector_store_stub = types.ModuleType("modules.Tools.Base_Tools.vector_store")
+
+class _VectorStoreService:  # pragma: no cover - test shim
+    async def upsert_vectors(self, *args, **kwargs):
+        raise NotImplementedError
+
+    async def query_vectors(self, *args, **kwargs):
+        raise NotImplementedError
+
+    async def delete_namespace(self, *args, **kwargs):
+        raise NotImplementedError
+
+
+class _VectorRecord:  # pragma: no cover - test shim
+    def __init__(self, id=None, values=(), metadata=None):
+        self.id = id
+        self.values = values
+        self.metadata = metadata or {}
+
+
+class _QueryMatch:  # pragma: no cover - test shim
+    def __init__(self, id=None, score=0.0, values=None, metadata=None):
+        self.id = id
+        self.score = score
+        self.values = values
+        self.metadata = metadata or {}
+
+
+vector_store_stub.VectorStoreService = _VectorStoreService
+vector_store_stub.VectorRecord = _VectorRecord
+vector_store_stub.QueryMatch = _QueryMatch
+
+tools_pkg = types.ModuleType("modules.Tools")
+tools_pkg.__path__ = []
+sys.modules["modules.Tools"] = tools_pkg
+sys.modules["modules.Tools.Base_Tools"] = base_tools_pkg
+sys.modules["modules.Tools.Base_Tools.vector_store"] = vector_store_stub
+setattr(base_tools_pkg, "vector_store", vector_store_stub)
+tool_event_system = types.ModuleType("modules.Tools.tool_event_system")
+tool_event_system.publish_bus_event = lambda *args, **kwargs: None
+sys.modules["modules.Tools.tool_event_system"] = tool_event_system
+task_queue_stub = types.ModuleType("modules.Tools.Base_Tools.task_queue")
+task_queue_stub.TaskQueueService = type("TaskQueueService", (), {})
+task_queue_stub.get_default_task_queue_service = lambda *args, **kwargs: None
+sys.modules["modules.Tools.Base_Tools.task_queue"] = task_queue_stub
+setattr(base_tools_pkg, "task_queue", task_queue_stub)
+
+task_store_stub = types.ModuleType("modules.task_store")
+task_store_stub.__path__ = []
+task_store_models_stub = types.ModuleType("modules.task_store.models")
+task_store_stub.models = task_store_models_stub
+task_store_stub.TaskService = type("TaskService", (), {})
+task_store_stub.TaskStoreRepository = type("TaskStoreRepository", (), {})
+sys.modules["modules.task_store"] = task_store_stub
+sys.modules["modules.task_store.models"] = task_store_models_stub
+task_store_repository_stub = types.ModuleType("modules.task_store.repository")
+task_store_repository_stub.TaskStoreRepository = task_store_stub.TaskStoreRepository
+sys.modules["modules.task_store.repository"] = task_store_repository_stub
+
+job_store_stub = types.ModuleType("modules.job_store")
+job_store_stub.__path__ = []
+job_store_stub.JobService = type("JobService", (), {})
+job_store_stub.MongoJobStoreRepository = type("MongoJobStoreRepository", (), {})
+job_store_stub.ensure_job_schema = lambda *args, **kwargs: None
+sys.modules["modules.job_store"] = job_store_stub
+sys.modules["modules.job_store.models"] = types.ModuleType("modules.job_store.models")
+job_store_repository_stub = types.ModuleType("modules.job_store.repository")
+job_store_repository_stub.JobStoreRepository = type("JobStoreRepository", (), {})
+sys.modules["modules.job_store.repository"] = job_store_repository_stub
+
 config_module = types.ModuleType("ATLAS.config")
 config_module.__path__ = []
 _real_config_module = importlib.import_module("ATLAS.config")
@@ -646,6 +719,14 @@ def test_configure_message_bus_persists_initial_offset():
             "redis://localhost:6379/0",  # redis url
             "atlas",  # stream prefix
             "replay",  # offset
+            "",  # replay start
+            "",  # trim maxlen
+            "",  # policy tier
+            "",  # dlq enabled (default yes)
+            "",  # dlq template
+            "",  # retention seconds
+            "",  # idempotency enabled (default no)
+            "",  # kafka enabled (default no)
         ]
     )
 
@@ -662,6 +743,12 @@ def test_configure_message_bus_persists_initial_offset():
     assert controller.state.message_bus.redis_url == "redis://localhost:6379/0"
     assert controller.state.message_bus.stream_prefix == "atlas"
     assert controller.state.message_bus.initial_offset == "0-0"
+    assert controller.state.message_bus.replay_start == "0-0"
+    assert controller.state.message_bus.policy_tier == "standard"
+    assert controller.state.message_bus.policy_dlq_template == "dlq.{topic}"
+    assert controller.state.message_bus.policy_retention_seconds is None
+    assert controller.state.message_bus.policy_idempotency_enabled is False
+    assert controller.state.message_bus.kafka_enabled is False
 
 
 def test_configure_message_bus_defaults_to_tail_on_blank_choice():
@@ -676,6 +763,29 @@ def test_configure_message_bus_defaults_to_tail_on_blank_choice():
             "redis://localhost:6379/0",  # redis url
             "atlas",  # stream prefix
             "",  # blank replay behavior defaults to tail
+            "",  # replay start
+            "",  # trim maxlen
+            "",  # policy tier
+            "n",  # dlq disabled
+            "",  # retention seconds
+            "y",  # idempotency enabled
+            "correlation_id",  # idempotency key
+            "60",  # idempotency ttl
+            "y",  # kafka enabled
+            "kafka:9092",  # kafka bootstrap
+            "atlas.test",  # topic prefix
+            "atlas-client",  # client id
+            "",  # driver default
+            "",  # kafka idempotence default yes
+            "all",  # acks
+            "10",  # max in flight
+            "15.0",  # delivery timeout
+            "y",  # bridge enabled
+            "jobs, tasks",  # bridge topics
+            "5",  # batch size
+            "4",  # max attempts
+            "2.5",  # backoff
+            "atlas.bridge.dlq",  # dlq topic
         ]
     )
 
@@ -692,6 +802,106 @@ def test_configure_message_bus_defaults_to_tail_on_blank_choice():
     assert controller.state.message_bus.redis_url == "redis://localhost:6379/0"
     assert controller.state.message_bus.stream_prefix == "atlas"
     assert controller.state.message_bus.initial_offset == "$"
+    assert controller.state.message_bus.replay_start == "$"
+    assert controller.state.message_bus.policy_dlq_enabled is False
+    assert controller.state.message_bus.policy_dlq_template is None
+    assert controller.state.message_bus.policy_idempotency_enabled is True
+    assert controller.state.message_bus.policy_idempotency_key_field == "correlation_id"
+    assert controller.state.message_bus.policy_idempotency_ttl_seconds == 60
+    assert controller.state.message_bus.kafka_enabled is True
+    assert controller.state.message_bus.kafka_bootstrap_servers == "kafka:9092"
+    assert controller.state.message_bus.kafka_topic_prefix == "atlas.test"
+    assert controller.state.message_bus.kafka_client_id == "atlas-client"
+    assert controller.state.message_bus.kafka_driver is None
+    assert controller.state.message_bus.kafka_enable_idempotence is True
+    assert controller.state.message_bus.kafka_acks == "all"
+    assert controller.state.message_bus.kafka_max_in_flight == 10
+    assert controller.state.message_bus.kafka_delivery_timeout == 15.0
+    assert controller.state.message_bus.kafka_bridge_enabled is True
+    assert controller.state.message_bus.kafka_bridge_topics == ("jobs", "tasks")
+    assert controller.state.message_bus.kafka_bridge_batch_size == 5
+    assert controller.state.message_bus.kafka_bridge_max_attempts == 4
+    assert controller.state.message_bus.kafka_bridge_backoff_seconds == 2.5
+    assert controller.state.message_bus.kafka_bridge_dlq_topic == "atlas.bridge.dlq"
+
+
+def test_apply_message_bus_env_overrides_handles_kafka_and_policy():
+    controller = DummyController()
+    controller.state.message_bus = dataclasses.replace(
+        controller.state.message_bus,
+        backend="redis",
+        redis_url="redis://localhost:6379/0",
+        stream_prefix="atlas",
+    )
+    env = {
+        "ATLAS_MESSAGE_BUS_BACKEND": "redis",
+        "ATLAS_REDIS_URL": "redis://cache:6379/0",
+        "ATLAS_STREAM_PREFIX": "custom",
+        "ATLAS_MESSAGING_INITIAL_OFFSET": "replay",
+        "ATLAS_MESSAGING_REPLAY_START": "0-0",
+        "ATLAS_MESSAGING_TIER": "priority",
+        "ATLAS_MESSAGING_DLQ_ENABLED": "false",
+        "ATLAS_MESSAGING_DLQ_TEMPLATE": "dead.{topic}",
+        "ATLAS_MESSAGING_RETENTION_SECONDS": "600",
+        "ATLAS_MESSAGING_TRIM_MAXLEN": "5000",
+        "ATLAS_MESSAGING_IDEMPOTENCY_ENABLED": "true",
+        "ATLAS_MESSAGING_IDEMPOTENCY_KEY": "correlation_id",
+        "ATLAS_MESSAGING_IDEMPOTENCY_TTL": "120",
+        "ATLAS_KAFKA_ENABLED": "true",
+        "ATLAS_KAFKA_BOOTSTRAP": "kafka:9092",
+        "ATLAS_KAFKA_TOPIC_PREFIX": "atlas.bus",
+        "ATLAS_KAFKA_CLIENT_ID": "atlas-client",
+        "ATLAS_KAFKA_DRIVER": "confluent",
+        "ATLAS_KAFKA_IDEMPOTENCE": "false",
+        "ATLAS_KAFKA_ACKS": "1",
+        "ATLAS_KAFKA_MAX_IN_FLIGHT": "2",
+        "ATLAS_KAFKA_DELIVERY_TIMEOUT": "20.5",
+        "ATLAS_BRIDGE_ENABLED": "true",
+        "ATLAS_BRIDGE_TOPICS": "jobs, tasks",
+        "ATLAS_BRIDGE_BATCH_SIZE": "10",
+        "ATLAS_BRIDGE_MAX_ATTEMPTS": "5",
+        "ATLAS_BRIDGE_BACKOFF_SECONDS": "3.5",
+        "ATLAS_BRIDGE_DLQ_TOPIC": "atlas.bridge.dead",
+    }
+    utility = SetupUtility(
+        controller=controller,
+        env=env,
+        input_func=lambda prompt: "",
+        getpass_func=lambda prompt: "",
+        print_func=lambda message: None,
+    )
+
+    utility._apply_message_bus_env_overrides()
+
+    state = controller.state.message_bus
+    assert state.backend == "redis"
+    assert state.redis_url == "redis://cache:6379/0"
+    assert state.stream_prefix == "custom"
+    assert state.initial_offset == "0-0"
+    assert state.replay_start == "0-0"
+    assert state.policy_tier == "priority"
+    assert state.policy_dlq_enabled is False
+    assert state.policy_dlq_template is None
+    assert state.policy_retention_seconds == 600
+    assert state.trim_maxlen == 5000
+    assert state.policy_idempotency_enabled is True
+    assert state.policy_idempotency_key_field == "correlation_id"
+    assert state.policy_idempotency_ttl_seconds == 120
+    assert state.kafka_enabled is True
+    assert state.kafka_bootstrap_servers == "kafka:9092"
+    assert state.kafka_topic_prefix == "atlas.bus"
+    assert state.kafka_client_id == "atlas-client"
+    assert state.kafka_driver == "confluent"
+    assert state.kafka_enable_idempotence is False
+    assert state.kafka_acks == "1"
+    assert state.kafka_max_in_flight == 2
+    assert state.kafka_delivery_timeout == 20.5
+    assert state.kafka_bridge_enabled is True
+    assert state.kafka_bridge_topics == ("jobs", "tasks")
+    assert state.kafka_bridge_batch_size == 10
+    assert state.kafka_bridge_max_attempts == 5
+    assert state.kafka_bridge_backoff_seconds == 3.5
+    assert state.kafka_bridge_dlq_topic == "atlas.bridge.dead"
 
 
 def test_configure_user_stages_profile_and_normalizes_date():
