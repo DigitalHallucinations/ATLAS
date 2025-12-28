@@ -25,6 +25,7 @@ from modules.conversation_store.bootstrap import BootstrapError, bootstrap_conve
 from modules.conversation_store.repository import ConversationStoreRepository
 from modules.job_store import ensure_job_schema
 from modules.user_accounts.user_account_service import UserAccountService
+from modules.orchestration.policy import MessagePolicy
 
 
 logger = logging.getLogger(__name__)
@@ -91,6 +92,28 @@ class MessageBusState:
     redis_url: Optional[str] = None
     stream_prefix: Optional[str] = None
     initial_offset: str = "$"
+    replay_start: str = "$"
+    min_idle_ms: int = 60_000
+    delete_on_ack: bool = True
+    trim_maxlen: Optional[int] = None
+    policy_tier: str = "standard"
+    policy_retry_attempts: int = 3
+    policy_retry_delay: float = 0.1
+    policy_dlq_enabled: bool = True
+    policy_dlq_template: Optional[str] = "dlq.{topic}"
+    policy_retention_seconds: Optional[int] = None
+    policy_idempotency_enabled: bool = False
+    policy_idempotency_key_field: Optional[str] = None
+    policy_idempotency_ttl_seconds: Optional[int] = None
+    kafka_enabled: bool = False
+    kafka_bootstrap_servers: Optional[str] = None
+    kafka_topic_prefix: str = "atlas.bus"
+    kafka_bridge_enabled: bool = False
+    kafka_bridge_topics: tuple[str, ...] = ()
+    kafka_bridge_batch_size: int = 1
+    kafka_bridge_max_attempts: int = 3
+    kafka_bridge_backoff_seconds: float = 1.0
+    kafka_bridge_dlq_topic: str = "atlas.bridge.dlq"
 
 
 @dataclass
@@ -466,11 +489,50 @@ class SetupWizardController:
 
         messaging = self.config_manager.get_messaging_settings()
         backend = str(messaging.get("backend", "in_memory"))
+        policy_block = messaging.get("policy") or {}
+        default_policy = policy_block.get("default") or {}
+        policy_defaults = MessagePolicy()
+        kafka_block = messaging.get("kafka") or {}
+        kafka_bridge = kafka_block.get("bridge") or {}
+        bridge_topics = kafka_bridge.get("topics") or []
+        if isinstance(bridge_topics, (list, tuple)):
+            topics_tuple = tuple(str(topic).strip() for topic in bridge_topics if str(topic).strip())
+        else:
+            topics_tuple = ()
         self.state.message_bus = MessageBusState(
             backend=backend,
             redis_url=messaging.get("redis_url"),
             stream_prefix=messaging.get("stream_prefix"),
             initial_offset=messaging.get("initial_offset") or "$",
+            replay_start=messaging.get("replay_start") or messaging.get("initial_offset") or "$",
+            min_idle_ms=int(messaging.get("min_idle_ms", 60_000) or 60_000),
+            delete_on_ack=bool(messaging.get("delete_on_ack", True)),
+            trim_maxlen=messaging.get("trim_maxlen"),
+            policy_tier=str(default_policy.get("tier") or policy_defaults.tier or "standard"),
+            policy_retry_attempts=int(
+                default_policy.get("retry_attempts", policy_defaults.retry_attempts) or policy_defaults.retry_attempts
+            ),
+            policy_retry_delay=float(
+                default_policy.get("retry_delay", policy_defaults.retry_delay) or policy_defaults.retry_delay
+            ),
+            policy_dlq_enabled=bool(default_policy.get("dlq_topic_template") or policy_defaults.dlq_topic_template),
+            policy_dlq_template=default_policy.get("dlq_topic_template") or policy_defaults.dlq_topic_template,
+            policy_retention_seconds=default_policy.get("retention_seconds") or policy_defaults.retention_seconds,
+            policy_idempotency_enabled=bool(
+                default_policy.get("idempotency_key_field") or default_policy.get("idempotency_ttl_seconds")
+            ),
+            policy_idempotency_key_field=default_policy.get("idempotency_key_field") or policy_defaults.idempotency_key_field,
+            policy_idempotency_ttl_seconds=default_policy.get("idempotency_ttl_seconds")
+            or policy_defaults.idempotency_ttl_seconds,
+            kafka_enabled=bool(kafka_block.get("enabled")),
+            kafka_bootstrap_servers=kafka_block.get("bootstrap_servers"),
+            kafka_topic_prefix=kafka_block.get("topic_prefix") or "atlas.bus",
+            kafka_bridge_enabled=bool(kafka_bridge.get("enabled")),
+            kafka_bridge_topics=topics_tuple,
+            kafka_bridge_batch_size=int(kafka_bridge.get("batch_size", 1) or 1),
+            kafka_bridge_max_attempts=int(kafka_bridge.get("max_attempts", 3) or 3),
+            kafka_bridge_backoff_seconds=float(kafka_bridge.get("backoff_seconds", 1.0) or 1.0),
+            kafka_bridge_dlq_topic=kafka_bridge.get("dlq_topic") or "atlas.bridge.dlq",
         )
 
         kv_settings = self.config_manager.get_kv_store_settings()
@@ -1195,15 +1257,61 @@ class SetupWizardController:
         logger.info("Applying message bus settings for backend '%s'", state.backend)
         if state.backend != "redis":
             initial_offset = "$"
+            replay_start = "$"
+            redis_url = None
+            stream_prefix = None
         else:
             initial_offset = state.initial_offset if state.initial_offset in {"$", "0-0"} else "$"
+            replay_start = state.replay_start if state.replay_start in {"$", "0-0"} else initial_offset
+            redis_url = state.redis_url
+            stream_prefix = state.stream_prefix
+
+        policy_default = {
+            "tier": state.policy_tier or "standard",
+            "retry_attempts": state.policy_retry_attempts,
+            "retry_delay": state.policy_retry_delay,
+            "dlq_topic_template": state.policy_dlq_template if state.policy_dlq_enabled else None,
+            "replay_start": replay_start,
+            "retention_seconds": state.policy_retention_seconds,
+            "idempotency_key_field": (
+                state.policy_idempotency_key_field if state.policy_idempotency_enabled else None
+            ),
+            "idempotency_ttl_seconds": (
+                state.policy_idempotency_ttl_seconds if state.policy_idempotency_enabled else None
+            ),
+        }
+
+        kafka_bridge_topics = list(state.kafka_bridge_topics)
+        kafka_bridge = {
+            "enabled": state.kafka_bridge_enabled,
+            "source_prefix": "redis_kafka",
+            "topics": kafka_bridge_topics,
+            "topic_map": {},
+            "batch_size": state.kafka_bridge_batch_size,
+            "max_attempts": state.kafka_bridge_max_attempts,
+            "backoff_seconds": state.kafka_bridge_backoff_seconds,
+            "dlq_topic": state.kafka_bridge_dlq_topic,
+        }
+
+        kafka_block = {
+            "enabled": state.kafka_enabled,
+            "bootstrap_servers": state.kafka_bootstrap_servers,
+            "topic_prefix": state.kafka_topic_prefix,
+            "bridge": kafka_bridge,
+        }
         settings = self.config_manager.set_messaging_settings(
             backend=state.backend,
-            redis_url=state.redis_url,
-            stream_prefix=state.stream_prefix,
+            redis_url=redis_url,
+            stream_prefix=stream_prefix,
             initial_offset=initial_offset,
+            replay_start=replay_start,
+            min_idle_ms=state.min_idle_ms,
+            delete_on_ack=state.delete_on_ack,
+            trim_maxlen=state.trim_maxlen,
+            policy={"default": policy_default},
+            kafka=kafka_block,
         )
-        self.state.message_bus = dataclasses.replace(state, initial_offset=initial_offset)
+        self.state.message_bus = dataclasses.replace(state, initial_offset=initial_offset, replay_start=replay_start)
         return settings
 
     def apply_kv_store_settings(self, state: KvStoreState) -> Mapping[str, Any]:
