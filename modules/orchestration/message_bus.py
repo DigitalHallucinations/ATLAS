@@ -597,11 +597,11 @@ class MessageBus:
 _global_bus: Optional[MessageBus] = None
 
 
-def configure_message_bus(backend: Optional[MessageBackend] = None) -> MessageBus:
+def configure_message_bus(backend: Optional[MessageBackend] = None, *, policy_resolver: Optional[PolicyResolver] = None) -> MessageBus:
     """Configure the global message bus instance."""
 
     global _global_bus
-    _global_bus = MessageBus(backend=backend)
+    _global_bus = MessageBus(backend=backend, policy_resolver=policy_resolver)
     return _global_bus
 
 

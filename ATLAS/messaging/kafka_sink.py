@@ -29,6 +29,9 @@ class KafkaSink:
     preferred_driver: str | None = None
     extra_config: Mapping[str, Any] = field(default_factory=dict)
     delivery_timeout: float = 10.0
+    enable_idempotence: bool = True
+    acks: str = "all"
+    max_in_flight: int = 5
     producer_factory: Any | None = None
     logger: logging.Logger = LOGGER
 
@@ -47,9 +50,9 @@ class KafkaSink:
                 config = {
                     "bootstrap.servers": self.bootstrap_servers,
                     "client.id": self.client_id,
-                    "enable.idempotence": True,
-                    "acks": "all",
-                    "max.in.flight.requests.per.connection": 5,
+                    "enable.idempotence": bool(self.enable_idempotence),
+                    "acks": self.acks or "all",
+                    "max.in.flight.requests.per.connection": max(int(self.max_in_flight), 1),
                 }
                 config.update(dict(self.extra_config or {}))
                 return "confluent", confluent_kafka.Producer(config)
@@ -61,8 +64,8 @@ class KafkaSink:
                 config = {
                     "bootstrap_servers": self.bootstrap_servers,
                     "client_id": self.client_id,
-                    "acks": "all",
-                    "enable_idempotence": True,
+                    "acks": self.acks or "all",
+                    "enable_idempotence": bool(self.enable_idempotence),
                     "retries": 5,
                 }
                 config.update(dict(self.extra_config or {}))
@@ -202,6 +205,9 @@ class KafkaSink:
                 preferred_driver=str(preferred_driver) if preferred_driver else None,
                 extra_config=extra_config,
                 delivery_timeout=float(kafka_settings.get("delivery_timeout", 10.0) or 10.0),
+                enable_idempotence=bool(kafka_settings.get("enable_idempotence", True)),
+                acks=str(kafka_settings.get("acks") or "all"),
+                max_in_flight=int(kafka_settings.get("max_in_flight", 5) or 5),
                 logger=logger,
             )
         except KafkaSinkUnavailable:

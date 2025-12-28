@@ -197,6 +197,11 @@ def build_bridge_from_settings(
             "Kafka bridge is enabled but no topics were configured under the 'bridge.topics' key; skipping startup."
         )
         return None
+    batch_size = bridge_block.get("batch_size") or 1
+    try:
+        redis_backend._batch_size = max(int(batch_size), 1)  # type: ignore[attr-defined]
+    except Exception:  # pragma: no cover - defensive fallback
+        logger.debug("Redis backend batch size could not be updated; continuing with existing value.")
 
     return RedisToKafkaBridge(
         redis_backend=redis_backend,
