@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from typing import Any, Callable, MutableMapping, Sequence, Tuple
 from collections.abc import Mapping
 
+from modules.orchestration.policy import MessagePolicy, PolicyResolver
+
 from modules.orchestration.message_bus import (
     InMemoryQueueBackend,
     MessageBus,
@@ -26,64 +28,11 @@ class MessagingConfigSection:
     write_yaml_callback: Callable[[], None]
 
     def apply(self) -> None:
-        messaging_block = self.config.get("messaging")
-        if not isinstance(messaging_block, Mapping):
-            messaging_block = {}
-        else:
-            messaging_block = dict(messaging_block)
-
-        backend_name = str(messaging_block.get("backend") or "in_memory").lower()
-        messaging_block["backend"] = backend_name
-        if backend_name == "redis":
-            default_url = self.env_config.get("REDIS_URL", "redis://localhost:6379/0")
-            messaging_block.setdefault("redis_url", default_url)
-            messaging_block.setdefault("stream_prefix", "atlas_bus")
-            raw_replay = messaging_block.get("replay_start")
-            if raw_replay is None:
-                raw_replay = messaging_block.get("initial_offset")
-            if raw_replay is None:
-                raw_replay = messaging_block.get("initial_stream_id")
-            messaging_block["replay_start"] = _normalize_replay_start(raw_replay)
-            messaging_block["initial_offset"] = messaging_block["replay_start"]
-            messaging_block["initial_stream_id"] = messaging_block["replay_start"]
-            messaging_block["batch_size"] = _coerce_positive_int(messaging_block.get("batch_size"), default=1)
-            messaging_block["blocking_timeout_ms"] = _coerce_positive_int(
-                messaging_block.get("blocking_timeout_ms"), default=1000
-            )
-            messaging_block["auto_claim_idle_ms"] = _coerce_positive_int(
-                messaging_block.get("auto_claim_idle_ms"), default=60_000, allow_zero=True
-            )
-            messaging_block["auto_claim_count"] = _coerce_positive_int(
-                messaging_block.get("auto_claim_count"), default=10
-            )
-            delete_ack = messaging_block.get("delete_acknowledged")
-            messaging_block["delete_acknowledged"] = True if delete_ack is None else bool(delete_ack)
-            if "trim_max_length" in messaging_block:
-                messaging_block["trim_max_length"] = _coerce_positive_int(
-                    messaging_block.get("trim_max_length"), default=None
-                )
-
-        kafka_block = _normalize_kafka_block(messaging_block.get("kafka"), env_config=self.env_config)
-        messaging_block["kafka"] = kafka_block
-
+        messaging_block = _normalize_messaging_settings(self.config.get("messaging"), env_config=self.env_config)
         self.config["messaging"] = messaging_block
 
     def get_settings(self) -> dict[str, Any]:
-        configured = self.config.get("messaging")
-        if isinstance(configured, Mapping):
-            block = dict(configured)
-            if block.get("backend") == "redis":
-                raw_offset = block.get("replay_start") or block.get("initial_offset")
-                if raw_offset is None:
-                    raw_offset = block.get("initial_stream_id")
-                normalized_replay = _normalize_replay_start(raw_offset)
-                block["replay_start"] = normalized_replay
-                block["initial_offset"] = normalized_replay
-                block["initial_stream_id"] = normalized_replay
-            if block.get("kafka") is not None:
-                block["kafka"] = _normalize_kafka_block(block.get("kafka"), env_config=self.env_config)
-            return block
-        return {"backend": "in_memory", "replay_start": "$", "initial_offset": "$"}
+        return _normalize_messaging_settings(self.config.get("messaging"), env_config=self.env_config)
 
     def set_settings(
         self,
@@ -100,6 +49,10 @@ class MessagingConfigSection:
         auto_claim_count: int | None = None,
         delete_acknowledged: bool | None = None,
         trim_max_length: int | None = None,
+        delete_on_ack: bool | None = None,
+        trim_maxlen: int | None = None,
+        min_idle_ms: int | None = None,
+        policy: Mapping[str, Any] | None = None,
         kafka: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         sanitized_backend = str(backend or "in_memory").strip().lower()
@@ -107,6 +60,8 @@ class MessagingConfigSection:
             sanitized_backend = "in_memory"
 
         block: dict[str, Any] = {"backend": sanitized_backend}
+        if policy is not None:
+            block["policy"] = dict(policy)
         if sanitized_backend == "redis":
             if redis_url:
                 block["redis_url"] = str(redis_url).strip()
@@ -122,23 +77,26 @@ class MessagingConfigSection:
                 block["batch_size"] = _coerce_positive_int(batch_size, default=1)
             if blocking_timeout_ms is not None:
                 block["blocking_timeout_ms"] = _coerce_positive_int(blocking_timeout_ms, default=1000)
-            if auto_claim_idle_ms is not None:
-                block["auto_claim_idle_ms"] = _coerce_positive_int(
-                    auto_claim_idle_ms, default=60_000, allow_zero=True
-                )
+            min_idle = min_idle_ms if min_idle_ms is not None else auto_claim_idle_ms
+            if min_idle is not None:
+                block["min_idle_ms"] = _coerce_positive_int(min_idle, default=60_000, allow_zero=True)
+                block["auto_claim_idle_ms"] = block["min_idle_ms"]
             if auto_claim_count is not None:
                 block["auto_claim_count"] = _coerce_positive_int(auto_claim_count, default=10)
-            if delete_acknowledged is not None:
-                block["delete_acknowledged"] = bool(delete_acknowledged)
-            if trim_max_length is not None:
-                block["trim_max_length"] = _coerce_positive_int(trim_max_length, default=None)
+            delete_flag = delete_on_ack if delete_on_ack is not None else delete_acknowledged
+            if delete_flag is not None:
+                block["delete_on_ack"] = bool(delete_flag)
+            trim_value = trim_maxlen if trim_maxlen is not None else trim_max_length
+            if trim_value is not None:
+                block["trim_maxlen"] = _coerce_positive_int(trim_value, default=None)
         if kafka is not None:
             block["kafka"] = _normalize_kafka_block(kafka, env_config=self.env_config)
 
-        self.yaml_config["messaging"] = dict(block)
-        self.config["messaging"] = dict(block)
+        normalized = _normalize_messaging_settings(block, env_config=self.env_config)
+        self.yaml_config["messaging"] = dict(normalized)
+        self.config["messaging"] = dict(normalized)
         self.write_yaml_callback()
-        return dict(block)
+        return dict(normalized)
 
 
 def setup_message_bus(settings: Mapping[str, Any], *, logger: Any) -> Tuple[Any, MessageBus]:
@@ -151,6 +109,7 @@ def setup_message_bus(settings: Mapping[str, Any], *, logger: Any) -> Tuple[Any,
     """
 
     backend_name = str(settings.get("backend", "in_memory") or "in_memory").lower()
+    policy_resolver = _build_policy_resolver(settings.get("policy"))
 
     backend: Any
     if backend_name == "redis":
@@ -162,13 +121,16 @@ def setup_message_bus(settings: Mapping[str, Any], *, logger: Any) -> Tuple[Any,
         batch_size = _coerce_positive_int(settings.get("batch_size"), default=1)
         blocking_timeout_ms = _coerce_positive_int(settings.get("blocking_timeout_ms"), default=1000)
         auto_claim_idle_ms = _coerce_positive_int(
-            settings.get("auto_claim_idle_ms"), default=60_000, allow_zero=True
+            settings.get("min_idle_ms") if settings.get("min_idle_ms") is not None else settings.get("auto_claim_idle_ms"),
+            default=60_000,
+            allow_zero=True,
         )
         auto_claim_count = _coerce_positive_int(settings.get("auto_claim_count"), default=10)
-        delete_acknowledged = True if settings.get("delete_acknowledged") is None else bool(
-            settings.get("delete_acknowledged")
-        )
-        trim_max_length = settings.get("trim_max_length")
+        delete_flag = settings.get("delete_on_ack")
+        if delete_flag is None:
+            delete_flag = settings.get("delete_acknowledged")
+        delete_acknowledged = True if delete_flag is None else bool(delete_flag)
+        trim_max_length = settings.get("trim_maxlen", settings.get("trim_max_length"))
         if trim_max_length is not None:
             trim_max_length = _coerce_positive_int(trim_max_length, default=None)
         try:
@@ -192,7 +154,7 @@ def setup_message_bus(settings: Mapping[str, Any], *, logger: Any) -> Tuple[Any,
     else:
         backend = InMemoryQueueBackend()
 
-    bus = configure_message_bus(backend)
+    bus = configure_message_bus(backend, policy_resolver=policy_resolver)
     return backend, bus
 
 
@@ -206,6 +168,172 @@ def _normalize_replay_start(value: Any | None) -> str:
     if _STREAM_ID_PATTERN.match(candidate):
         return candidate
     return "$"
+
+
+def _normalize_policy_settings(value: Any | None) -> dict[str, Any]:
+    block = dict(value) if isinstance(value, Mapping) else {}
+    default_policy = _normalize_policy_entry(block.get("default"))
+    rules = _normalize_policy_rules(block.get("prefixes") or block.get("rules"))
+    return {"default": default_policy, "prefixes": rules}
+
+
+def _normalize_policy_entry(value: Any | None) -> dict[str, Any]:
+    defaults = MessagePolicy()
+    policy = dict(value) if isinstance(value, Mapping) else {}
+    retry_attempts = _coerce_positive_int(policy.get("retry_attempts"), default=defaults.retry_attempts, allow_zero=True)
+    retry_delay = _coerce_positive_float(policy.get("retry_delay"), default=defaults.retry_delay, allow_zero=True)
+    dlq_template = policy.get("dlq_topic_template")
+    if dlq_template is None:
+        dlq_template = policy.get("dlq_topic")
+    if dlq_template is None:
+        dlq_template = defaults.dlq_topic_template
+    dlq_template = str(dlq_template).strip() if dlq_template else None
+    replay_start = _normalize_replay_start(policy.get("replay_start") or defaults.replay_start)
+
+    return {
+        "tier": str(policy.get("tier") or defaults.tier),
+        "retry_attempts": defaults.retry_attempts if retry_attempts is None else retry_attempts,
+        "retry_delay": defaults.retry_delay if retry_delay is None else retry_delay,
+        "dlq_topic_template": dlq_template if dlq_template else None,
+        "replay_start": replay_start,
+        "retention_seconds": _coerce_positive_int(
+            policy.get("retention_seconds"), default=defaults.retention_seconds, allow_zero=True
+        ),
+        "idempotency_key_field": str(policy.get("idempotency_key_field") or defaults.idempotency_key_field or "") or None,
+        "idempotency_ttl_seconds": _coerce_positive_int(
+            policy.get("idempotency_ttl_seconds"),
+            default=defaults.idempotency_ttl_seconds,
+            allow_zero=True,
+        ),
+    }
+
+
+def _normalize_policy_rules(value: Any | None) -> list[dict[str, Any]]:
+    rules: list[dict[str, Any]] = []
+    if isinstance(value, Mapping):
+        candidates = []
+        for key, val in value.items():
+            candidate: dict[str, Any] = {"prefix": key}
+            if isinstance(val, Mapping):
+                candidate.update(dict(val))
+            candidates.append(candidate)
+    elif isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        candidates = list(value)
+    else:
+        candidates = []
+
+    for candidate in candidates:
+        if not isinstance(candidate, Mapping):
+            continue
+        prefix = str(candidate.get("prefix") or "").strip()
+        if not prefix:
+            continue
+        rule_policy = dict(candidate.get("policy") or candidate)
+        rule_policy.pop("prefix", None)
+        rules.append({"prefix": prefix, "policy": _normalize_policy_entry(rule_policy)})
+    return rules
+
+
+def _build_policy_resolver(value: Any | None) -> PolicyResolver | None:
+    settings = _normalize_policy_settings(value)
+    default_policy = _policy_from_mapping(settings.get("default"))
+    prefixes: dict[str, MessagePolicy] = {}
+    for rule in settings.get("prefixes") or []:
+        if not isinstance(rule, Mapping):
+            continue
+        prefix = str(rule.get("prefix") or "").strip()
+        policy = _policy_from_mapping(rule.get("policy")) or default_policy
+        if prefix:
+            prefixes[prefix] = policy
+    if default_policy is None and not prefixes:
+        return None
+    return PolicyResolver(prefixes, default_policy=default_policy or MessagePolicy())
+
+
+def _policy_from_mapping(value: Any | None) -> MessagePolicy | None:
+    if not isinstance(value, Mapping):
+        return None
+    return MessagePolicy(
+        tier=str(value.get("tier") or "standard"),
+        retry_attempts=_coerce_positive_int(value.get("retry_attempts"), default=3, allow_zero=True) or 0,
+        retry_delay=_coerce_positive_float(value.get("retry_delay"), default=0.1, allow_zero=True) or 0.0,
+        dlq_topic_template=value.get("dlq_topic_template"),
+        replay_start=value.get("replay_start"),
+        retention_seconds=_coerce_positive_int(value.get("retention_seconds"), default=None, allow_zero=True),
+        idempotency_key_field=value.get("idempotency_key_field"),
+        idempotency_ttl_seconds=_coerce_positive_int(
+            value.get("idempotency_ttl_seconds"), default=None, allow_zero=True
+        ),
+    )
+
+
+def _normalize_messaging_settings(
+    messaging_block: Any | None, *, env_config: Mapping[str, Any]
+) -> dict[str, Any]:
+    block = dict(messaging_block) if isinstance(messaging_block, Mapping) else {}
+    backend_name = str(block.get("backend") or "in_memory").lower()
+    block["backend"] = backend_name
+
+    block["policy"] = _normalize_policy_settings(block.get("policy"))
+
+    if backend_name == "redis":
+        redis_settings = _normalize_redis_settings(block, env_config=env_config)
+        block.update(redis_settings)
+    else:
+        replay = _normalize_replay_start(block.get("replay_start") or block.get("initial_offset"))
+        block["replay_start"] = replay
+        block["initial_offset"] = replay
+        block["initial_stream_id"] = replay
+    block["kafka"] = _normalize_kafka_block(block.get("kafka"), env_config=env_config)
+    return block
+
+
+def _normalize_redis_settings(value: Mapping[str, Any] | None, *, env_config: Mapping[str, Any]) -> dict[str, Any]:
+    redis_settings = dict(value) if isinstance(value, Mapping) else {}
+    default_url = env_config.get("REDIS_URL", "redis://localhost:6379/0")
+    redis_settings.setdefault("redis_url", default_url)
+    redis_settings.setdefault("stream_prefix", "atlas_bus")
+
+    raw_replay = redis_settings.get("replay_start")
+    if raw_replay is None:
+        raw_replay = redis_settings.get("initial_offset")
+    if raw_replay is None:
+        raw_replay = redis_settings.get("initial_stream_id")
+    normalized_replay = _normalize_replay_start(raw_replay)
+    redis_settings["replay_start"] = normalized_replay
+    redis_settings["initial_offset"] = normalized_replay
+    redis_settings["initial_stream_id"] = normalized_replay
+
+    redis_settings["batch_size"] = _coerce_positive_int(redis_settings.get("batch_size"), default=1)
+    redis_settings["blocking_timeout_ms"] = _coerce_positive_int(
+        redis_settings.get("blocking_timeout_ms"), default=1000
+    )
+    min_idle_raw = redis_settings.get("min_idle_ms")
+    if min_idle_raw is None:
+        min_idle_raw = redis_settings.get("auto_claim_idle_ms")
+    min_idle_ms = _coerce_positive_int(min_idle_raw, default=60_000, allow_zero=True)
+    redis_settings["min_idle_ms"] = min_idle_ms
+    redis_settings["auto_claim_idle_ms"] = min_idle_ms
+    redis_settings["auto_claim_count"] = _coerce_positive_int(redis_settings.get("auto_claim_count"), default=10)
+
+    delete_flag = redis_settings.get("delete_on_ack")
+    if delete_flag is None:
+        delete_flag = redis_settings.get("delete_acknowledged")
+    redis_settings["delete_on_ack"] = True if delete_flag is None else bool(delete_flag)
+    redis_settings["delete_acknowledged"] = redis_settings["delete_on_ack"]
+
+    trim_raw = redis_settings.get("trim_maxlen")
+    if trim_raw is None:
+        trim_raw = redis_settings.get("trim_max_length")
+    trim_value = _coerce_positive_int(trim_raw, default=None)
+    if trim_value is not None:
+        redis_settings["trim_maxlen"] = trim_value
+        redis_settings["trim_max_length"] = trim_value
+    else:
+        redis_settings.pop("trim_maxlen", None)
+        if "trim_max_length" in redis_settings and redis_settings["trim_max_length"] is None:
+            redis_settings.pop("trim_max_length", None)
+    return redis_settings
 
 
 def _normalize_kafka_block(value: Any | None, *, env_config: Mapping[str, Any]) -> dict[str, Any]:
@@ -228,6 +356,12 @@ def _normalize_kafka_block(value: Any | None, *, env_config: Mapping[str, Any]) 
     extra_config = block.get("producer_config")
     block["producer_config"] = dict(extra_config) if isinstance(extra_config, Mapping) else {}
 
+    block["enable_idempotence"] = _coerce_bool(
+        block.get("enable_idempotence") if block.get("enable_idempotence") is not None else block.get("idempotence"),
+        default=True,
+    )
+    block["acks"] = str(block.get("acks") or "all").strip() or "all"
+    block["max_in_flight"] = _coerce_positive_int(block.get("max_in_flight"), default=5, allow_zero=True)
     block["delivery_timeout"] = _coerce_positive_float(block.get("delivery_timeout"), default=10.0)
     block["bridge"] = _normalize_kafka_bridge_block(block.get("bridge"))
     return block
@@ -259,8 +393,9 @@ def _normalize_kafka_bridge_block(value: Any | None) -> dict[str, Any]:
     dlq_topic = bridge.get("dlq_topic")
     bridge["dlq_topic"] = str(dlq_topic).strip() if dlq_topic else "atlas.bridge.dlq"
 
+    bridge["batch_size"] = _coerce_positive_int(bridge.get("batch_size"), default=1)
     bridge["max_attempts"] = _coerce_positive_int(bridge.get("max_attempts"), default=3)
-    bridge["backoff_seconds"] = _coerce_positive_float(bridge.get("backoff_seconds"), default=1.0)
+    bridge["backoff_seconds"] = _coerce_positive_float(bridge.get("backoff_seconds"), default=1.0, allow_zero=True)
     return bridge
 
 
@@ -276,14 +411,14 @@ def _coerce_positive_int(value: Any | None, *, default: int | None, allow_zero: 
     return default
 
 
-def _coerce_positive_float(value: Any | None, *, default: float | None) -> float | None:
+def _coerce_positive_float(value: Any | None, *, default: float | None, allow_zero: bool = False) -> float | None:
     if value is None:
         return default
     try:
         parsed = float(value)
     except (TypeError, ValueError):
         return default
-    if parsed > 0:
+    if parsed > 0 or (allow_zero and parsed == 0):
         return parsed
     return default
 

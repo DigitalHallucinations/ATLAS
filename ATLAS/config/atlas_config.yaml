@@ -157,6 +157,32 @@ job_scheduling:
     max_attempts: 3
 messaging:
   backend: in_memory
+  policy:
+    default:
+      retry_attempts: 3
+      retry_delay: 0.1
+      dlq_topic_template: dlq.{topic}
+    prefixes: []
+  replay_start: "$"
+  min_idle_ms: 60000
+  delete_on_ack: true
+  trim_maxlen:
+  kafka:
+    enabled: false
+    bootstrap_servers:
+    topic_prefix: atlas.bus
+    enable_idempotence: true
+    acks: all
+    max_in_flight: 5
+    bridge:
+      enabled: false
+      source_prefix: redis_kafka
+      topics: []
+      topic_map: {}
+      batch_size: 1
+      max_attempts: 3
+      backoff_seconds: 1.0
+      dlq_topic: atlas.bridge.dlq
 storage:
   architecture:
     conversation_backend: sqlite

@@ -343,6 +343,11 @@ class ConfigManager(ProviderConfigMixin, PersistenceConfigMixin, ConfigCore):
         auto_claim_count: Optional[int] = None,
         delete_acknowledged: Optional[bool] = None,
         trim_max_length: Optional[int] = None,
+        delete_on_ack: Optional[bool] = None,
+        trim_maxlen: Optional[int] = None,
+        min_idle_ms: Optional[int] = None,
+        policy: Optional[Mapping[str, Any]] = None,
+        kafka: Optional[Mapping[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Persist messaging backend preferences and clear cached bus instances."""
 
@@ -358,6 +363,11 @@ class ConfigManager(ProviderConfigMixin, PersistenceConfigMixin, ConfigCore):
             auto_claim_count=auto_claim_count,
             delete_acknowledged=delete_acknowledged,
             trim_max_length=trim_max_length,
+            delete_on_ack=delete_on_ack,
+            trim_maxlen=trim_maxlen,
+            min_idle_ms=min_idle_ms,
+            policy=policy,
+            kafka=kafka,
         )
         self._message_backend = None
         self._message_bus = None
