@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Any, Callable, MutableMapping, Tuple
+from typing import Any, Callable, MutableMapping, Sequence, Tuple
 from collections.abc import Mapping
 
 from modules.orchestration.message_bus import (
@@ -63,6 +63,9 @@ class MessagingConfigSection:
                     messaging_block.get("trim_max_length"), default=None
                 )
 
+        kafka_block = _normalize_kafka_block(messaging_block.get("kafka"), env_config=self.env_config)
+        messaging_block["kafka"] = kafka_block
+
         self.config["messaging"] = messaging_block
 
     def get_settings(self) -> dict[str, Any]:
@@ -77,6 +80,8 @@ class MessagingConfigSection:
                 block["replay_start"] = normalized_replay
                 block["initial_offset"] = normalized_replay
                 block["initial_stream_id"] = normalized_replay
+            if block.get("kafka") is not None:
+                block["kafka"] = _normalize_kafka_block(block.get("kafka"), env_config=self.env_config)
             return block
         return {"backend": "in_memory", "replay_start": "$", "initial_offset": "$"}
 
@@ -95,6 +100,7 @@ class MessagingConfigSection:
         auto_claim_count: int | None = None,
         delete_acknowledged: bool | None = None,
         trim_max_length: int | None = None,
+        kafka: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         sanitized_backend = str(backend or "in_memory").strip().lower()
         if sanitized_backend not in {"in_memory", "redis"}:
@@ -126,6 +132,8 @@ class MessagingConfigSection:
                 block["delete_acknowledged"] = bool(delete_acknowledged)
             if trim_max_length is not None:
                 block["trim_max_length"] = _coerce_positive_int(trim_max_length, default=None)
+        if kafka is not None:
+            block["kafka"] = _normalize_kafka_block(kafka, env_config=self.env_config)
 
         self.yaml_config["messaging"] = dict(block)
         self.config["messaging"] = dict(block)
@@ -200,6 +208,62 @@ def _normalize_replay_start(value: Any | None) -> str:
     return "$"
 
 
+def _normalize_kafka_block(value: Any | None, *, env_config: Mapping[str, Any]) -> dict[str, Any]:
+    block = dict(value) if isinstance(value, Mapping) else {}
+    enabled = _coerce_bool(block.get("enabled"), default=False)
+    block["enabled"] = enabled
+
+    bootstrap_servers = block.get("bootstrap_servers") or env_config.get("KAFKA_BOOTSTRAP_SERVERS")
+    block["bootstrap_servers"] = str(bootstrap_servers).strip() if bootstrap_servers else None
+
+    topic_prefix = block.get("topic_prefix")
+    block["topic_prefix"] = str(topic_prefix).strip() if topic_prefix else "atlas.bus"
+
+    client_id = block.get("client_id")
+    block["client_id"] = str(client_id).strip() if client_id else "atlas-message-bridge"
+
+    driver = block.get("driver") or block.get("preferred_driver")
+    block["driver"] = str(driver).strip().lower() if driver else None
+
+    extra_config = block.get("producer_config")
+    block["producer_config"] = dict(extra_config) if isinstance(extra_config, Mapping) else {}
+
+    block["delivery_timeout"] = _coerce_positive_float(block.get("delivery_timeout"), default=10.0)
+    block["bridge"] = _normalize_kafka_bridge_block(block.get("bridge"))
+    return block
+
+
+def _normalize_kafka_bridge_block(value: Any | None) -> dict[str, Any]:
+    bridge = dict(value) if isinstance(value, Mapping) else {}
+    bridge["enabled"] = _coerce_bool(bridge.get("enabled"), default=False)
+    source_prefix = bridge.get("source_prefix")
+    bridge["source_prefix"] = str(source_prefix).strip() if source_prefix else "redis_kafka"
+
+    topics_raw = bridge.get("topics")
+    topics_value: Sequence[Any] = (
+        topics_raw if isinstance(topics_raw, Sequence) and not isinstance(topics_raw, (str, bytes, bytearray)) else []
+    )
+    topics: list[str] = []
+    for topic in topics_value or []:
+        cleaned = str(topic or "").strip()
+        if cleaned:
+            topics.append(cleaned)
+    bridge["topics"] = topics
+
+    topic_map = bridge.get("topic_map")
+    if isinstance(topic_map, Mapping):
+        bridge["topic_map"] = {str(key).strip(): str(value).strip() for key, value in topic_map.items()}
+    else:
+        bridge["topic_map"] = {}
+
+    dlq_topic = bridge.get("dlq_topic")
+    bridge["dlq_topic"] = str(dlq_topic).strip() if dlq_topic else "atlas.bridge.dlq"
+
+    bridge["max_attempts"] = _coerce_positive_int(bridge.get("max_attempts"), default=3)
+    bridge["backoff_seconds"] = _coerce_positive_float(bridge.get("backoff_seconds"), default=1.0)
+    return bridge
+
+
 def _coerce_positive_int(value: Any | None, *, default: int | None, allow_zero: bool = False) -> int | None:
     if value is None:
         return default
@@ -210,3 +274,32 @@ def _coerce_positive_int(value: Any | None, *, default: int | None, allow_zero: 
     if parsed > 0 or (allow_zero and parsed == 0):
         return parsed
     return default
+
+
+def _coerce_positive_float(value: Any | None, *, default: float | None) -> float | None:
+    if value is None:
+        return default
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return default
+    if parsed > 0:
+        return parsed
+    return default
+
+
+def _coerce_bool(value: Any, *, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"1", "true", "yes", "on"}:
+            return True
+        if lowered in {"0", "false", "no", "off"}:
+            return False
+    try:
+        return bool(int(value))
+    except Exception:
+        return bool(value)

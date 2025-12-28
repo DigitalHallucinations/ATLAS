@@ -15,7 +15,7 @@ source_of_truth: ./style-guide.md
 | ATLAS/config/persistence.py | @config-owners | 2026-02-20 | Needs review | Retention TTL defaults and vector store toggles may differ from deployed values. | 2026-03-25 | Coordinate with Data/DB store alignment in modules audit. |
 | ATLAS/config/tooling.py | @config-owners | 2026-02-20 | Aligned | Tool sandbox defaults match current runtime expectations. | 2026-05-20 | Re-validate after new tool providers land. |
 | ATLAS/config/config_manager.py | @config-owners | 2026-07-08 | Needs review | Env override precedence should be rechecked against setup controller behavior; messaging offsets now reset cached buses when updated. | 2026-09-10 | Track alongside gateway wiring updates in server audit. |
-| ATLAS/config/messaging.py | @config-owners | 2026-07-08 | Aligned | Added explicit Redis initial offset validation and plumbing; defaults remain non-prod. | 2026-10-08 | Keep messaging toggle docs and defaults aligned with Redis backend behavior. |
+| ATLAS/config/messaging.py | @config-owners | 2026-07-09 | Aligned | Added Kafka sink/bridge toggles while preserving Redis defaults and offset validation. | 2026-10-09 | Keep Kafka optional dependency guidance and Redis/Kafka bridge defaults aligned. |
 | ATLAS/config/atlas_config.yaml | @config-owners | 2026-02-20 | Needs review | Validate presets avoid prod-like defaults and that toggle documentation is current. | 2026-03-20 | Keep aligned with config.yaml guidance and setup flows. |
 | ATLAS/config/logging_config.yaml | @config-owners | 2026-02-20 | Aligned | Confirm log sinks/levels stay non-prod by default and remain documented. | 2026-05-20 | Revisit after logging pipeline updates or new sinks. |
 
