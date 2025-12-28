@@ -23,6 +23,8 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Dict, Iterable, Optional
 
+from modules.orchestration.policy import MessagePolicy, PolicyResolver
+
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -378,6 +380,7 @@ class MessageBus:
         backend: Optional[MessageBackend] = None,
         *,
         loop: Optional[asyncio.AbstractEventLoop] = None,
+        policy_resolver: Optional[PolicyResolver] = None,
     ) -> None:
         self._backend = backend or InMemoryQueueBackend()
         self._loop = loop
@@ -386,6 +389,7 @@ class MessageBus:
         self._sequence_lock = threading.Lock()
         self._subscriptions: Dict[str, set[Any]] = defaultdict(set)
         self._thread: Optional[threading.Thread] = None
+        self._policy_resolver = policy_resolver
         if self._loop is None:
             try:
                 self._loop = asyncio.get_running_loop()
@@ -461,29 +465,41 @@ class MessageBus:
         topic: str,
         handler: Callable[[BusMessage], Awaitable[None]],
         *,
-        retry_attempts: int = 3,
-        retry_delay: float = 0.1,
+        retry_attempts: Optional[int] = None,
+        retry_delay: Optional[float] = None,
         concurrency: int = 1,
+        policy_resolver: Optional[PolicyResolver] = None,
     ) -> Subscription:
         """Register *handler* for *topic* messages."""
 
         tasks: set[Any] = set()
+        resolver = policy_resolver or self._policy_resolver
+        default_policy = MessagePolicy()
+
+        def _resolve_policy() -> MessagePolicy:
+            if resolver is None:
+                return default_policy
+            resolved = resolver.resolve(topic)
+            return resolved or default_policy
 
         async def worker() -> None:
+            policy = _resolve_policy()
+            effective_retry_attempts = retry_attempts if retry_attempts is not None else policy.retry_attempts
+            effective_retry_delay = retry_delay if retry_delay is not None else policy.retry_delay
             while True:
                 message = await self._backend.get(topic)
                 try:
                     await handler(message)
                 except Exception:  # pylint: disable=broad-except
                     message.delivery_attempts += 1
-                    if message.delivery_attempts <= retry_attempts:
+                    if message.delivery_attempts <= effective_retry_attempts:
                         _LOGGER.exception(
                             "Handler failure for topic '%s'. Retrying (%d/%d).",
                             topic,
                             message.delivery_attempts,
-                            retry_attempts,
+                            effective_retry_attempts,
                         )
-                        await asyncio.sleep(retry_delay)
+                        await asyncio.sleep(effective_retry_delay)
                         message.enqueued_time = time.time() + self._next_sequence_offset()
                         message.__post_init__()
                         await self._backend.requeue(message)
@@ -491,6 +507,7 @@ class MessageBus:
                         _LOGGER.exception(
                             "Handler failure for topic '%s'. Max retries exceeded.", topic
                         )
+                        self._schedule_dlq_publish(message, policy)
                 finally:
                     self._backend.acknowledge(message)
 
@@ -511,6 +528,40 @@ class MessageBus:
                 self._subscriptions.pop(topic, None)
 
         return Subscription(cancel)
+
+    def _schedule_dlq_publish(self, message: BusMessage, policy: MessagePolicy) -> None:
+        template = policy.dlq_topic_template
+        if not template:
+            return
+
+        dlq_topic = template.format(topic=message.topic)
+        dlq_payload = {
+            "original_topic": message.topic,
+            "payload": message.payload,
+            "metadata": message.metadata,
+            "correlation_id": message.correlation_id,
+            "tracing": message.tracing,
+            "delivery_attempts": message.delivery_attempts,
+            "enqueued_time": message.enqueued_time,
+        }
+        dlq_metadata = dict(message.metadata)
+        dlq_metadata.setdefault("source_topic", message.topic)
+        dlq_message = self._create_message(
+            dlq_topic,
+            dlq_payload,
+            priority=message.priority,
+            correlation_id=message.correlation_id,
+            tracing=message.tracing,
+            metadata=dlq_metadata,
+        )
+
+        async def _publish_dlq() -> None:
+            try:
+                await self._backend.publish(dlq_message)
+            except Exception:  # pragma: no cover - defensive logging path
+                _LOGGER.exception("Failed to publish DLQ message for topic '%s'.", message.topic)
+
+        self._dispatch_background_task(_publish_dlq())
 
     async def close(self) -> None:
         for topic, tasks in list(self._subscriptions.items()):
@@ -549,6 +600,24 @@ class MessageBus:
         message.enqueued_time = time.time() + self._next_sequence_offset()
         message.__post_init__()
         return message
+
+    def _dispatch_background_task(self, coro: Awaitable[None]) -> None:
+        """Run *coro* without blocking the current handler."""
+
+        if self._loop_owner and self._loop is not None:
+            asyncio.run_coroutine_threadsafe(coro, self._loop)
+            return
+
+        if self._loop is not None and self._loop.is_running():
+            self._loop.call_soon_threadsafe(lambda: asyncio.create_task(coro))
+            return
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            asyncio.run(coro)
+        else:
+            loop.create_task(coro)
 
 
 _global_bus: Optional[MessageBus] = None
