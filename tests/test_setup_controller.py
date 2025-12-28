@@ -1,9 +1,84 @@
 import dataclasses
+import sys
+import types
 from pathlib import Path
 
 import pytest
 
 import importlib
+
+# Stub heavy tool dependencies to avoid pulling optional runtime packages during tests.
+base_tools_pkg = types.ModuleType("modules.Tools.Base_Tools")
+base_tools_pkg.__path__ = []
+vector_store_stub = types.ModuleType("modules.Tools.Base_Tools.vector_store")
+
+class _VectorStoreService:  # pragma: no cover - test shim
+    async def upsert_vectors(self, *args, **kwargs):
+        raise NotImplementedError
+
+    async def query_vectors(self, *args, **kwargs):
+        raise NotImplementedError
+
+    async def delete_namespace(self, *args, **kwargs):
+        raise NotImplementedError
+
+
+class _VectorRecord:  # pragma: no cover - test shim
+    def __init__(self, id=None, values=(), metadata=None):
+        self.id = id
+        self.values = values
+        self.metadata = metadata or {}
+
+
+class _QueryMatch:  # pragma: no cover - test shim
+    def __init__(self, id=None, score=0.0, values=None, metadata=None):
+        self.id = id
+        self.score = score
+        self.values = values
+        self.metadata = metadata or {}
+
+
+vector_store_stub.VectorStoreService = _VectorStoreService
+vector_store_stub.VectorRecord = _VectorRecord
+vector_store_stub.QueryMatch = _QueryMatch
+
+tools_pkg = types.ModuleType("modules.Tools")
+tools_pkg.__path__ = []
+sys.modules["modules.Tools"] = tools_pkg
+sys.modules["modules.Tools.Base_Tools"] = base_tools_pkg
+sys.modules["modules.Tools.Base_Tools.vector_store"] = vector_store_stub
+setattr(base_tools_pkg, "vector_store", vector_store_stub)
+tool_event_system = types.ModuleType("modules.Tools.tool_event_system")
+tool_event_system.publish_bus_event = lambda *args, **kwargs: None
+sys.modules["modules.Tools.tool_event_system"] = tool_event_system
+task_queue_stub = types.ModuleType("modules.Tools.Base_Tools.task_queue")
+task_queue_stub.TaskQueueService = type("TaskQueueService", (), {})
+task_queue_stub.get_default_task_queue_service = lambda *args, **kwargs: None
+sys.modules["modules.Tools.Base_Tools.task_queue"] = task_queue_stub
+setattr(base_tools_pkg, "task_queue", task_queue_stub)
+
+task_store_stub = types.ModuleType("modules.task_store")
+task_store_stub.__path__ = []
+task_store_models_stub = types.ModuleType("modules.task_store.models")
+task_store_stub.models = task_store_models_stub
+task_store_stub.TaskService = type("TaskService", (), {})
+task_store_stub.TaskStoreRepository = type("TaskStoreRepository", (), {})
+sys.modules["modules.task_store"] = task_store_stub
+sys.modules["modules.task_store.models"] = task_store_models_stub
+task_store_repository_stub = types.ModuleType("modules.task_store.repository")
+task_store_repository_stub.TaskStoreRepository = task_store_stub.TaskStoreRepository
+sys.modules["modules.task_store.repository"] = task_store_repository_stub
+
+job_store_stub = types.ModuleType("modules.job_store")
+job_store_stub.__path__ = []
+job_store_stub.JobService = type("JobService", (), {})
+job_store_stub.MongoJobStoreRepository = type("MongoJobStoreRepository", (), {})
+job_store_stub.ensure_job_schema = lambda *args, **kwargs: None
+sys.modules["modules.job_store"] = job_store_stub
+sys.modules["modules.job_store.models"] = types.ModuleType("modules.job_store.models")
+job_store_repository_stub = types.ModuleType("modules.job_store.repository")
+job_store_repository_stub.JobStoreRepository = type("JobStoreRepository", (), {})
+sys.modules["modules.job_store.repository"] = job_store_repository_stub
 
 atlas_config = importlib.import_module("ATLAS.config")
 if not hasattr(atlas_config, "PerformanceMode") or not hasattr(atlas_config, "StorageArchitecture"):

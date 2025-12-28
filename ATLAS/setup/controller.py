@@ -108,6 +108,12 @@ class MessageBusState:
     kafka_enabled: bool = False
     kafka_bootstrap_servers: Optional[str] = None
     kafka_topic_prefix: str = "atlas.bus"
+    kafka_client_id: str = "atlas-message-bridge"
+    kafka_driver: Optional[str] = None
+    kafka_enable_idempotence: bool = True
+    kafka_acks: str = "all"
+    kafka_max_in_flight: int = 5
+    kafka_delivery_timeout: float = 10.0
     kafka_bridge_enabled: bool = False
     kafka_bridge_topics: tuple[str, ...] = ()
     kafka_bridge_batch_size: int = 1
@@ -527,6 +533,12 @@ class SetupWizardController:
             kafka_enabled=bool(kafka_block.get("enabled")),
             kafka_bootstrap_servers=kafka_block.get("bootstrap_servers"),
             kafka_topic_prefix=kafka_block.get("topic_prefix") or "atlas.bus",
+            kafka_client_id=kafka_block.get("client_id") or "atlas-message-bridge",
+            kafka_driver=(kafka_block.get("driver") or kafka_block.get("preferred_driver")),
+            kafka_enable_idempotence=bool(kafka_block.get("enable_idempotence", True)),
+            kafka_acks=kafka_block.get("acks") or "all",
+            kafka_max_in_flight=int(kafka_block.get("max_in_flight", 5) or 5),
+            kafka_delivery_timeout=float(kafka_block.get("delivery_timeout", 10.0) or 10.0),
             kafka_bridge_enabled=bool(kafka_bridge.get("enabled")),
             kafka_bridge_topics=topics_tuple,
             kafka_bridge_batch_size=int(kafka_bridge.get("batch_size", 1) or 1),
@@ -1282,8 +1294,9 @@ class SetupWizardController:
         }
 
         kafka_bridge_topics = list(state.kafka_bridge_topics)
+        bridge_enabled = state.kafka_enabled and state.kafka_bridge_enabled
         kafka_bridge = {
-            "enabled": state.kafka_bridge_enabled,
+            "enabled": bridge_enabled,
             "source_prefix": "redis_kafka",
             "topics": kafka_bridge_topics,
             "topic_map": {},
@@ -1297,6 +1310,12 @@ class SetupWizardController:
             "enabled": state.kafka_enabled,
             "bootstrap_servers": state.kafka_bootstrap_servers,
             "topic_prefix": state.kafka_topic_prefix,
+            "client_id": state.kafka_client_id,
+            "driver": state.kafka_driver,
+            "enable_idempotence": state.kafka_enable_idempotence,
+            "acks": state.kafka_acks,
+            "max_in_flight": state.kafka_max_in_flight,
+            "delivery_timeout": state.kafka_delivery_timeout,
             "bridge": kafka_bridge,
         }
         settings = self.config_manager.set_messaging_settings(

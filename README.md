@@ -82,6 +82,20 @@ Review the [configuration reference](docs/configuration.md) to map environment v
 
 ---
 
+## 📡 Messaging configuration
+
+Drive non-interactive setup runs or fine-tune the messaging stack with environment variables:
+
+- `ATLAS_MESSAGE_BUS_BACKEND`, `ATLAS_REDIS_URL`, `ATLAS_STREAM_PREFIX` – choose the backend and Redis connection details.
+- `ATLAS_MESSAGING_INITIAL_OFFSET`, `ATLAS_MESSAGING_REPLAY_START` – control whether the bus tails (`$`) or replays (`0-0`) past messages.
+- `ATLAS_MESSAGING_TIER`, `ATLAS_MESSAGING_DLQ_ENABLED`, `ATLAS_MESSAGING_DLQ_TEMPLATE` – set the default policy tier and dead-letter queue template.
+- `ATLAS_MESSAGING_RETENTION_SECONDS`, `ATLAS_MESSAGING_TRIM_MAXLEN` – retention and stream trimming knobs.
+- `ATLAS_MESSAGING_IDEMPOTENCY_ENABLED`, `ATLAS_MESSAGING_IDEMPOTENCY_KEY`, `ATLAS_MESSAGING_IDEMPOTENCY_TTL` – idempotency hints for topic policies.
+- `ATLAS_KAFKA_ENABLED`, `ATLAS_KAFKA_BOOTSTRAP`, `ATLAS_KAFKA_TOPIC_PREFIX`, `ATLAS_KAFKA_CLIENT_ID`, `ATLAS_KAFKA_DRIVER`, `ATLAS_KAFKA_IDEMPOTENCE`, `ATLAS_KAFKA_ACKS`, `ATLAS_KAFKA_MAX_IN_FLIGHT`, `ATLAS_KAFKA_DELIVERY_TIMEOUT` – Kafka sink bootstrap, topic prefixing, and idempotence controls.
+- `ATLAS_BRIDGE_ENABLED`, `ATLAS_BRIDGE_TOPICS`, `ATLAS_BRIDGE_BATCH_SIZE`, `ATLAS_BRIDGE_MAX_ATTEMPTS`, `ATLAS_BRIDGE_BACKOFF_SECONDS`, `ATLAS_BRIDGE_DLQ_TOPIC` – Redis-to-Kafka bridge toggles, topic list, batching, retry, backoff, and DLQ routing.
+
+---
+
 ## 🪶 Installation
 
 ```bash
