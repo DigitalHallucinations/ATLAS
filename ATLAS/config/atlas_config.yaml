@@ -126,7 +126,7 @@ conversation_database:
     jitter_seconds: 30
     max_interval_seconds: 7200
     min_interval_seconds: 60
-  url: sqlite:////home/jeremy/Projects/ATLAS/atlas.sqlite3
+  url: sqlite:////home/jeremy/Projects/ATLAS/home/jeremy/Projects/ATLAS/atlas.sqlite3
 data_residency:
   region: us
   residency_requirement: regional-primary
@@ -231,3 +231,25 @@ tools:
         reuse_conversation_store: false
         url: sqlite:///atlas_kv.sqlite
     default_adapter: postgres
+  mcp:
+    allow_tools: []
+    default_server: default
+    deny_tools: []
+    enabled: false
+    health_check_interval: 300.0
+    server: default
+    server_config: {}
+    servers:
+      default:
+        allow_tools: []
+        args: []
+        command: null
+        cwd: null
+        deny_tools: []
+        env: {}
+        health_check_interval: 300.0
+        timeout_seconds: 30.0
+        transport: stdio
+        url: null
+    timeout_seconds: 30.0
+    tool: ''
