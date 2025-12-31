@@ -2,7 +2,7 @@
 Neural Cognitive Bus (NCB)
 ====================================
 
-Production-grade, multi-channel, async communication bus for multi-agent systems.
+Multi-channel, async communication bus for multi-agent systems.
 
 
 Author: Jeremy Shows – Digital Hallucinations
@@ -69,6 +69,11 @@ except Exception:
     aioredis = None  # type: ignore
 
 try:
+    from aiokafka import AIOKafkaProducer, AIOKafkaConsumer  # type: ignore
+except Exception:
+    AIOKafkaProducer = AIOKafkaConsumer = None  # type: ignore
+
+try:
     import jsonschema  # type: ignore
 except Exception:
     jsonschema = None  # type: ignore
@@ -81,49 +86,22 @@ except Exception:
 
 
 ###############################################################################
-# Structured Logging (JSON formatter + trace IDs)
+# Logging Setup
 ###############################################################################
 
-class JsonFormatter(logging.Formatter):
+def setup_logging(level: int = logging.INFO, logger_name: str = "NCB") -> logging.Logger:
     """
-    Lightweight JSON log formatter.
-    - Keeps standard fields
-    - Adds trace_id / msg_id / channel if provided via `extra={...}`
-    """
-
-    def format(self, record: logging.LogRecord) -> str:
-        base: Dict[str, Any] = {
-            "ts": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(record.created)),
-            "level": record.levelname,
-            "logger": record.name,
-            "message": record.getMessage(),
-        }
-
-        # Standard extras if present
-        for k in ("channel", "msg_id", "trace_id", "subscriber", "event", "error_type"):
-            v = getattr(record, k, None)
-            if v is not None:
-                base[k] = v
-
-        # Exception info
-        if record.exc_info:
-            base["exc"] = self.formatException(record.exc_info)
-
-        return json.dumps(base, ensure_ascii=False)
-
-
-def setup_json_logging(level: int = logging.INFO, logger_name: str = "NCB") -> logging.Logger:
-    """
-    Convenience helper: create a logger named `logger_name` with JSON formatting.
+    Convenience helper: create a logger named `logger_name` with standard formatting.
     Safe to call multiple times (won't double-add handlers if already configured).
     """
     logger = logging.getLogger(logger_name)
     logger.setLevel(level)
 
     # Avoid duplicate handlers
-    if not any(isinstance(h.formatter, JsonFormatter) for h in logger.handlers):
+    if not any(isinstance(h.formatter, logging.Formatter) and not isinstance(h.formatter, JsonFormatter) for h in logger.handlers):
         handler = logging.StreamHandler()
-        handler.setFormatter(JsonFormatter())
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        handler.setFormatter(formatter)
         logger.addHandler(handler)
         logger.propagate = False
 
@@ -498,6 +476,8 @@ class ChannelConfig:
     # distributed bridging
     redis_in: Optional[str] = None  # redis pubsub channel for inbound
     redis_out: Optional[str] = None  # redis pubsub channel for outbound
+    kafka_in: Optional[str] = None  # kafka topic for inbound
+    kafka_out: Optional[str] = None  # kafka topic for outbound
 
     # dead-letter channel (optional)
     dead_letter_channel: Optional[str] = None
@@ -631,6 +611,8 @@ NCB_CONFIG_SCHEMA: Dict[str, Any] = {
                     "compression_level": {"type": "integer", "minimum": 1, "maximum": 9},
                     "redis_in": {"type": ["string", "null"]},
                     "redis_out": {"type": ["string", "null"]},
+                    "kafka_in": {"type": ["string", "null"]},
+                    "kafka_out": {"type": ["string", "null"]},
                     "dead_letter_channel": {"type": ["string", "null"]},
                     "fanout_max_concurrency": {"type": "integer", "minimum": 1},
                 },
@@ -754,6 +736,8 @@ class NeuralCognitiveBus(BaseClass):
         enable_prometheus: bool = False,
         prometheus_port: int = 8000,
         logger: Optional[logging.Logger] = None,
+        loop: Optional[asyncio.AbstractEventLoop] = None,
+        channel_validator: Optional[Callable[[str], bool]] = None,
         security: Optional[SecurityConfig] = None,
         hot_reload_config_path: Optional[Union[str, Path]] = None,
         hot_reload_interval_sec: float = 2.0,
@@ -763,12 +747,16 @@ class NeuralCognitiveBus(BaseClass):
     ):
         super().__init__()  # type: ignore[misc]
 
-        self.logger = logger or logging.getLogger("NCB")
+        self.logger = logger or setup_logging(logger_name="NCB")
+        self._loop = loop
+        self._channel_validator = channel_validator
+        self._kafka_topic_prefix = "ncb"  # default
         self.default_max_queue_size = int(default_max_queue_size)
 
         self.running: bool = False
         self._tasks: Set[asyncio.Task] = set()
         self._redis_tasks: Set[asyncio.Task] = set()
+        self._kafka_tasks: Set[asyncio.Task] = set()
 
         self._channel_cfg: Dict[str, ChannelConfig] = {}
         self._queues: Dict[str, AsyncPriorityQueue] = {}
@@ -795,6 +783,10 @@ class NeuralCognitiveBus(BaseClass):
 
         # Redis client
         self._redis_client = None
+
+        # Kafka clients
+        self._kafka_producer = None
+        self._kafka_consumer = None
 
         # Hot reload
         self._hot_cfg_path = Path(hot_reload_config_path) if hot_reload_config_path else None
@@ -935,6 +927,8 @@ class NeuralCognitiveBus(BaseClass):
             compression_level=int(m.get("compression_level", 3)),
             redis_in=m.get("redis_in"),
             redis_out=m.get("redis_out"),
+            kafka_in=m.get("kafka_in"),
+            kafka_out=m.get("kafka_out"),
             dead_letter_channel=m.get("dead_letter_channel"),
             fanout_max_concurrency=int(m.get("fanout_max_concurrency", 500)),
         )
@@ -994,6 +988,9 @@ class NeuralCognitiveBus(BaseClass):
         replay_after_seq: int = 0,
         auth: Optional[Dict[str, Any]] = None,
     ) -> None:
+        if self._channel_validator and not self._channel_validator(channel_name):
+            raise ValueError(f"Invalid channel name: {channel_name}")
+
         if channel_name not in self._queues:
             raise ValueError(f"Channel '{channel_name}' does not exist.")
 
@@ -1043,7 +1040,7 @@ class NeuralCognitiveBus(BaseClass):
 
     # ----------------------- Lifecycle -----------------------
 
-    async def start(self, *, redis_url: Optional[str] = None) -> None:
+    async def start(self, *, redis_url: Optional[str] = None, kafka_bootstrap_servers: Optional[str] = None, kafka_topic_prefix: str = "ncb", kafka_client_id: str = "ncb-bridge", kafka_acks: str = "all", kafka_max_in_flight: int = 5, **kwargs) -> None:
         async with self._life_lock:
             if self.running:
                 self.logger.warning("NCB already running", extra={"event": "start_noop"})
@@ -1072,9 +1069,15 @@ class NeuralCognitiveBus(BaseClass):
             if redis_url and aioredis is not None:
                 await self._start_redis(redis_url)
             elif redis_url and aioredis is None:
-                self.logger.warning("Redis requested but redis.asyncio not installed", extra={"event": "redis_missing"})
+                self.logger.warning("Redis requested but redis.asyncio not installed")
 
-            self.logger.info("NCB started", extra={"event": "start", "channel": "ALL"})
+            # Kafka bridge tasks
+            if kafka_bootstrap_servers and AIOKafkaProducer is not None:
+                await self._start_kafka(kafka_bootstrap_servers, kafka_topic_prefix, kafka_client_id, kafka_acks, kafka_max_in_flight)
+            elif kafka_bootstrap_servers and AIOKafkaProducer is None:
+                self.logger.warning("Kafka requested but aiokafka not installed")
+
+            self.logger.info("NCB started")
 
     async def stop(self) -> None:
         async with self._life_lock:
@@ -1095,6 +1098,25 @@ class NeuralCognitiveBus(BaseClass):
                 except Exception:
                     pass
                 self._redis_client = None
+
+            # Cancel kafka tasks
+            for t in list(self._kafka_tasks):
+                t.cancel()
+            if self._kafka_tasks:
+                await asyncio.gather(*self._kafka_tasks, return_exceptions=True)
+            self._kafka_tasks.clear()
+            if self._kafka_producer is not None:
+                try:
+                    await self._kafka_producer.stop()
+                except Exception:
+                    pass
+                self._kafka_producer = None
+            if self._kafka_consumer is not None:
+                try:
+                    await self._kafka_consumer.stop()
+                except Exception:
+                    pass
+                self._kafka_consumer = None
 
             # Cancel main tasks
             for task in list(self._tasks):
@@ -1127,8 +1149,11 @@ class NeuralCognitiveBus(BaseClass):
         Publish a message into a channel.
         Returns message id if enqueued, else None if dropped.
         """
+        if self._channel_validator and not self._channel_validator(channel_name):
+            raise ValueError(f"Invalid channel name: {channel_name}")
+
         if channel_name not in self._queues:
-            self.logger.error("Channel does not exist", extra={"event": "publish_fail", "channel": channel_name})
+            self.logger.error(f"Channel does not exist: {channel_name}")
             return None
 
         self._security.verify(auth, channel_name)
@@ -1196,6 +1221,11 @@ class NeuralCognitiveBus(BaseClass):
         # Redis outbound bridge
         if self._redis_client and cfg.redis_out:
             asyncio.create_task(self._redis_publish(cfg.redis_out, msg), name=f"NCB.redis_out.{channel_name}")
+
+        # Kafka outbound bridge
+        if self._kafka_producer and cfg.kafka_out:
+            topic = f"{self._kafka_topic_prefix}.{cfg.kafka_out}" if hasattr(self, '_kafka_topic_prefix') else cfg.kafka_out
+            asyncio.create_task(self._kafka_publish(topic, msg), name=f"NCB.kafka_out.{channel_name}")
 
         return msg.id
 
@@ -1397,10 +1427,101 @@ class NeuralCognitiveBus(BaseClass):
                     self._redis_tasks.add(t)
                     t.add_done_callback(self._redis_tasks.discard)
 
-            self.logger.info("Redis bridge started", extra={"event": "redis_start"})
+            self.logger.info("Redis bridge started")
         except Exception as e:
-            self.logger.warning("Failed to start Redis bridge: %s", e, extra={"event": "redis_start_fail"})
+            self.logger.warning("Failed to start Redis bridge: %s", e)
             self._redis_client = None
+
+    async def _start_kafka(self, bootstrap_servers: str, topic_prefix: str, client_id: str, acks: str, max_in_flight: int) -> None:
+        if AIOKafkaProducer is None or AIOKafkaConsumer is None:
+            return
+
+        self._kafka_topic_prefix = topic_prefix
+        try:
+            self._kafka_producer = AIOKafkaProducer(
+                bootstrap_servers=bootstrap_servers,
+                client_id=client_id,
+                acks=acks,
+                max_in_flight_requests_per_connection=max_in_flight,
+            )
+            await self._kafka_producer.start()
+
+            self._kafka_consumer = AIOKafkaConsumer(
+                bootstrap_servers=bootstrap_servers,
+                client_id=f"{client_id}-consumer",
+                group_id=f"{client_id}-group",
+                auto_offset_reset="latest",
+            )
+            await self._kafka_consumer.start()
+
+            for ch, cfg in self._channel_cfg.items():
+                if cfg.kafka_in:
+                    topic = f"{topic_prefix}.{cfg.kafka_in}"
+                    t = asyncio.create_task(self._kafka_in_loop(topic, ch), name=f"NCB.kafka_in.{ch}")
+                    self._kafka_tasks.add(t)
+                    t.add_done_callback(self._kafka_tasks.discard)
+
+            self.logger.info("Kafka bridge started")
+        except Exception as e:
+            self.logger.warning("Failed to start Kafka bridge: %s", e)
+            self._kafka_producer = None
+            self._kafka_consumer = None
+
+    async def _kafka_publish(self, kafka_topic: str, msg: Message) -> None:
+        if not self._kafka_producer:
+            return
+        try:
+            codec = self._codec[msg.channel]
+            blob = codec.dumps(msg.to_dict())
+            await self._kafka_producer.send_and_wait(kafka_topic, blob)
+        except Exception as e:
+            self._metrics.inc_errors(msg.channel)
+            self.logger.error(
+                "Kafka publish failed: %s", e,
+                exc_info=True,
+            )
+
+    async def _kafka_in_loop(self, kafka_topic: str, local_channel: str) -> None:
+        """
+        Kafka inbound with retry + exponential backoff.
+        """
+        if not self._kafka_consumer:
+            return
+
+        await self._kafka_consumer.subscribe([kafka_topic])
+        self.logger.info(
+            "Kafka inbound subscribed to %s", kafka_topic
+        )
+
+        try:
+            async for msg in self._kafka_consumer:
+                if not self.running:
+                    break
+                try:
+                    d = self._codec[local_channel].loads(msg.value)
+                    ncb_msg = Message(
+                        id=str(d.get("id") or uuid.uuid4()),
+                        channel=local_channel,
+                        ts=float(d.get("ts") or time.time()),
+                        priority=int(d.get("priority") or self._channel_cfg[local_channel].default_priority),
+                        payload=d.get("payload"),
+                        meta=dict(d.get("meta") or {}),
+                    )
+                    ncb_msg.meta.setdefault("trace_id", ncb_msg.meta.get("trace_id") or str(uuid.uuid4()))
+                    ncb_msg.meta["kafka_in"] = kafka_topic
+
+                    await self._queues[local_channel].put(ncb_msg.priority, ncb_msg)
+                    self._metrics.inc_published(local_channel)
+                except Exception as e:
+                    self._metrics.inc_errors(local_channel)
+                    self.logger.error(
+                        "Kafka inbound failed: %s", e,
+                        exc_info=True,
+                    )
+        except Exception as e:
+            self.logger.error("Kafka consumer error: %s", e)
+        finally:
+            await self._kafka_consumer.unsubscribe()
 
     async def _redis_publish(self, redis_channel: str, msg: Message) -> None:
         if not self._redis_client:

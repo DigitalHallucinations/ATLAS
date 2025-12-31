@@ -23,10 +23,39 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Dict, Mapping, Optional
 
-from ATLAS.messaging.idempotency import IdempotencyStore
-from modules.orchestration.policy import MessagePolicy, PolicyResolver
+from ATLAS.messaging.NCB import NeuralCognitiveBus
+
+from .policy import MessagePolicy, PolicyResolver
 
 _LOGGER = logging.getLogger(__name__)
+
+
+class IdempotencyStore:
+    """Store for tracking idempotency keys to prevent duplicate message processing."""
+
+    def __init__(self, redis_client: Any | None = None) -> None:
+        self._redis = redis_client
+        self._in_memory_store: Dict[str, float] = {}
+
+    async def check_and_set(self, key: str, ttl_seconds: float) -> bool:
+        """Check if key exists, set it if not. Return True if set (new), False if exists (duplicate)."""
+        if self._redis is not None:
+            # Use Redis SET with NX (not exists) and EX (expire)
+            success = await self._redis.set(key, "1", ex=int(ttl_seconds), nx=True)
+            return success is not None
+        else:
+            # In-memory implementation
+            now = time.time()
+            expiry = now + ttl_seconds
+            if key in self._in_memory_store and self._in_memory_store[key] > now:
+                return False  # Exists and not expired
+            self._in_memory_store[key] = expiry
+            # Clean up expired entries occasionally
+            if len(self._in_memory_store) > 1000:
+                expired = [k for k, v in self._in_memory_store.items() if v <= now]
+                for k in expired:
+                    del self._in_memory_store[k]
+            return True
 
 
 class MessagePriority:
@@ -652,12 +681,150 @@ class MessageBus:
 _global_bus: Optional[MessageBus] = None
 
 
+class NCBMessageBus(MessageBus):
+    """MessageBus implementation using NeuralCognitiveBus."""
+
+    def __init__(self, ncb: NeuralCognitiveBus, *, loop: Optional[asyncio.AbstractEventLoop] = None, policy_resolver: Optional[PolicyResolver] = None):
+        # Don't call super().__init__ to avoid backend setup
+        self._ncb = ncb
+        self._loop = loop
+        self._policy_resolver = policy_resolver
+        self._idempotency_store = IdempotencyStore(redis_client=None)  # NCB handles persistence
+        self._subscriptions: Dict[str, set[Any]] = defaultdict(set)
+
+    async def publish(
+        self,
+        topic: str,
+        payload: Dict[str, Any],
+        *,
+        priority: int = MessagePriority.NORMAL,
+        correlation_id: Optional[str] = None,
+        tracing: Optional[Dict[str, Any]] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        meta = dict(metadata or {})
+        if correlation_id:
+            meta["correlation_id"] = correlation_id
+        if tracing:
+            meta.update(tracing)
+        return await self._ncb.publish(topic, payload, priority=priority, meta=meta)
+
+    def subscribe(
+        self,
+        topic: str,
+        handler: Callable[[BusMessage], Awaitable[None]],
+        *,
+        retry_attempts: Optional[int] = None,
+        retry_delay: Optional[float] = None,
+        concurrency: int = 1,
+        policy_resolver: Optional[PolicyResolver] = None,
+    ) -> Subscription:
+        # Use NCB's subscription with wrapped handler
+        resolver = policy_resolver or self._policy_resolver
+        default_policy = MessagePolicy()
+
+        def _resolve_policy() -> MessagePolicy:
+            if resolver is None:
+                return default_policy
+            resolved = resolver.resolve(topic)
+            return resolved or default_policy
+
+        async def wrapped_handler(msg: Any):
+            # Convert NCB Message to BusMessage
+            bus_msg = BusMessage(
+                topic=msg.channel,
+                payload=msg.payload,
+                correlation_id=msg.meta.get("correlation_id", ""),
+                tracing=msg.meta,
+                metadata=msg.meta,
+                enqueued_time=msg.ts,
+                backend_id=msg.id,
+            )
+            # Handle retries, idempotency as in MessageBus
+            policy = _resolve_policy()
+            effective_retry_attempts = retry_attempts if retry_attempts is not None else policy.retry_attempts
+            effective_retry_delay = retry_delay if retry_delay is not None else policy.retry_delay
+            idempotency_field = (policy.idempotency_key_field or "").strip()
+            idempotency_ttl = self._normalize_idempotency_ttl(policy.idempotency_ttl_seconds)
+
+            duplicate = False
+            idempotency_key = None
+            if idempotency_field and idempotency_ttl is not None:
+                idempotency_key = self._extract_idempotency_key(bus_msg, idempotency_field)
+                if idempotency_key is not None:
+                    duplicate = not await self._idempotency_store.check_and_set(idempotency_key, idempotency_ttl)
+                    if duplicate:
+                        _LOGGER.debug(
+                            "Skipping duplicate message for topic '%s' with idempotency key '%s'.",
+                            topic,
+                            idempotency_key,
+                        )
+
+            if duplicate:
+                return
+
+            try:
+                await handler(bus_msg)
+            except Exception:
+                bus_msg.delivery_attempts += 1
+                if bus_msg.delivery_attempts <= effective_retry_attempts:
+                    _LOGGER.exception(
+                        "Handler failure for topic '%s'. Retrying (%d/%d).",
+                        topic,
+                        bus_msg.delivery_attempts,
+                        effective_retry_attempts,
+                    )
+                    await asyncio.sleep(effective_retry_delay)
+                    # Re-publish or handle retry
+                    # For simplicity, just log; NCB handles dead letters
+
+        # Register with NCB
+        module_name = f"atlas_{id(handler)}"
+        asyncio.create_task(self._ncb.register_subscriber(topic, module_name, wrapped_handler))
+        self._subscriptions[topic].add((module_name, handler))
+        
+        def cancel():
+            asyncio.create_task(self._ncb.unregister_subscriber(topic, module_name))
+            self._subscriptions[topic].discard((module_name, handler))
+        
+        return Subscription(cancel)
+
+    async def close(self) -> None:
+        await self._ncb.stop()
+
+    # Helper methods from MessageBus
+    def _normalize_idempotency_ttl(self, ttl_seconds: Optional[int]) -> Optional[int]:
+        if ttl_seconds is None or ttl_seconds <= 0:
+            return None
+        return ttl_seconds
+
+    def _extract_idempotency_key(self, message: BusMessage, field: str) -> Optional[str]:
+        try:
+            value = message.payload
+            for key in field.split("."):
+                if isinstance(value, Mapping):
+                    value = value.get(key)
+                else:
+                    return None
+            return str(value) if value is not None else None
+        except Exception:
+            return None
+
+
 def configure_message_bus(backend: Optional[MessageBackend] = None, *, policy_resolver: Optional[PolicyResolver] = None) -> MessageBus:
     """Configure the global message bus instance."""
 
     global _global_bus
     _global_bus = MessageBus(backend=backend, policy_resolver=policy_resolver)
     return _global_bus
+
+
+def configure_ncb_message_bus(ncb: NeuralCognitiveBus, *, loop: Optional[asyncio.AbstractEventLoop] = None, policy_resolver: Optional[PolicyResolver] = None) -> NCBMessageBus:
+    """Configure the global message bus instance with NCB."""
+
+    global _global_bus
+    _global_bus = NCBMessageBus(ncb, loop=loop, policy_resolver=policy_resolver)  # type: ignore
+    return _global_bus  # type: ignore
 
 
 def get_message_bus() -> MessageBus:

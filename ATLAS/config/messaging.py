@@ -14,6 +14,7 @@ from modules.orchestration.message_bus import (
     MessageBus,
     RedisStreamGroupBackend,
     configure_message_bus,
+    configure_ncb_message_bus,
 )
 
 
@@ -54,9 +55,18 @@ class MessagingConfigSection:
         min_idle_ms: int | None = None,
         policy: Mapping[str, Any] | None = None,
         kafka: Mapping[str, Any] | None = None,
+        # NCB settings
+        persistence_path: str | None = None,
+        enable_prometheus: bool | None = None,
+        prometheus_port: int | None = None,
+        kafka_bootstrap_servers: str | None = None,
+        kafka_topic_prefix: str | None = None,
+        kafka_client_id: str | None = None,
+        kafka_acks: str | None = None,
+        kafka_max_in_flight: int | None = None,
     ) -> dict[str, Any]:
         sanitized_backend = str(backend or "in_memory").strip().lower()
-        if sanitized_backend not in {"in_memory", "redis"}:
+        if sanitized_backend not in {"in_memory", "redis", "ncb"}:
             sanitized_backend = "in_memory"
 
         block: dict[str, Any] = {"backend": sanitized_backend}
@@ -89,6 +99,25 @@ class MessagingConfigSection:
             trim_value = trim_maxlen if trim_maxlen is not None else trim_max_length
             if trim_value is not None:
                 block["trim_maxlen"] = _coerce_positive_int(trim_value, default=None)
+        elif sanitized_backend == "ncb":
+            if persistence_path is not None:
+                block["persistence_path"] = str(persistence_path).strip()
+            if enable_prometheus is not None:
+                block["enable_prometheus"] = bool(enable_prometheus)
+            if prometheus_port is not None:
+                block["prometheus_port"] = _coerce_positive_int(prometheus_port, default=8000)
+            if redis_url is not None:
+                block["redis_url"] = str(redis_url).strip()
+            if kafka_bootstrap_servers is not None:
+                block["kafka_bootstrap_servers"] = str(kafka_bootstrap_servers).strip()
+            if kafka_topic_prefix is not None:
+                block["kafka_topic_prefix"] = str(kafka_topic_prefix).strip()
+            if kafka_client_id is not None:
+                block["kafka_client_id"] = str(kafka_client_id).strip()
+            if kafka_acks is not None:
+                block["kafka_acks"] = str(kafka_acks).strip()
+            if kafka_max_in_flight is not None:
+                block["kafka_max_in_flight"] = _coerce_positive_int(kafka_max_in_flight, default=5)
         if kafka is not None:
             block["kafka"] = _normalize_kafka_block(kafka, env_config=self.env_config)
 
@@ -148,6 +177,32 @@ def setup_message_bus(settings: Mapping[str, Any], *, logger: Any) -> Tuple[Any,
         except Exception as exc:  # pragma: no cover - Redis optional dependency
             logger.warning(
                 "Falling back to in-memory message bus backend due to Redis configuration error: %s",
+                exc,
+            )
+            backend = InMemoryQueueBackend()
+    elif backend_name == "ncb":
+        from ATLAS.messaging.NCB import NeuralCognitiveBus
+        persistence_path = settings.get("persistence_path")
+        enable_prometheus = settings.get("enable_prometheus", False)
+        prometheus_port = settings.get("prometheus_port", 8000)
+        redis_url = settings.get("redis_url")
+        kafka_bootstrap_servers = settings.get("kafka_bootstrap_servers")
+        kafka_topic_prefix = settings.get("kafka_topic_prefix", "atlas.bus")
+        kafka_client_id = settings.get("kafka_client_id", "atlas-message-bridge")
+        kafka_acks = settings.get("kafka_acks", "all")
+        kafka_max_in_flight = settings.get("kafka_max_in_flight", 5)
+        try:
+            ncb = NeuralCognitiveBus(
+                persistence_path=persistence_path,
+                enable_prometheus=enable_prometheus,
+                prometheus_port=prometheus_port,
+                logger=logger,
+            )
+            bus = configure_ncb_message_bus(ncb, policy_resolver=policy_resolver)
+            return ncb, bus  # type: ignore
+        except Exception as exc:
+            logger.warning(
+                "Falling back to in-memory message bus backend due to NCB configuration error: %s",
                 exc,
             )
             backend = InMemoryQueueBackend()
@@ -279,6 +334,9 @@ def _normalize_messaging_settings(
     if backend_name == "redis":
         redis_settings = _normalize_redis_settings(block, env_config=env_config)
         block.update(redis_settings)
+    elif backend_name == "ncb":
+        ncb_settings = _normalize_ncb_settings(block, env_config=env_config)
+        block.update(ncb_settings)
     else:
         replay = _normalize_replay_start(block.get("replay_start") or block.get("initial_offset"))
         block["replay_start"] = replay
@@ -334,6 +392,23 @@ def _normalize_redis_settings(value: Mapping[str, Any] | None, *, env_config: Ma
         if "trim_max_length" in redis_settings and redis_settings["trim_max_length"] is None:
             redis_settings.pop("trim_max_length", None)
     return redis_settings
+
+
+def _normalize_ncb_settings(value: Mapping[str, Any] | None, *, env_config: Mapping[str, Any]) -> dict[str, Any]:
+    ncb_settings = dict(value) if isinstance(value, Mapping) else {}
+    ncb_settings.setdefault("persistence_path", None)
+    ncb_settings.setdefault("enable_prometheus", False)
+    ncb_settings.setdefault("prometheus_port", 8000)
+    ncb_settings.setdefault("redis_url", env_config.get("REDIS_URL"))
+    ncb_settings.setdefault("kafka_bootstrap_servers", env_config.get("KAFKA_BOOTSTRAP_SERVERS"))
+    ncb_settings.setdefault("kafka_topic_prefix", "atlas.bus")
+    ncb_settings.setdefault("kafka_client_id", "atlas-message-bridge")
+    ncb_settings.setdefault("kafka_enable_idempotence", True)
+    ncb_settings.setdefault("kafka_acks", "all")
+    ncb_settings.setdefault("kafka_max_in_flight", 5)
+    ncb_settings.setdefault("kafka_delivery_timeout", 10.0)
+    ncb_settings.setdefault("kafka_bridge_enabled", False)
+    return ncb_settings
 
 
 def _normalize_kafka_block(value: Any | None, *, env_config: Mapping[str, Any]) -> dict[str, Any]:

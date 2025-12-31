@@ -40,6 +40,12 @@ jsonschema
 platformdirs
 # appdirs can be installed as an optional fallback if needed
 
+# for Messaging
+aiokafka
+msgpack
+prometheus_client
+PyJWT
+
 # for Audio
 soundfile
 sounddevice

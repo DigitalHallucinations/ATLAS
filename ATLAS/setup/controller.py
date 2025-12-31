@@ -120,6 +120,10 @@ class MessageBusState:
     kafka_bridge_max_attempts: int = 3
     kafka_bridge_backoff_seconds: float = 1.0
     kafka_bridge_dlq_topic: str = "atlas.bridge.dlq"
+    # NCB settings
+    ncb_persistence_path: Optional[str] = None
+    ncb_enable_prometheus: bool = False
+    ncb_prometheus_port: int = 8000
 
 
 @dataclass

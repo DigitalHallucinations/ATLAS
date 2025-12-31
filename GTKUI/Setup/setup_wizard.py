@@ -3507,9 +3507,9 @@ class SetupWizardWindow(AtlasWindow):
 
         backend = backend_widget.get_active_id() or base_state.backend or "in_memory"
         backend = backend.strip().lower() or "in_memory"
-        if backend not in {"in_memory", "redis"}:
+        if backend not in {"in_memory", "redis", "ncb"}:
             if strict:
-                raise ValueError("Backend must be 'in_memory' or 'redis'")
+                raise ValueError("Backend must be 'in_memory', 'redis', or 'ncb'")
             backend = "in_memory"
 
         redis_url = redis_entry.get_text().strip() or None
@@ -3678,6 +3678,9 @@ class SetupWizardWindow(AtlasWindow):
             kafka_bridge_max_attempts=max_attempts,
             kafka_bridge_backoff_seconds=backoff_seconds,
             kafka_bridge_dlq_topic=bridge_dlq_topic,
+            ncb_persistence_path=base_state.ncb_persistence_path,
+            ncb_enable_prometheus=base_state.ncb_enable_prometheus,
+            ncb_prometheus_port=base_state.ncb_prometheus_port,
         )
 
     def _build_provider_pages(self) -> list[Gtk.Widget]:

@@ -25,6 +25,7 @@ from ATLAS.setup.controller import (
     SetupWizardController,
     SpeechState,
     UserState,
+    _parse_default_dsn,
 )
 from ATLAS.setup_marker import write_setup_marker
 from modules.conversation_store.bootstrap import BootstrapError
@@ -157,7 +158,7 @@ class SetupUtility:
         resolver = getattr(self.controller, "_resolve_queue_defaults", None)
         backend = getattr(self.controller.state.message_bus, "backend", "in_memory")
         if callable(resolver):
-            return resolver(backend=backend)
+            return resolver(backend=backend)  # type: ignore
         normalized = (backend or "in_memory").strip().lower()
         if normalized == "redis":
             return 8, 500
@@ -452,7 +453,7 @@ class SetupUtility:
         backend = state.backend
         if backend_override:
             normalized = backend_override.lower()
-            if normalized in {"in_memory", "redis"}:
+            if normalized in {"in_memory", "redis", "ncb"}:
                 backend = normalized
 
         redis_override = self._env_get("ATLAS_REDIS_URL")
@@ -482,6 +483,15 @@ class SetupUtility:
             stream_prefix = None
             initial_offset = "$"
             replay_start = "$"
+
+        ncb_persistence_path = self._env_get("ATLAS_NCB_PERSISTENCE_PATH") or state.ncb_persistence_path
+        ncb_enable_prometheus = self._env_bool("ATLAS_NCB_ENABLE_PROMETHEUS") or state.ncb_enable_prometheus
+        ncb_prometheus_port = self._env_int("ATLAS_NCB_PROMETHEUS_PORT") or state.ncb_prometheus_port
+
+        if backend != "ncb":
+            ncb_persistence_path = None
+            ncb_enable_prometheus = False
+            ncb_prometheus_port = 8000
 
         policy_tier = self._env_get("ATLAS_MESSAGING_TIER") or state.policy_tier
         dlq_enabled_override = self._env_bool("ATLAS_MESSAGING_DLQ_ENABLED")
@@ -776,7 +786,7 @@ class SetupUtility:
         if state.backend != selected_backend:
             option = backend_map.get(selected_backend)
             if option is not None:
-                state = _parse_default_dsn(option.dsn, backend=option.name)
+              state = _parse_default_dsn(option.dsn, backend=option.name)  
             else:
                 state = dataclasses.replace(state, backend=selected_backend)
         else:
