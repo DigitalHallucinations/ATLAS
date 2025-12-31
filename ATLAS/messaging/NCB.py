@@ -98,7 +98,7 @@ def setup_logging(level: int = logging.INFO, logger_name: str = "NCB") -> loggin
     logger.setLevel(level)
 
     # Avoid duplicate handlers
-    if not any(isinstance(h.formatter, logging.Formatter) and not isinstance(h.formatter, JsonFormatter) for h in logger.handlers):
+    if not any(isinstance(h, logging.StreamHandler) for h in logger.handlers):
         handler = logging.StreamHandler()
         formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
         handler.setFormatter(formatter)
@@ -218,11 +218,13 @@ class Codec:
 
         if self.compress:
             try:
-                raw = zlib.compress(raw, level=self.compression_level)  # type: ignore
+                compressed = zlib.compress(raw, level=self.compression_level)  # type: ignore
+                if compressed is not None:
+                    raw = compressed
             except Exception as e:
                 raise CodecError(f"Compress failed: {e}") from e
 
-        return raw
+        return raw  # type: ignore[return-value]
 
     def loads(self, data: bytes) -> Any:
         raw = data
@@ -524,7 +526,7 @@ class MetricsRegistry:
     def __init__(self, enable_prometheus: bool = False, prometheus_port: int = 8000, logger: Optional[logging.Logger] = None):
         self.logger = logger or logging.getLogger("NCB.metrics")
         self.local: Dict[str, LocalMetrics] = {}
-        self.enable_prometheus = bool(enable_prometheus and Counter is not None)
+        self.enable_prometheus = bool(enable_prometheus and Counter is not None and Gauge is not None and Histogram is not None and start_http_server is not None)
 
         self._p_published = None
         self._p_dropped = None
@@ -535,13 +537,13 @@ class MetricsRegistry:
         self._p_disp_lat = None
 
         if self.enable_prometheus:
-            self._p_published = Counter("ncb_published_total", "Messages published", ["channel"])
-            self._p_dropped = Counter("ncb_dropped_total", "Messages dropped", ["channel"])
-            self._p_dispatched = Counter("ncb_dispatched_total", "Messages dispatched", ["channel"])
-            self._p_errors = Counter("ncb_errors_total", "Errors", ["channel"])
-            self._p_queue = Gauge("ncb_queue_size", "Channel queue size", ["channel"])
-            self._p_pub_lat = Histogram("ncb_publish_latency_ms", "Publish latency (ms)", ["channel"])
-            self._p_disp_lat = Histogram("ncb_dispatch_latency_ms", "Dispatch latency (ms)", ["channel"])
+            self._p_published = Counter("ncb_published_total", "Messages published", ["channel"])  # type: ignore
+            self._p_dropped = Counter("ncb_dropped_total", "Messages dropped", ["channel"])  # type: ignore
+            self._p_dispatched = Counter("ncb_dispatched_total", "Messages dispatched", ["channel"])  # type: ignore
+            self._p_errors = Counter("ncb_errors_total", "Errors", ["channel"])  # type: ignore
+            self._p_queue = Gauge("ncb_queue_size", "Channel queue size", ["channel"])  # type: ignore
+            self._p_pub_lat = Histogram("ncb_publish_latency_ms", "Publish latency (ms)", ["channel"])  # type: ignore
+            self._p_disp_lat = Histogram("ncb_dispatch_latency_ms", "Dispatch latency (ms)", ["channel"])  # type: ignore
             try:
                 start_http_server(prometheus_port)  # type: ignore
                 self.logger.info("Prometheus exporter started", extra={"event": "prometheus_start"})
@@ -710,7 +712,7 @@ class AsyncPriorityQueue:
 BaseClass = nn.Module if nn is not None else object
 
 
-class NeuralCognitiveBus(BaseClass):
+class NeuralCognitiveBus(BaseClass):  # type: ignore
     """
     Neural Cognitive Bus (NCB)
     -------------------------
@@ -1113,7 +1115,7 @@ class NeuralCognitiveBus(BaseClass):
                 self._kafka_producer = None
             if self._kafka_consumer is not None:
                 try:
-                    await self._kafka_consumer.stop()
+                    await self._kafka_consumer.stop()  # type: ignore
                 except Exception:
                     pass
                 self._kafka_consumer = None
@@ -1442,7 +1444,6 @@ class NeuralCognitiveBus(BaseClass):
                 bootstrap_servers=bootstrap_servers,
                 client_id=client_id,
                 acks=acks,
-                max_in_flight_requests_per_connection=max_in_flight,
             )
             await self._kafka_producer.start()
 
@@ -1452,7 +1453,7 @@ class NeuralCognitiveBus(BaseClass):
                 group_id=f"{client_id}-group",
                 auto_offset_reset="latest",
             )
-            await self._kafka_consumer.start()
+            await self._kafka_consumer.start()  # type: ignore
 
             for ch, cfg in self._channel_cfg.items():
                 if cfg.kafka_in:
@@ -1488,7 +1489,7 @@ class NeuralCognitiveBus(BaseClass):
         if not self._kafka_consumer:
             return
 
-        await self._kafka_consumer.subscribe([kafka_topic])
+        await self._kafka_consumer.subscribe([kafka_topic])  # type: ignore
         self.logger.info(
             "Kafka inbound subscribed to %s", kafka_topic
         )
@@ -1498,6 +1499,8 @@ class NeuralCognitiveBus(BaseClass):
                 if not self.running:
                     break
                 try:
+                    if msg.value is None:  # type: ignore
+                        continue
                     d = self._codec[local_channel].loads(msg.value)
                     ncb_msg = Message(
                         id=str(d.get("id") or uuid.uuid4()),
@@ -1521,9 +1524,7 @@ class NeuralCognitiveBus(BaseClass):
         except Exception as e:
             self.logger.error("Kafka consumer error: %s", e)
         finally:
-            await self._kafka_consumer.unsubscribe()
-
-    async def _redis_publish(self, redis_channel: str, msg: Message) -> None:
+            self._kafka_consumer.unsubscribe()
         if not self._redis_client:
             return
         try:
