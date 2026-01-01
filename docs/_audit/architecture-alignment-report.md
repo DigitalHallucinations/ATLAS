@@ -1,7 +1,7 @@
 ---
 audience: Documentation maintainers and contributors
 status: draft
-last_verified: 2026-02-27
+last_verified: 2026-01-01
 source_of_truth: docs/_audit/style-guide.md
 ---
 
@@ -10,6 +10,15 @@ source_of_truth: docs/_audit/style-guide.md
 > Navigation: See the [audit workspace README](./README.md) for cadence, quick-start steps, and recording guidance.
 
 This report compares key architectural claims in the documentation against the current implementation. Each section lists notable claims, whether they match code behavior, and recommended follow-ups.
+
+## StorageManager refactor
+
+- ✅ **Sole storage mechanism** – StorageManager (`modules/storage/manager.py`) is now the only storage mechanism in ATLAS. All legacy fallback paths have been removed.
+- ✅ **ATLAS integration** – `ATLAS/ATLAS.py` initializes StorageManager during `initialize()` and obtains repositories via `storage.conversations`, `storage.tasks`, `storage.jobs`.
+- ✅ **ConfigManager delegation** – `ATLAS/config/persistence.py` methods now delegate to StorageManager; legacy repository builders removed.
+- ✅ **Server routes** – `modules/Server/routes.py` methods (`_build_conversation_repository`, `_build_task_service`, `_build_job_service`) require StorageManager with no fallback.
+- ✅ **Documentation** – Added `docs/storage-manager.md` covering configuration, API, health checks, and config converters.
+- ✅ **Legacy removal** – Removed `ConfigManagerStorageBridge` from `modules/storage/compat.py`; only config converters remain.
 
 ## Owner registry alignment
 

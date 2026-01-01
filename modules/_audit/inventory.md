@@ -1,7 +1,7 @@
 ---
 audience: Backend and data service owners
 status: draft
-last_verified: 2026-02-20
+last_verified: 2026-01-01
 source_of_truth: ./style-guide.md
 ---
 
@@ -11,6 +11,10 @@ source_of_truth: ./style-guide.md
 
 | path | owner | last_audited | alignment_status | gaps_found | next_review | notes |
 | --- | --- | --- | --- | --- | --- | --- |
+| modules/storage/manager.py | @data-eng | 2026-01-01 | Aligned | New module; StorageManager is now the sole storage mechanism. | 2026-04-01 | Primary orchestrator for all persistence; see [`docs/storage-manager.md`](../../docs/storage-manager.md). |
+| modules/storage/settings.py | @data-eng | 2026-01-01 | Aligned | Configuration dataclasses for SQL, Mongo, Vector, and retention settings. | 2026-04-01 | Loaded from environment or config.yaml. |
+| modules/storage/adapters.py | @data-eng | 2026-01-01 | Aligned | Domain store factory bridges StorageManager to conversation/task/job repositories. | 2026-04-01 | Repositories obtained via `storage.conversations`, `storage.tasks`, `storage.jobs`. |
+| modules/storage/compat.py | @data-eng | 2026-01-01 | Aligned | Config converters for setup wizard and StorageArchitecture interop. | 2026-04-01 | Legacy ConfigManagerStorageBridge removed; only converters remain. |
 | modules/orchestration/job_scheduler.py | @backend-core | 2026-02-20 | Needs review | Retry defaults and backoff handling recently changed; confirm persisted schedules match docs. | 2026-04-15 | Track alongside scheduler drift in [`alignment-report.md`](./alignment-report.md#drift-findings). |
 | modules/Personas/schema.json | @persona-maintainers | 2026-02-20 | Aligned | Schema validations reflect current persona tooling expectations. | 2026-05-20 | Re-run persona schema tests after manifest changes. |
 | modules/conversation_store/repository.py | @data-eng | 2026-02-20 | Needs review | Retention hooks and vector pipeline calls may diverge from current configs. | 2026-03-30 | Pair with Data/DB alignment items in [`alignment-report.md`](./alignment-report.md#current-risks). |
