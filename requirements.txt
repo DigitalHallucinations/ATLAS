@@ -7,7 +7,6 @@ APScheduler
 SQLAlchemy
 alembic
 psycopg
-pgvector
 pytest-postgresql
 tzlocal
 

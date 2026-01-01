@@ -5,12 +5,6 @@ from __future__ import annotations
 import uuid
 import importlib.util
 
-if importlib.util.find_spec("pgvector") is None:  # pragma: no cover - import guard
-    raise ImportError(
-        "pgvector is required for the conversation store. Install with "
-        "`pip install pgvector psycopg[binary]` to enable PostgreSQL vector support."
-    )
-
 from sqlalchemy import (
     Boolean,
     Column,
@@ -30,7 +24,22 @@ from sqlalchemy.dialects.postgresql import UUID as _PG_UUID  # type: ignore
 from sqlalchemy.orm import declarative_base, relationship
 from sqlalchemy.types import JSON, TypeDecorator
 
-from pgvector.sqlalchemy import Vector as PGVector  # type: ignore
+# Lazy import for pgvector - only required when using PostgreSQL with vector columns
+_PGVector = None
+
+
+def _get_pgvector():
+    """Lazily import pgvector.sqlalchemy.Vector when needed."""
+    global _PGVector
+    if _PGVector is None:
+        if importlib.util.find_spec("pgvector") is None:
+            raise ImportError(
+                "pgvector is required for PostgreSQL vector support. Install with "
+                "`pip install pgvector psycopg[binary]` to enable PostgreSQL vector columns."
+            )
+        from pgvector.sqlalchemy import Vector as PGVector  # type: ignore
+        _PGVector = PGVector
+    return _PGVector
 
 from modules.store_common.model_utils import generate_uuid, utcnow
 
@@ -100,6 +109,7 @@ class EmbeddingVector(TypeDecorator):
 
     def load_dialect_impl(self, dialect):  # type: ignore[override]
         if dialect.name == "postgresql":
+            PGVector = _get_pgvector()
             return dialect.type_descriptor(PGVector())
         return dialect.type_descriptor(JSON())
 

@@ -23,8 +23,9 @@ try:
     from .vector_pipeline import ConversationVectorCatalog, ConversationVectorPipeline
 except ImportError as exc:  # pragma: no cover - startup import guard
     raise ImportError(
-        "Conversation store SQL backend requires SQLAlchemy with PostgreSQL dialect and "
-        "pgvector installed. Install with `pip install SQLAlchemy pgvector psycopg[binary]`."
+        "Conversation store SQL backend requires SQLAlchemy with PostgreSQL dialect. "
+        "For PostgreSQL vector support, also install pgvector: "
+        "`pip install SQLAlchemy psycopg[binary] pgvector`."
     ) from exc
 
 # Import task models so they share the conversation metadata during bootstrap.

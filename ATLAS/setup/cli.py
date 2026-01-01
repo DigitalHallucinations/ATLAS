@@ -755,6 +755,24 @@ class SetupUtility:
                 kwargs["text"] = True
             self._run(command, **kwargs)
 
+    def _install_pgvector(self) -> None:
+        """Install pgvector Python package for PostgreSQL vector support."""
+        import importlib.util
+
+        if importlib.util.find_spec("pgvector") is not None:
+            return  # Already installed
+
+        self._print("Installing pgvector for PostgreSQL vector support...")
+        pip = sys.executable
+        try:
+            self._run([pip, "-m", "pip", "install", "pgvector"], check=True)
+            self._print("pgvector installed successfully.")
+        except subprocess.CalledProcessError as exc:
+            self._print(
+                f"Warning: Failed to install pgvector automatically: {exc}. "
+                "You may need to install it manually with `pip install pgvector`."
+            )
+
     # -- configuration collection --------------------------------------
 
     def configure_database(self) -> str:
@@ -791,6 +809,10 @@ class SetupUtility:
                 state = dataclasses.replace(state, backend=selected_backend)
         else:
             state = dataclasses.replace(state, backend=selected_backend)
+
+        # Install pgvector when PostgreSQL is selected
+        if selected_backend == "postgresql":
+            self._install_pgvector()
 
         while True:
             if state.backend == "sqlite":

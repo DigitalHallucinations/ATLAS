@@ -14,8 +14,9 @@ from typing import Callable, Iterable
 from urllib.parse import urlparse
 
 _SQLALCHEMY_REQUIRED = (
-    "SQLAlchemy is required for the conversation store. Install it alongside pgvector "
-    "and the PostgreSQL dialect extras (e.g. `pip install SQLAlchemy pgvector psycopg[binary]`)."
+    "SQLAlchemy is required for the conversation store. Install it alongside "
+    "the PostgreSQL dialect extras (e.g. `pip install SQLAlchemy psycopg[binary]`). "
+    "For vector support, also install pgvector: `pip install pgvector`."
 )
 
 if importlib.util.find_spec("sqlalchemy") is None:
