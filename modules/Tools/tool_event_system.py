@@ -6,7 +6,13 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional
 
-from modules.orchestration.message_bus import MessagePriority, Subscription, get_message_bus
+from ATLAS.messaging import (
+    AgentBus,
+    AgentMessage,
+    MessagePriority,
+    Subscription,
+    get_agent_bus,
+)
 
 
 _FAILURE_THRESHOLD = 3
@@ -79,10 +85,10 @@ def publish_bus_event(
     metadata: Optional[Dict[str, Any]] = None,
     emit_legacy: bool = True,
 ) -> str:
-    """Publish *payload* to the new message bus and legacy subscribers.
+    """Publish *payload* to the AgentBus and legacy subscribers.
 
     Args:
-        event_name: Topic identifier for the message.
+        event_name: Channel/topic identifier for the message.
         payload: Event payload forwarded to subscribers.
         priority: Relative priority used by the backend.
         correlation_id: Optional correlation identifier for tracing.
@@ -93,16 +99,21 @@ def publish_bus_event(
     Returns:
         The correlation identifier assigned to the message.
     """
-
     bus_payload = {"event": event_name, "data": payload}
-    correlation = get_message_bus().publish_from_sync(
-        event_name,
-        bus_payload,
+    headers = dict(metadata or {})
+    if tracing:
+        headers["tracing"] = str(tracing)
+    
+    message = AgentMessage(
+        channel=event_name,
+        payload=bus_payload,
         priority=priority,
-        correlation_id=correlation_id,
-        tracing=tracing,
-        metadata=metadata,
+        trace_id=correlation_id,
+        headers=headers,
     )
+    bus = get_agent_bus()
+    correlation = bus.publish_from_sync(message)
+    
     if emit_legacy:
         event_system.publish(event_name, payload)
     return correlation
@@ -117,7 +128,7 @@ def subscribe_bus_event(
     retry_delay: float = 0.1,
     concurrency: int = 1,
 ) -> "DualSubscription":
-    """Subscribe *callback* to both the legacy event system and the message bus."""
+    """Subscribe *callback* to both the legacy event system and the AgentBus."""
 
     callback_is_coro = asyncio.iscoroutinefunction(callback)
     try:
@@ -127,7 +138,7 @@ def subscribe_bus_event(
         parameter_count = 0
     accepts_message = include_message or parameter_count > 1
 
-    async def bus_handler(message):
+    async def bus_handler(message: AgentMessage) -> None:
         data = message.payload.get("data") if isinstance(message.payload, dict) else message.payload
         if callback_is_coro:
             if accepts_message:
@@ -140,13 +151,28 @@ def subscribe_bus_event(
             else:
                 await asyncio.to_thread(callback, data)
 
-    bus_subscription = get_message_bus().subscribe(
-        event_name,
-        bus_handler,
-        retry_attempts=retry_attempts,
-        retry_delay=retry_delay,
-        concurrency=concurrency,
-    )
+    # Subscribe asynchronously - need to schedule on event loop
+    bus = get_agent_bus()
+    
+    async def _do_subscribe() -> Subscription:
+        if not bus._running:
+            await bus.start()
+        return await bus.subscribe(
+            event_name,
+            bus_handler,
+            retry_attempts=retry_attempts,
+            retry_delay=retry_delay,
+            concurrency=concurrency,
+        )
+    
+    # Get or create event loop and schedule subscription
+    try:
+        loop = asyncio.get_running_loop()
+        future = asyncio.run_coroutine_threadsafe(_do_subscribe(), loop)
+        bus_subscription = future.result(timeout=5.0)
+    except RuntimeError:
+        # No running loop, create new one
+        bus_subscription = asyncio.run(_do_subscribe())
 
     def legacy_handler(*args, **kwargs):
         data: Any
@@ -192,4 +218,9 @@ class DualSubscription:
 
     def cancel(self) -> None:
         event_system.unsubscribe(self.event_name, self.legacy_handler)
-        self.bus_subscription.cancel()
+        # Schedule async cancel on event loop
+        try:
+            loop = asyncio.get_running_loop()
+            asyncio.run_coroutine_threadsafe(self.bus_subscription.cancel(), loop)
+        except RuntimeError:
+            asyncio.run(self.bus_subscription.cancel())

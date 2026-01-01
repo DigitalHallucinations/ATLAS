@@ -9,13 +9,7 @@ from collections.abc import Mapping
 
 from modules.orchestration.policy import MessagePolicy, PolicyResolver
 
-from modules.orchestration.message_bus import (
-    InMemoryQueueBackend,
-    MessageBus,
-    RedisStreamGroupBackend,
-    configure_message_bus,
-    configure_ncb_message_bus,
-)
+from ATLAS.messaging import AgentBus, configure_agent_bus
 
 
 @dataclass
@@ -128,89 +122,38 @@ class MessagingConfigSection:
         return dict(normalized)
 
 
-def setup_message_bus(settings: Mapping[str, Any], *, logger: Any) -> Tuple[Any, MessageBus]:
-    """Instantiate a message bus backend according to the provided settings.
+def setup_message_bus(settings: Mapping[str, Any], *, logger: Any) -> Tuple[Any, AgentBus]:
+    """Instantiate an AgentBus according to the provided settings.
 
-    Recognized Redis settings include:
-    ``redis_url``, ``stream_prefix``, ``replay_start``/``initial_offset``,
-    ``batch_size``, ``blocking_timeout_ms``, ``auto_claim_idle_ms``,
-    ``auto_claim_count``, ``delete_acknowledged``, and ``trim_max_length``.
+    The AgentBus wraps the Neural Cognitive Bus (NCB) and supports configuration
+    for persistence, Prometheus metrics, Redis bridging, and Kafka integration.
+    
+    Legacy Redis/in-memory backends are no longer supported - all configurations
+    now use the NCB-backed AgentBus.
     """
 
     backend_name = str(settings.get("backend", "in_memory") or "in_memory").lower()
-    policy_resolver = _build_policy_resolver(settings.get("policy"))
-
-    backend: Any
-    if backend_name == "redis":
-        redis_url = settings.get("redis_url")
-        stream_prefix = settings.get("stream_prefix", "atlas_bus")
-        replay_start = _normalize_replay_start(
-            settings.get("replay_start") or settings.get("initial_offset") or settings.get("initial_stream_id")
+    
+    # Extract NCB settings
+    persistence_path = settings.get("persistence_path")
+    enable_prometheus = settings.get("enable_prometheus", False)
+    prometheus_port = settings.get("prometheus_port", 9090)
+    
+    try:
+        bus = configure_agent_bus(
+            persistence_path=persistence_path,
+            enable_prometheus=enable_prometheus,
+            prometheus_port=prometheus_port,
         )
-        batch_size = _coerce_positive_int(settings.get("batch_size"), default=1)
-        blocking_timeout_ms = _coerce_positive_int(settings.get("blocking_timeout_ms"), default=1000)
-        auto_claim_idle_ms = _coerce_positive_int(
-            settings.get("min_idle_ms") if settings.get("min_idle_ms") is not None else settings.get("auto_claim_idle_ms"),
-            default=60_000,
-            allow_zero=True,
+        # Return bus as both backend and bus for API compatibility
+        return bus, bus
+    except Exception as exc:
+        logger.warning(
+            "Failed to configure AgentBus: %s. Creating default instance.",
+            exc,
         )
-        auto_claim_count = _coerce_positive_int(settings.get("auto_claim_count"), default=10)
-        delete_flag = settings.get("delete_on_ack")
-        if delete_flag is None:
-            delete_flag = settings.get("delete_acknowledged")
-        delete_acknowledged = True if delete_flag is None else bool(delete_flag)
-        trim_max_length = settings.get("trim_maxlen", settings.get("trim_max_length"))
-        if trim_max_length is not None:
-            trim_max_length = _coerce_positive_int(trim_max_length, default=None)
-        try:
-            backend = RedisStreamGroupBackend(
-                str(redis_url),
-                stream_prefix=str(stream_prefix),
-                replay_start=str(replay_start),
-                batch_size=batch_size,
-                blocking_timeout=blocking_timeout_ms,
-                auto_claim_idle_ms=auto_claim_idle_ms,
-                auto_claim_count=auto_claim_count,
-                delete_acknowledged=delete_acknowledged,
-                trim_max_length=trim_max_length,
-            )
-        except Exception as exc:  # pragma: no cover - Redis optional dependency
-            logger.warning(
-                "Falling back to in-memory message bus backend due to Redis configuration error: %s",
-                exc,
-            )
-            backend = InMemoryQueueBackend()
-    elif backend_name == "ncb":
-        from ATLAS.messaging.NCB import NeuralCognitiveBus
-        persistence_path = settings.get("persistence_path")
-        enable_prometheus = settings.get("enable_prometheus", False)
-        prometheus_port = settings.get("prometheus_port", 8000)
-        redis_url = settings.get("redis_url")
-        kafka_bootstrap_servers = settings.get("kafka_bootstrap_servers")
-        kafka_topic_prefix = settings.get("kafka_topic_prefix", "atlas.bus")
-        kafka_client_id = settings.get("kafka_client_id", "atlas-message-bridge")
-        kafka_acks = settings.get("kafka_acks", "all")
-        kafka_max_in_flight = settings.get("kafka_max_in_flight", 5)
-        try:
-            ncb = NeuralCognitiveBus(
-                persistence_path=persistence_path,
-                enable_prometheus=enable_prometheus,
-                prometheus_port=prometheus_port,
-                logger=logger,
-            )
-            bus = configure_ncb_message_bus(ncb, policy_resolver=policy_resolver)
-            return ncb, bus  # type: ignore
-        except Exception as exc:
-            logger.warning(
-                "Falling back to in-memory message bus backend due to NCB configuration error: %s",
-                exc,
-            )
-            backend = InMemoryQueueBackend()
-    else:
-        backend = InMemoryQueueBackend()
-
-    bus = configure_message_bus(backend, policy_resolver=policy_resolver)
-    return backend, bus
+        bus = AgentBus()
+        return bus, bus
 
 
 _STREAM_ID_PATTERN = re.compile(r"^\d+-\d+$")

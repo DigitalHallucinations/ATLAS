@@ -61,7 +61,7 @@ from .tooling import ToolingConfigSection
 from .storage import StorageArchitecture
 from .ui_config import UIConfig
 from modules.logging.audit_templates import get_audit_template
-from modules.orchestration.message_bus import MessageBus
+from ATLAS.messaging import AgentBus
 from modules.job_store import JobService, MongoJobStoreRepository
 from modules.job_store.repository import JobStoreRepository
 from modules.task_store import TaskService, TaskStoreRepository
@@ -289,7 +289,7 @@ class ConfigManager(ProviderConfigMixin, PersistenceConfigMixin, ConfigCore):
         self.providers.initialize_pending_warnings()
 
         self._message_backend: Optional[Any] = None
-        self._message_bus: Optional[MessageBus] = None
+        self._message_bus: Optional[AgentBus] = None
         self._task_session_factory: sessionmaker | None = None
         self._task_repository: TaskStoreRepository | None = None
         self._task_service: TaskService | None = None
@@ -525,7 +525,7 @@ class ConfigManager(ProviderConfigMixin, PersistenceConfigMixin, ConfigCore):
 
 
 
-    def configure_message_bus(self) -> MessageBus:
+    def configure_message_bus(self) -> AgentBus:
         """Instantiate and configure the global message bus."""
 
         if self._message_bus is not None:

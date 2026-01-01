@@ -16,11 +16,18 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Dict, Iterable, List, Mapping, Optional
 
-from modules.orchestration.message_bus import MessagePriority, get_message_bus
+from ATLAS.messaging import (
+    AgentBus,
+    AgentMessage,
+    MessagePriority,
+    Subscription,
+    get_agent_bus,
+    BLACKBOARD_EVENT,
+)
 
 from ATLAS.utils.collections import dedupe_strings
 
-_BLACKBOARD_EVENT_TOPIC = "blackboard.events"
+_BLACKBOARD_EVENT_TOPIC = BLACKBOARD_EVENT.name
 _SUPPORTED_CATEGORIES = {"hypothesis", "claim", "artifact"}
 _SUPPORTED_SCOPE_TYPES = {"conversation", "project"}
 
@@ -270,19 +277,25 @@ class BlackboardStore:
             "entry": entry.as_dict(),
         }
         topic = _topic_for(entry.scope_type, entry.scope_id)
-        bus = get_message_bus()
-        bus.publish_from_sync(
-            _BLACKBOARD_EVENT_TOPIC,
-            payload,
+        bus = get_agent_bus()
+        
+        # Create and publish message for main event topic
+        main_msg = AgentMessage(
+            channel=_BLACKBOARD_EVENT_TOPIC,
+            payload=payload,
             priority=MessagePriority.NORMAL,
-            metadata={"scope": entry.scope_id, "scope_type": entry.scope_type},
+            headers={"scope": entry.scope_id, "scope_type": entry.scope_type},
         )
-        bus.publish_from_sync(
-            topic,
-            payload,
+        bus.publish_from_sync(main_msg)
+        
+        # Create and publish message for scope-specific topic
+        scope_msg = AgentMessage(
+            channel=topic,
+            payload=payload,
             priority=MessagePriority.NORMAL,
-            metadata={"scope": entry.scope_id, "scope_type": entry.scope_type},
+            headers={"scope": entry.scope_id, "scope_type": entry.scope_type},
         )
+        bus.publish_from_sync(scope_msg)
 
 
 class BlackboardClient:
@@ -439,15 +452,16 @@ async def stream_blackboard(scope_id: str, *, scope_type: str = "conversation") 
     queue: asyncio.Queue[Dict[str, Any]] = asyncio.Queue()
     topic = _topic_for(scope_key.scope_type, scope_key.scope_id)
 
-    async def _handler(message: Any) -> None:
-        payload = message.payload if hasattr(message, "payload") else message
+    async def _handler(message: AgentMessage) -> None:
+        payload = message.payload
         if isinstance(payload, Mapping):
             await queue.put(dict(payload))
 
-    subscription = get_message_bus().subscribe(topic, _handler, concurrency=1)
+    bus = get_agent_bus()
+    subscription = await bus.subscribe(topic, _handler, concurrency=1)
     try:
         while True:
             payload = await queue.get()
             yield payload
     finally:
-        subscription.cancel()
+        await subscription.cancel()

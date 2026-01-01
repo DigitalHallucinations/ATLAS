@@ -11,7 +11,7 @@ if "requests" not in sys.modules:
     sys.modules["requests"] = types.ModuleType("requests")
 
 log_event_module = importlib.import_module("modules.Tools.Base_Tools.log_event")
-from modules.orchestration.message_bus import MessagePriority
+from ATLAS.messaging import MessagePriority
 
 
 def test_log_event_publishes_to_message_bus_and_logger(monkeypatch):

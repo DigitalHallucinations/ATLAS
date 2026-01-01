@@ -14,7 +14,7 @@ from jsonschema import Draft202012Validator
 
 from modules.conversation_store import ConversationStoreRepository
 from modules.logging.logger import setup_logger
-from modules.orchestration.message_bus import MessageBus
+from ATLAS.messaging import AgentBus
 
 if TYPE_CHECKING:
     from modules.task_store.service import TaskService
@@ -197,13 +197,13 @@ class ConversationRoutes:
         self,
         repository: ConversationStoreRepository,
         *,
-        message_bus: Optional[MessageBus] = None,
+        agent_bus: Optional[AgentBus] = None,
         task_service: Optional["TaskService"] = None,
         page_size_limit: int = 100,
         poll_interval: float = 0.5,
     ) -> None:
         self._repository = repository
-        self._bus = message_bus
+        self._bus = agent_bus
         self._task_service = task_service
         self._page_size_limit = max(int(page_size_limit), 1)
         self._poll_interval = max(float(poll_interval), 0.05)

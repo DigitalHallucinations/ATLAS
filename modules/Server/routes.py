@@ -71,7 +71,7 @@ from modules.orchestration.capability_registry import (
 from modules.orchestration.utils import persona_matches_filter
 from modules.orchestration.job_manager import JobManager
 from modules.orchestration.job_scheduler import JobScheduler
-from modules.orchestration.message_bus import MessageBus
+from ATLAS.messaging import AgentBus
 from modules.store_common.manifest_utils import (
     iter_persona_manifest_paths,
     resolve_app_root,
@@ -144,14 +144,14 @@ class AtlasServer:
         *,
         config_manager: Optional[object] = None,
         conversation_repository: ConversationStoreRepository | None = None,
-        message_bus: Optional[MessageBus] = None,
+        agent_bus: Optional[AgentBus] = None,
         task_service: "TaskService" | None = None,
         job_service: "JobService" | None = None,
         job_manager: JobManager | None = None,
     ) -> None:
         self._config_manager = config_manager
         self._conversation_repository = conversation_repository
-        self._message_bus = message_bus
+        self._agent_bus = agent_bus
         self._task_service: "TaskService" | None = task_service
         self._job_service: "JobService" | None = job_service
         self._job_manager: JobManager | None = job_manager
@@ -239,20 +239,20 @@ class AtlasServer:
                 raise RuntimeError("Conversation store repository is not configured")
             self._conversation_repository = repository
 
-            bus = self._message_bus
-            if bus is None and hasattr(self._config_manager, "configure_message_bus"):
+            bus = self._agent_bus
+            if bus is None and hasattr(self._config_manager, "configure_agent_bus"):
                 try:
-                    bus = self._config_manager.configure_message_bus()
+                    bus = self._config_manager.configure_agent_bus()
                 except Exception as exc:  # pragma: no cover - defensive logging only
-                    logger.warning("Failed to configure message bus: %s", exc)
+                    logger.warning("Failed to configure agent bus: %s", exc)
                     bus = None
-            self._message_bus = bus
+            self._agent_bus = bus
 
             task_service = self._task_service or self._build_task_service()
             self._task_service = task_service
             self._conversation_routes = ConversationRoutes(
                 repository,
-                message_bus=bus,
+                agent_bus=bus,
                 task_service=task_service,
             )
         return self._conversation_routes
@@ -383,7 +383,7 @@ class AtlasServer:
         self._task_service = task_service
         self._task_routes = TaskRoutes(
             task_service,
-            message_bus=self._message_bus,
+            agent_bus=self._agent_bus,
         )
         return self._task_routes
 
@@ -450,7 +450,7 @@ class AtlasServer:
             job_service,
             manager=self._job_manager,
             scheduler=self._job_scheduler,
-            message_bus=self._message_bus,
+            agent_bus=self._agent_bus,
         )
         return self._job_routes
 

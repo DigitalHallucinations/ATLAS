@@ -10,6 +10,7 @@ sqlalchemy = pytest.importorskip("sqlalchemy")
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from ATLAS.messaging import AgentBus
 from modules.Server import AtlasServer, RequestContext
 from modules.Server.conversation_routes import (
     ConversationAuthorizationError,
@@ -20,7 +21,6 @@ from modules.Server.conversation_routes import (
 )
 from modules.conversation_store import Base, ConversationStoreRepository
 from modules.conversation_store.models import Message, Session, User
-from modules.orchestration.message_bus import InMemoryQueueBackend, MessageBus
 
 
 @pytest.fixture
@@ -35,11 +35,11 @@ def repository(postgresql):
 
 
 @pytest.fixture
-def message_bus():
-    bus = MessageBus(backend=InMemoryQueueBackend())
+def agent_bus():
+    bus = AgentBus()
     yield bus
     try:
-        asyncio.run(bus.close())
+        asyncio.run(bus.stop())
     except RuntimeError:
         # When running inside an existing event loop we fall back to a best effort close.
         try:
@@ -47,14 +47,14 @@ def message_bus():
         except RuntimeError:
             return
         if loop.is_running():
-            loop.create_task(bus.close())
+            loop.create_task(bus.stop())
         else:
-            loop.run_until_complete(bus.close())
+            loop.run_until_complete(bus.stop())
 
 
 @pytest.fixture
-def server(repository, message_bus):
-    return AtlasServer(conversation_repository=repository, message_bus=message_bus)
+def server(repository, agent_bus):
+    return AtlasServer(conversation_repository=repository, agent_bus=agent_bus)
 
 
 @pytest.fixture

@@ -9,7 +9,27 @@ source_of_truth: Release notes source only
 
 ## Unreleased
 
-- No unreleased changes at this time.
+### Breaking Changes
+
+- **Messaging system replaced**: The legacy `modules/orchestration/message_bus.py` has been
+  fully replaced by the Neural Cognitive Bus (NCB) and AgentBus architecture under
+  `ATLAS/messaging/`. Code importing from `modules.orchestration.message_bus` must migrate
+  to `from ATLAS.messaging import AgentBus, AgentMessage, get_agent_bus`.
+
+### New Features
+
+- **AgentBus**: New high-level messaging API with typed `AgentMessage` dataclass,
+  `publish()`, `subscribe()`, `publish_from_sync()`, and channel configuration.
+- **NCB (Neural Cognitive Bus)**: Core async engine with 36+ domain-specific channels,
+  priority queues, idempotency, dead-letter handling, and optional Redis/Kafka bridging.
+- **Domain-specific channels**: Fine-grained semantic channels (e.g., `user.input`,
+  `llm.request`, `tool.invoke`, `task.created`, `job.complete`) replace generic topics.
+
+### Removed
+
+- `modules/orchestration/message_bus.py` — Legacy message bus implementation
+- `tests/test_message_bus_backends.py` — Legacy Redis backend tests
+- `tests/messaging/test_redis_to_kafka_bridge.py` — Legacy bridge tests
 
 ## 2025-12-21
 

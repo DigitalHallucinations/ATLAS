@@ -7,27 +7,34 @@ import logging
 from typing import Any, Awaitable, Callable, Iterable, Mapping, MutableMapping, Sequence
 
 from modules.orchestration.job_manager import JobManager, build_task_manifest_resolver
-from modules.orchestration.message_bus import BusMessage, MessageBus, Subscription, get_message_bus
 from modules.orchestration.task_manager import TaskManager
+
+from ATLAS.messaging import (
+    AgentBus,
+    AgentMessage,
+    Subscription,
+    get_agent_bus,
+    FOLLOWUP,
+)
 
 
 class FollowUpOrchestrator:
     """Dispatch follow-up actions into the task and job managers."""
 
-    TOPIC = "conversation.followups"
+    TOPIC = FOLLOWUP.name
 
     def __init__(
         self,
         *,
         task_manager: TaskManager | None = None,
         job_manager: JobManager | None = None,
-        message_bus: MessageBus | None = None,
+        agent_bus: AgentBus | None = None,
         task_resolver: Callable[[str, str | None], Mapping[str, Any] | None] | None = None,
         logger: logging.Logger | None = None,
     ) -> None:
         self._task_manager = task_manager
         self._job_manager = job_manager
-        self._bus = message_bus or get_message_bus()
+        self._bus = agent_bus or get_agent_bus()
         self._task_resolver = task_resolver or build_task_manifest_resolver()
         self._logger = logger or logging.getLogger(__name__)
         self._subscription: Subscription | None = None
@@ -40,14 +47,14 @@ class FollowUpOrchestrator:
     def is_running(self) -> bool:
         return self._subscription is not None
 
-    def start(self) -> None:
+    async def start(self) -> None:
         if self._subscription is not None:
             return
-        self._subscription = self._bus.subscribe(self.TOPIC, self._handle_message)
+        self._subscription = await self._bus.subscribe(self.TOPIC, self._handle_message)
 
-    def stop(self) -> None:
+    async def stop(self) -> None:
         if self._subscription is not None:
-            self._subscription.cancel()
+            await self._subscription.cancel()
             self._subscription = None
         for task in list(self._pending):
             task.cancel()
@@ -75,7 +82,7 @@ class FollowUpOrchestrator:
             for coroutine in coroutines:
                 self._track_task(coroutine)
 
-    async def _handle_message(self, message: BusMessage) -> None:
+    async def _handle_message(self, message: AgentMessage) -> None:
         payload = message.payload
         if not isinstance(payload, Mapping):
             self._logger.debug("Ignoring follow-up event without mapping payload: %s", payload)

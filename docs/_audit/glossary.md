@@ -29,9 +29,9 @@ Standardized definitions for recurring ATLAS terms. Each entry points to the pri
 - **Definition**: The persistent SQLAlchemy model set for conversations, users, sessions, messages, embeddings, and related artifacts, with tenant-scoped identifiers and cross-dialect portability (JSON/JSONB, pgvector). It provides the database backbone for conversation history, user accounts, and search vectors. 【F:modules/conversation_store/models.py†L1-L122】
 - **Audience pointers**: Data/DB engineers and backend developers. See [Conversation Store](../conversation-store.md) for schema diagrams and repository usage.
 
-## Message Bus
-- **Definition**: The asynchronous pub/sub layer offering topic routing, priority ordering, correlation IDs, tracing metadata, retries, and pluggable backends (in-memory asyncio queues by default, Redis Streams optionally). Configured at runtime through `ConfigManager.configure_message_bus()`, which selects the backend via messaging settings. 【F:modules/orchestration/message_bus.py†L1-L115】【F:ATLAS/config/config_manager.py†L503-L515】
-- **Audience pointers**: Operators and backend developers. See [Messaging Runbook](../ops/messaging.md) for deployment patterns and backend selection.
+## Message Bus (AgentBus / NCB)
+- **Definition**: The asynchronous pub/sub layer built on the Neural Cognitive Bus (NCB), offering domain-specific channels (36+ semantic channels like `user.input`, `tool.invoke`, `task.created`), priority ordering, correlation IDs, tracing metadata, idempotency, dead-letter handling, and optional Redis/Kafka bridging. The high-level AgentBus API provides typed message publishing and subscription. Configured at runtime through `configure_agent_bus()`. 【F:ATLAS/messaging/agent_bus.py†L1-L300】【F:ATLAS/messaging/NCB.py†L1-L200】【F:ATLAS/messaging/channels.py†L1-L150】
+- **Audience pointers**: Operators and backend developers. See [Messaging Runbook](../ops/messaging.md) for deployment patterns and channel architecture.
 
 ## Job
 - **Definition**: A higher-level automation definition loaded from job manifests with names, summaries, persona eligibility, required skills/tools, task graphs, recurrence, acceptance criteria, and escalation policies. Shared jobs live in `modules/Jobs/jobs.json` with persona overrides merged during load. 【F:modules/Jobs/manifest_loader.py†L34-L117】

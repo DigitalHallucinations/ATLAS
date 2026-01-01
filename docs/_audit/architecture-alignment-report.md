@@ -16,6 +16,15 @@ This report compares key architectural claims in the documentation against the c
 - ✅ Added `docs/contributing/agent-owners.md` with owner and cadence mappings sourced from `_audit` inventory entries to clarify who to engage for audited subsystems.
 - ✅ Added `docs/contributing/audit-rollout.md` to capture the standard onboarding flow for new subsystem audits, including template copies, owner/cadence setup, first-pass execution, and reminder scheduling.
 
+## Messaging system migration (NCB/AgentBus)
+
+- ✅ **Architecture replacement** – The legacy `modules/orchestration/message_bus.py` has been fully replaced by the Neural Cognitive Bus (NCB) and AgentBus architecture under `ATLAS/messaging/`.
+- ✅ **Channel architecture** – Migrated from generic topics to 36+ domain-specific semantic channels (e.g., `user.input`, `llm.request`, `tool.invoke`, `task.created`, `job.complete`).
+- ✅ **Message types** – Replaced `BusMessage` with `AgentMessage` dataclass carrying ATLAS context fields (agent_id, conversation_id, request_id, user_id, trace_id).
+- ✅ **API surface** – High-level `AgentBus` API provides `publish()`, `subscribe()`, `publish_from_sync()`, and channel configuration with priority queues, idempotency, and dead-letter handling.
+- ✅ **Documentation updates** – Updated `docs/ops/messaging.md`, `docs/architecture-overview.md`, `docs/configuration.md`, `docs/_audit/glossary.md`, and `docs/_audit/inventory.md` to reflect the new architecture.
+- ✅ **Legacy removal** – Deprecated bridge files (`bridge_redis_to_kafka.py`, `kafka_sink.py`) and removed legacy test files (`test_message_bus_backends.py`, `test_redis_to_kafka_bridge.py`).
+
 ## Front matter and link spot-checks
 
 - ✅ `docs/Personas.md`, `docs/architecture-overview.md`, `docs/conversation-store.md`, `docs/user-accounts.md`, `docs/configuration.md`, `docs/tasks/overview.md`, and `docs/tool-manifest.md` now include the standard front matter block. Quick previews confirmed heading rendering and intra-doc links remain intact after the retrofit.

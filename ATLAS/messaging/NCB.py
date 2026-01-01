@@ -616,6 +616,10 @@ class ChannelConfig:
     # bounded fan-out
     fanout_max_concurrency: int = 500  # cap concurrent subscriber callbacks per channel
 
+    # idempotency - skip duplicate messages based on payload key
+    idempotency_key_field: Optional[str] = None  # field in payload to use as idempotency key
+    idempotency_ttl_seconds: float = 60.0  # how long to remember processed keys
+
 
 @dataclass
 class SubscriberConfig:
@@ -630,6 +634,13 @@ class SubscriberConfig:
     # replay
     replay_on_register: bool = False
     replay_after_seq: int = 0  # last seen persistence seq (if persistence enabled)
+
+    # retry on failure
+    retry_attempts: int = 0  # 0 means no retry (fail immediately to DLQ)
+    retry_delay: float = 0.1  # delay between retries in seconds
+
+    # concurrency - how many messages can be processed in parallel
+    concurrency: int = 1
 
 
 ###############################################################################
@@ -939,6 +950,12 @@ class NeuralCognitiveBus(_BaseClass):  # type: ignore[misc]
         self._subscriber_gc_interval = float(subscriber_gc_interval_sec)
         self._subscriber_ttl = float(subscriber_ttl_sec)
 
+        # Idempotency store: channel -> {key: expiry_time}
+        self._idempotency_store: Dict[str, Dict[str, float]] = {}
+
+        # Per-subscriber concurrency semaphores: (channel, subscriber) -> Semaphore
+        self._subscriber_semaphores: Dict[Tuple[str, str], asyncio.Semaphore] = {}
+
         # Redis client
         self._redis_client: Any = None
 
@@ -999,6 +1016,12 @@ class NeuralCognitiveBus(_BaseClass):  # type: ignore[misc]
                     cfg.dead_letter_channel,
                     ChannelConfig(name=cfg.dead_letter_channel, max_queue_size=self.default_max_queue_size),
                 )
+
+        # If NCB is already running, spawn the processing task for this channel
+        if self.running:
+            task = asyncio.create_task(self._process_channel(channel_name), name=f"NCB.process.{channel_name}")
+            self._tasks.add(task)
+            task.add_done_callback(self._tasks.discard)
 
         self.logger.info("Created channel", extra={"event": "channel_create", "channel": channel_name})
 
@@ -1138,6 +1161,9 @@ class NeuralCognitiveBus(_BaseClass):  # type: ignore[misc]
         replay_on_register: bool = False,
         replay_after_seq: int = 0,
         auth: Optional[Dict[str, Any]] = None,
+        retry_attempts: int = 0,
+        retry_delay: float = 0.1,
+        concurrency: int = 1,
     ) -> None:
         if self._channel_validator and not self._channel_validator(channel_name):
             raise ValueError(f"Invalid channel name: {channel_name}")
@@ -1155,11 +1181,18 @@ class NeuralCognitiveBus(_BaseClass):  # type: ignore[misc]
             rate_limit_burst=rate_limit_burst,
             replay_on_register=replay_on_register,
             replay_after_seq=replay_after_seq,
+            retry_attempts=retry_attempts,
+            retry_delay=retry_delay,
+            concurrency=concurrency,
         )
         self._subs[channel_name].append(sub)
 
         if rate_limit_per_sec and rate_limit_burst:
             self._subscriber_limiters[(channel_name, module_name)] = TokenBucket(float(rate_limit_per_sec), float(rate_limit_burst))
+
+        # Create concurrency semaphore if concurrency > 1
+        if concurrency > 1:
+            self._subscriber_semaphores[(channel_name, module_name)] = asyncio.Semaphore(concurrency)
 
         self._subscriber_last_seen[(channel_name, module_name)] = time.time()
 
@@ -1401,6 +1434,9 @@ class NeuralCognitiveBus(_BaseClass):  # type: ignore[misc]
 
     async def _process_channel(self, channel_name: str) -> None:
         q = self._queues[channel_name]
+        # Track concurrent dispatch tasks for cleanup
+        dispatch_tasks: Set[asyncio.Task] = set()
+
         while self.running:
             try:
                 msg = await q.get()
@@ -1429,16 +1465,32 @@ class NeuralCognitiveBus(_BaseClass):  # type: ignore[misc]
                     if not subs:
                         continue
 
-                    t0 = time.perf_counter()
-                    await self._dispatch_to_subscribers(channel_name, msg, subs)
-                    dt_ms = (time.perf_counter() - t0) * 1000.0
-                    self._metrics.observe_dispatch_latency_ms(channel_name, dt_ms)
+                    # Check if any subscriber has concurrency > 1
+                    has_concurrent_subs = any(s.concurrency > 1 for s in subs)
+
+                    if has_concurrent_subs:
+                        # Spawn dispatch as a task for concurrent processing
+                        task = asyncio.create_task(
+                            self._dispatch_to_subscribers(channel_name, msg, subs),
+                            name=f"NCB.dispatch.{channel_name}.{msg.id[:8]}",
+                        )
+                        dispatch_tasks.add(task)
+                        task.add_done_callback(dispatch_tasks.discard)
+                    else:
+                        # Serial processing - wait for dispatch
+                        t0 = time.perf_counter()
+                        await self._dispatch_to_subscribers(channel_name, msg, subs)
+                        dt_ms = (time.perf_counter() - t0) * 1000.0
+                        self._metrics.observe_dispatch_latency_ms(channel_name, dt_ms)
 
                     asyncio.create_task(self._run_sinks(msg, phase="post_dispatch"), name=f"NCB.post_dispatch.{channel_name}")
                 finally:
                     _trace_id_var.reset(token)
 
             except asyncio.CancelledError:
+                # Wait for any pending dispatch tasks before exiting
+                if dispatch_tasks:
+                    await asyncio.gather(*dispatch_tasks, return_exceptions=True)
                 break
             except Exception as e:
                 self._metrics.inc_errors(channel_name)
@@ -1451,11 +1503,21 @@ class NeuralCognitiveBus(_BaseClass):  # type: ignore[misc]
     async def _dispatch_to_subscribers(self, channel_name: str, msg: Message, subs: List[SubscriberConfig]) -> None:
         """
         Bounded fan-out: uses per-channel semaphore to cap concurrent subscriber callbacks.
+        Supports retry, idempotency, and per-subscriber concurrency.
         Failures publish to DLQ if configured.
         """
         sem = self._fanout_semaphores.get(channel_name) or asyncio.Semaphore(500)
         cfg = self._channel_cfg[channel_name]
         dlq = cfg.dead_letter_channel
+
+        # Check idempotency
+        if cfg.idempotency_key_field:
+            if not await self._check_idempotency(channel_name, msg, cfg):
+                self.logger.debug(
+                    "Skipping duplicate message",
+                    extra={"event": "idempotency_skip", "channel": channel_name, "msg_id": msg.id},
+                )
+                return
 
         async def _call_sub(sub: SubscriberConfig) -> None:
             async with sem:
@@ -1463,6 +1525,9 @@ class NeuralCognitiveBus(_BaseClass):  # type: ignore[misc]
                 limiter = self._subscriber_limiters.get(key)
                 if limiter:
                     await limiter.acquire(1.0)
+
+                # Per-subscriber concurrency semaphore (if concurrency > 1)
+                sub_sem = self._subscriber_semaphores.get(key)
 
                 if sub.filter_fn is not None:
                     try:
@@ -1485,27 +1550,105 @@ class NeuralCognitiveBus(_BaseClass):  # type: ignore[misc]
                         await self._publish_to_dlq(dlq, channel_name, msg, sub.module_name, e)
                         return
 
-                try:
-                    await sub.callback_fn(msg)
-                    self._metrics.inc_dispatched(channel_name)
-                    self._subscriber_last_seen[(channel_name, sub.module_name)] = time.time()
-                except Exception as e:
-                    self._metrics.inc_errors(channel_name)
-                    self.logger.error(
-                        "Subscriber error",
-                        extra={
-                            "event": "subscriber_error",
-                            "channel": channel_name,
-                            "subscriber": sub.module_name,
-                            "msg_id": msg.id,
-                            "trace_id": msg.trace_id,
-                            "error_type": type(e).__name__,
-                        },
-                        exc_info=True,
-                    )
-                    await self._publish_to_dlq(dlq, channel_name, msg, sub.module_name, e)
+                # Retry logic
+                attempts = sub.retry_attempts + 1  # Total attempts = retries + 1
+                last_error: Optional[Exception] = None
+
+                for attempt in range(attempts):
+                    try:
+                        if sub_sem:
+                            async with sub_sem:
+                                await sub.callback_fn(msg)
+                        else:
+                            await sub.callback_fn(msg)
+                        
+                        self._metrics.inc_dispatched(channel_name)
+                        self._subscriber_last_seen[key] = time.time()
+                        return  # Success - exit retry loop
+                    except Exception as e:
+                        last_error = e
+                        if attempt < attempts - 1:
+                            # Log retry
+                            self.logger.warning(
+                                "Subscriber error, retrying",
+                                extra={
+                                    "event": "subscriber_retry",
+                                    "channel": channel_name,
+                                    "subscriber": sub.module_name,
+                                    "msg_id": msg.id,
+                                    "attempt": attempt + 1,
+                                    "max_attempts": attempts,
+                                    "error_type": type(e).__name__,
+                                },
+                            )
+                            await asyncio.sleep(sub.retry_delay)
+                        else:
+                            # All retries exhausted
+                            self._metrics.inc_errors(channel_name)
+                            self.logger.error(
+                                "Subscriber error after all retries",
+                                extra={
+                                    "event": "subscriber_error",
+                                    "channel": channel_name,
+                                    "subscriber": sub.module_name,
+                                    "msg_id": msg.id,
+                                    "trace_id": msg.trace_id,
+                                    "attempts": attempts,
+                                    "error_type": type(e).__name__,
+                                },
+                                exc_info=True,
+                            )
+                            await self._publish_to_dlq(dlq, channel_name, msg, sub.module_name, e)
 
         await asyncio.gather(*(_call_sub(s) for s in subs), return_exceptions=True)
+
+    async def _check_idempotency(self, channel_name: str, msg: Message, cfg: ChannelConfig) -> bool:
+        """
+        Check if message should be processed based on idempotency key.
+        Returns True if message should be processed, False if duplicate.
+        """
+        key_field = cfg.idempotency_key_field
+        if not key_field:
+            return True
+
+        # Get the key from payload
+        # The msg.payload may be wrapped (AgentMessage serialized form) with nested 'payload'
+        payload = msg.payload
+        if isinstance(payload, dict):
+            # Check for nested payload (AgentMessage structure)
+            inner_payload = payload.get("payload")
+            if isinstance(inner_payload, dict):
+                idem_key = inner_payload.get(key_field)
+            else:
+                # Direct payload
+                idem_key = payload.get(key_field)
+        else:
+            return True  # Can't check, allow through
+
+        if idem_key is None:
+            return True  # No key, allow through
+
+        # Initialize store for channel if needed
+        if channel_name not in self._idempotency_store:
+            self._idempotency_store[channel_name] = {}
+
+        store = self._idempotency_store[channel_name]
+        now = time.time()
+
+        # Clean expired keys (opportunistic cleanup)
+        if len(store) > 100:
+            expired = [k for k, expiry in store.items() if expiry <= now]
+            for k in expired:
+                del store[k]
+
+        # Check if key exists and not expired
+        key_str = str(idem_key)
+        if key_str in store and store[key_str] > now:
+            return False  # Duplicate
+
+        # Mark as seen
+        store[key_str] = now + cfg.idempotency_ttl_seconds
+        return True
 
     async def _publish_to_dlq(
         self,

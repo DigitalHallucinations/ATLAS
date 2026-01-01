@@ -21,14 +21,24 @@ from types import MappingProxyType
 from typing import Any, Callable, Dict, Iterable, Mapping, MutableMapping, Optional
 
 from modules.orchestration.blackboard import BlackboardClient
-from modules.orchestration.message_bus import MessageBus, MessagePriority, get_message_bus
 from modules.orchestration.planner import ExecutionPlan, PlanStep, PlanStepStatus, Planner
+
+from ATLAS.messaging import (
+    AgentBus,
+    AgentMessage,
+    MessagePriority,
+    get_agent_bus,
+    TASK_CREATE,
+    TASK_UPDATE,
+    TASK_COMPLETE,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
-TASK_CREATED_TOPIC = "tasks.created"
-TASK_UPDATED_TOPIC = "tasks.updated"
-TASK_COMPLETED_TOPIC = "tasks.completed"
+# Channel names for task events
+TASK_CREATED_TOPIC = TASK_CREATE.name
+TASK_UPDATED_TOPIC = TASK_UPDATE.name
+TASK_COMPLETED_TOPIC = TASK_COMPLETE.name
 
 StepRunner = Callable[[PlanStep, "TaskStepContext"], Awaitable[Any] | Any]
 
@@ -106,13 +116,13 @@ class TaskManager:
         tool_runners: Mapping[str, StepRunner],
         *,
         planner: Optional[Planner] = None,
-        message_bus: Optional[MessageBus] = None,
+        agent_bus: Optional[AgentBus] = None,
         max_attempts: int = 1,
         retry_delay: float = 0.1,
     ) -> None:
         self._tool_runners: Dict[str, StepRunner] = dict(tool_runners)
         self._planner = planner or Planner()
-        self._bus = message_bus or get_message_bus()
+        self._bus = agent_bus or get_agent_bus()
         self._max_attempts = max(1, int(max_attempts))
         self._retry_delay = max(0.0, float(retry_delay))
 
@@ -245,12 +255,13 @@ class TaskManager:
 
     async def _publish(self, topic: str, payload: Mapping[str, Any]) -> None:
         try:
-            await self._bus.publish(
-                topic,
-                dict(payload),
+            message = AgentMessage(
+                channel=topic,
+                payload=dict(payload),
                 priority=MessagePriority.NORMAL,
-                metadata={"topic": topic, "task_id": payload.get("task_id")},
+                headers={"topic": topic, "task_id": str(payload.get("task_id", ""))},
             )
+            await self._bus.publish(message)
         except Exception:  # pragma: no cover - message bus failures should not crash execution
             _LOGGER.exception("Failed to publish task event on topic '%s'", topic)
 

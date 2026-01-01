@@ -11,7 +11,7 @@ from jsonschema import Draft202012Validator
 from modules.logging.logger import setup_logger
 from modules.orchestration.job_manager import JobManager
 from modules.orchestration.job_scheduler import JobScheduler
-from modules.orchestration.message_bus import MessageBus
+from ATLAS.messaging import AgentBus
 from modules.job_store.repository import JobConcurrencyError, JobNotFoundError
 from modules.job_store.service import (
     JobDependencyError,
@@ -98,14 +98,14 @@ class JobRoutes:
         *,
         manager: JobManager | None = None,
         scheduler: JobScheduler | None = None,
-        message_bus: MessageBus | None = None,
+        agent_bus: AgentBus | None = None,
         page_size_limit: int = 100,
         poll_interval: float = 0.5,
     ) -> None:
         self._service = service
         self._manager = manager
         self._scheduler = scheduler
-        self._bus = message_bus
+        self._bus = agent_bus
         self._page_size_limit = max(int(page_size_limit), 1)
         self._poll_interval = max(float(poll_interval), 0.05)
         self._create_validator = _JsonSchemaValidator(

@@ -10,7 +10,7 @@ from typing import Any, Dict, Iterable, List, Optional
 
 from modules.Tools.tool_event_system import publish_bus_event
 from modules.logging.logger import setup_logger
-from modules.orchestration.message_bus import MessagePriority
+from ATLAS.messaging import MessagePriority
 
 from ATLAS.config import ConfigManager
 

@@ -2,6 +2,7 @@ import asyncio
 from collections import defaultdict
 from types import MappingProxyType, SimpleNamespace
 
+from ATLAS.messaging import AgentBus, AgentMessage
 from modules.Jobs.manifest_loader import JobMetadata, load_job_metadata
 from modules.orchestration.blackboard import BlackboardStore, configure_blackboard
 from modules.orchestration.job_manager import (
@@ -10,7 +11,6 @@ from modules.orchestration.job_manager import (
     JOB_UPDATED_TOPIC,
     JobManager,
 )
-from modules.orchestration.message_bus import InMemoryQueueBackend, MessageBus
 
 
 class StubTaskManager:
@@ -70,8 +70,9 @@ def _job_metadata(task_graph, *, acceptance=None, escalation=None) -> JobMetadat
 
 def test_job_manager_executes_tasks_with_dependencies():
     async def _run() -> None:
-        loop = asyncio.get_running_loop()
-        message_bus = MessageBus(backend=InMemoryQueueBackend(), loop=loop)
+        agent_bus = AgentBus()
+        await agent_bus.start()
+        subscriptions = []
         try:
             store = BlackboardStore()
             configure_blackboard(store)
@@ -80,17 +81,19 @@ def test_job_manager_executes_tasks_with_dependencies():
             events = defaultdict(list)
             finished = asyncio.Event()
 
-            def _subscribe(topic: str):
-                async def handler(message):
+            async def _subscribe(topic: str):
+                async def handler(message: AgentMessage):
                     events[topic].append(message.payload)
                     if topic == JOB_COMPLETED_TOPIC:
                         finished.set()
 
-                return message_bus.subscribe(topic, handler)
+                sub = await agent_bus.subscribe(topic, handler)
+                subscriptions.append(sub)
+                return sub
 
-            created_sub = _subscribe(JOB_CREATED_TOPIC)
-            updated_sub = _subscribe(JOB_UPDATED_TOPIC)
-            completed_sub = _subscribe(JOB_COMPLETED_TOPIC)
+            await _subscribe(JOB_CREATED_TOPIC)
+            await _subscribe(JOB_UPDATED_TOPIC)
+            await _subscribe(JOB_COMPLETED_TOPIC)
 
             try:
                 outcomes = {
@@ -118,7 +121,7 @@ def test_job_manager_executes_tasks_with_dependencies():
 
                 manager = JobManager(
                     stub_manager,
-                    message_bus=message_bus,
+                    agent_bus=agent_bus,
                     job_loader=lambda: [job],
                 )
 
@@ -146,19 +149,19 @@ def test_job_manager_executes_tasks_with_dependencies():
                 assert events[JOB_COMPLETED_TOPIC][-1]["status"] == "succeeded"
                 assert any(payload["status"] == "running" for payload in events[JOB_UPDATED_TOPIC])
             finally:
-                created_sub.cancel()
-                updated_sub.cancel()
-                completed_sub.cancel()
+                for sub in subscriptions:
+                    await sub.cancel()
         finally:
-            await message_bus.close()
+            await agent_bus.stop()
 
     asyncio.run(_run())
 
 
 def test_job_manager_propagates_failures_and_cancellations():
     async def _run() -> None:
-        loop = asyncio.get_running_loop()
-        message_bus = MessageBus(backend=InMemoryQueueBackend(), loop=loop)
+        agent_bus = AgentBus()
+        await agent_bus.start()
+        subscriptions = []
         try:
             store = BlackboardStore()
             configure_blackboard(store)
@@ -167,17 +170,19 @@ def test_job_manager_propagates_failures_and_cancellations():
             events = defaultdict(list)
             finished = asyncio.Event()
 
-            def _subscribe(topic: str):
-                async def handler(message):
+            async def _subscribe(topic: str):
+                async def handler(message: AgentMessage):
                     events[topic].append(message.payload)
                     if topic == JOB_COMPLETED_TOPIC:
                         finished.set()
 
-                return message_bus.subscribe(topic, handler)
+                sub = await agent_bus.subscribe(topic, handler)
+                subscriptions.append(sub)
+                return sub
 
-            created_sub = _subscribe(JOB_CREATED_TOPIC)
-            updated_sub = _subscribe(JOB_UPDATED_TOPIC)
-            completed_sub = _subscribe(JOB_COMPLETED_TOPIC)
+            await _subscribe(JOB_CREATED_TOPIC)
+            await _subscribe(JOB_UPDATED_TOPIC)
+            await _subscribe(JOB_COMPLETED_TOPIC)
 
             try:
                 outcomes = {
@@ -207,7 +212,7 @@ def test_job_manager_propagates_failures_and_cancellations():
 
                 manager = JobManager(
                     stub_manager,
-                    message_bus=message_bus,
+                    agent_bus=agent_bus,
                     job_loader=lambda: [job],
                 )
 
@@ -235,19 +240,18 @@ def test_job_manager_propagates_failures_and_cancellations():
                 assert events[JOB_COMPLETED_TOPIC][-1]["status"] == "failed"
                 assert any(payload["tasks"]["synthesize"]["status"] == "failed" for payload in events[JOB_UPDATED_TOPIC])
             finally:
-                created_sub.cancel()
-                updated_sub.cancel()
-                completed_sub.cancel()
+                for sub in subscriptions:
+                    await sub.cancel()
         finally:
-            await message_bus.close()
+            await agent_bus.stop()
 
     asyncio.run(_run())
 
 
 def test_job_manager_resolves_shared_manifests():
     async def _run() -> None:
-        loop = asyncio.get_running_loop()
-        message_bus = MessageBus(backend=InMemoryQueueBackend(), loop=loop)
+        agent_bus = AgentBus()
+        await agent_bus.start()
         try:
             tasks = RecordingTaskManager()
             jobs = [
@@ -259,7 +263,7 @@ def test_job_manager_resolves_shared_manifests():
 
             manager = JobManager(
                 tasks,
-                message_bus=message_bus,
+                agent_bus=agent_bus,
                 job_loader=lambda: jobs,
             )
 
@@ -275,15 +279,15 @@ def test_job_manager_resolves_shared_manifests():
             assert gather_manifest["summary"]
             assert gather_manifest["acceptance_criteria"]
         finally:
-            await message_bus.close()
+            await agent_bus.stop()
 
     asyncio.run(_run())
 
 
 def test_job_manager_resolves_persona_specific_manifests():
     async def _run() -> None:
-        loop = asyncio.get_running_loop()
-        message_bus = MessageBus(backend=InMemoryQueueBackend(), loop=loop)
+        agent_bus = AgentBus()
+        await agent_bus.start()
         try:
             tasks = RecordingTaskManager()
             jobs = [
@@ -295,7 +299,7 @@ def test_job_manager_resolves_persona_specific_manifests():
 
             manager = JobManager(
                 tasks,
-                message_bus=message_bus,
+                agent_bus=agent_bus,
                 job_loader=lambda: jobs,
             )
 
@@ -311,7 +315,7 @@ def test_job_manager_resolves_persona_specific_manifests():
             assert "atlas" in routing_manifest.get("tags", [])
             assert routing_manifest["escalation_policy"]["contact"].endswith("@atlas")
         finally:
-            await message_bus.close()
+            await agent_bus.stop()
 
     asyncio.run(_run())
 

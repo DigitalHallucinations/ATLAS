@@ -6,12 +6,12 @@ from types import SimpleNamespace
 import pytest
 from typing import Any, Mapping
 
+from ATLAS.messaging import AgentBus
 from modules.Jobs.manifest_loader import JobMetadata, load_job_metadata
 from modules.job_store import JobStatus
 from modules.job_store.repository import JobStoreRepository
 from modules.orchestration.job_manager import JobManager
 from modules.orchestration.job_scheduler import JobScheduler
-from modules.orchestration.message_bus import InMemoryQueueBackend, MessageBus
 from modules.Tools.Base_Tools.task_queue import (
     RetryPolicy,
     TaskEvent,
@@ -407,7 +407,7 @@ def test_executor_invokes_job_manager(job_repository):
 def test_executor_runs_bundled_job_without_manifest_errors(job_repository):
     queue = FastQueueStub()
     task_manager = _RecordingTaskManager()
-    message_bus = MessageBus(backend=InMemoryQueueBackend())
+    agent_bus = AgentBus()
 
     try:
         jobs = [
@@ -419,7 +419,7 @@ def test_executor_runs_bundled_job_without_manifest_errors(job_repository):
 
         manager = JobManager(
             task_manager,
-            message_bus=message_bus,
+            agent_bus=agent_bus,
             job_loader=lambda: jobs,
         )
 
@@ -444,5 +444,5 @@ def test_executor_runs_bundled_job_without_manifest_errors(job_repository):
             "DistributeBrief",
         ]
     finally:
-        asyncio.run(message_bus.close())
+        asyncio.run(agent_bus.stop())
 

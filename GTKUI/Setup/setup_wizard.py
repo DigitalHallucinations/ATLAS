@@ -2783,10 +2783,10 @@ class SetupWizardWindow(AtlasWindow):
         return self._create_intro_page(
             "About the Message Bus",
             [
-                "The message bus keeps ATLAS services talking to each other.",
-                "Common choices include Redis streams or bridging into Kafka—pick what fits your stack.",
+                "The AgentBus routes events between ATLAS services using the Neural Cognitive Bus (NCB).",
+                "It supports domain-specific channels, priority queues, and optional Redis/Kafka bridging.",
             ],
-            "Have the broker URL, Kafka bootstrap servers, and retention/DLQ expectations ready for the next screen.",
+            "Have Redis URL or Kafka bootstrap servers ready if you want external transport bridging.",
         )
 
     def _build_kv_store_intro_page(self) -> Gtk.Widget:
@@ -3982,8 +3982,8 @@ class SetupWizardWindow(AtlasWindow):
         grid.attach(backend_label, 0, 0, 1, 1)
 
         backend_combo = Gtk.ComboBoxText()
-        backend_combo.append("in_memory", "In-memory")
-        backend_combo.append("redis", "Redis")
+        backend_combo.append("in_memory", "NCB (in-memory)")
+        backend_combo.append("redis", "NCB + Redis bridging")
         backend_combo.set_active_id(state.backend or "in_memory")
         backend_combo.set_hexpand(False)
         backend_combo.set_halign(Gtk.Align.START)
@@ -4225,8 +4225,8 @@ class SetupWizardWindow(AtlasWindow):
         self._refresh_message_bus_sensitivity()
 
         instructions = (
-            "Choose the message bus backend. Redis keeps multiple workers in sync, while in-memory suits single instances. "
-            "Add policy defaults for retries, DLQs, and idempotency, tune Redis retention, and optionally publish or bridge into Kafka."
+            "Choose the message bus transport. NCB (in-memory) works for single instances, while Redis bridging "
+            "syncs multiple workers. Configure channel policies for retries, DLQs, and idempotency, and optionally bridge into Kafka."
         )
 
         return self._wrap_with_instructions(container, instructions, "Configure Message Bus")

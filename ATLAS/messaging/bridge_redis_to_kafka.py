@@ -1,26 +1,42 @@
-"""Bridge Redis stream topics to Kafka."""
+"""Bridge Redis stream topics to Kafka.
+
+DEPRECATED: This bridge is legacy infrastructure for the old MessageBus architecture.
+The NCB (Neural Cognitive Bus) now handles Redis and Kafka integration natively.
+This file is retained for backward compatibility but should not be used in new code.
+"""
 
 from __future__ import annotations
 
 import asyncio
 import logging
 import time
+import warnings
 from typing import Any, Iterable, Mapping, Sequence
 
-from modules.orchestration.message_bus import BusMessage, RedisStreamGroupBackend
+from .messages import AgentMessage
 
 from .kafka_sink import KafkaSink
 
 LOGGER = logging.getLogger(__name__)
 
+# Issue deprecation warning at import time
+warnings.warn(
+    "bridge_redis_to_kafka is deprecated. Use NCB's native Kafka integration instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+
 
 class RedisToKafkaBridge:
-    """Consume Redis-backed bus topics and publish them to Kafka."""
+    """Consume Redis-backed bus topics and publish them to Kafka.
+    
+    DEPRECATED: Use NCB's native Kafka integration instead.
+    """
 
     def __init__(
         self,
         *,
-        redis_backend: RedisStreamGroupBackend,
+        redis_backend: Any,  # Legacy RedisStreamGroupBackend
         kafka_sink: KafkaSink,
         source_topics: Sequence[str],
         source_prefix: str = "redis_kafka",
@@ -82,12 +98,11 @@ class RedisToKafkaBridge:
         message = await self._redis_backend.get(topic)
         await self._publish_with_retries(topic, message)
 
-    async def _publish_with_retries(self, source_topic: str, message: BusMessage) -> None:
-        attempts = max(int(message.delivery_attempts or 0), 0)
+    async def _publish_with_retries(self, source_topic: str, message: AgentMessage) -> None:
+        attempts = getattr(message, 'delivery_attempts', 0) or 0
 
         while attempts < self._max_attempts:
             attempts += 1
-            message.delivery_attempts = attempts
             try:
                 target_topic = self._resolve_target_topic(source_topic)
                 await self._kafka_sink.publish_message(message, topic_override=target_topic)
@@ -104,20 +119,18 @@ class RedisToKafkaBridge:
                     exc,
                 )
                 if attempts >= self._max_attempts:
-                    await self._emit_dlq(source_topic, message, error=exc)
+                    await self._emit_dlq(source_topic, message, error=exc, attempts=attempts)
                     self._redis_backend.acknowledge(message)
                     return
                 await asyncio.sleep(self._backoff_seconds * attempts)
 
-    async def _emit_dlq(self, source_topic: str, message: BusMessage, *, error: Exception) -> None:
+    async def _emit_dlq(self, source_topic: str, message: AgentMessage, *, error: Exception, attempts: int) -> None:
         payload = {
             "source_topic": source_topic,
             "payload": message.payload,
-            "metadata": message.metadata,
-            "correlation_id": message.correlation_id,
-            "tracing": message.tracing or {},
-            "delivery_attempts": message.delivery_attempts,
-            "backend_id": message.backend_id,
+            "headers": message.headers or {},
+            "trace_id": message.trace_id,
+            "delivery_attempts": attempts,
             "error": str(error),
             "failed_at": time.time(),
         }
@@ -125,13 +138,13 @@ class RedisToKafkaBridge:
             await self._kafka_sink.publish_event(
                 self._dlq_topic,
                 payload,
-                correlation_id=message.correlation_id,
-                tracing=message.tracing or {},
-                metadata=message.metadata,
+                correlation_id=message.trace_id,
+                tracing={},
+                metadata=message.headers or {},
             )
         except Exception:  # pragma: no cover - logging only path
             self._logger.exception(
-                "Failed to publish DLQ entry for topic '%s' after %d attempts.", source_topic, message.delivery_attempts
+                "Failed to publish DLQ entry for topic '%s' after %d attempts.", source_topic, attempts
             )
 
     def _resolve_target_topic(self, source_topic: str) -> str:
@@ -167,12 +180,20 @@ class RedisToKafkaBridge:
 
 def build_bridge_from_settings(
     settings: Mapping[str, Any],
-    redis_backend: RedisStreamGroupBackend,
+    redis_backend: Any,  # Legacy RedisStreamGroupBackend
     *,
     logger: logging.Logger | None = None,
 ) -> RedisToKafkaBridge | None:
-    """Construct a Redis-to-Kafka bridge using messaging settings."""
+    """Construct a Redis-to-Kafka bridge using messaging settings.
+    
+    DEPRECATED: Use NCB's native Kafka integration instead.
+    """
 
+    warnings.warn(
+        "build_bridge_from_settings is deprecated. Use NCB's native Kafka integration instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     logger = logger or LOGGER
     kafka_block = settings.get("kafka") if isinstance(settings, Mapping) else None
     if not isinstance(kafka_block, Mapping) or not kafka_block.get("enabled"):

@@ -7,7 +7,12 @@ from dataclasses import dataclass
 from typing import Any, Callable, Dict, Iterable, Mapping, Optional, Sequence
 
 from modules.logging.logger import setup_logger
-from modules.orchestration.message_bus import BusMessage, MessageBus, Subscription, get_message_bus
+from ATLAS.messaging import (
+    AgentBus,
+    AgentMessage,
+    Subscription,
+    get_agent_bus,
+)
 from modules.orchestration.remediation import (
     RemediationActionContext,
     RemediationOrchestrator,
@@ -69,12 +74,12 @@ class PersonaMetricRemediationWorker:
         self,
         *,
         orchestrator: RemediationOrchestrator | None = None,
-        message_bus: MessageBus | None = None,
+        agent_bus: AgentBus | None = None,
         config_getter: Callable[[], Mapping[str, Any]] | None = None,
         logger: logging.Logger | None = None,
     ) -> None:
-        self._bus = message_bus or get_message_bus()
-        self._orchestrator = orchestrator or RemediationOrchestrator(message_bus=self._bus)
+        self._bus = agent_bus or get_agent_bus()
+        self._orchestrator = orchestrator or RemediationOrchestrator(agent_bus=self._bus)
         self._config_getter = config_getter or (lambda: {})
         self._logger = logger or setup_logger(__name__)
         self._subscription: Subscription | None = None
@@ -87,18 +92,18 @@ class PersonaMetricRemediationWorker:
         subscription = self._subscription
         return subscription is not None
 
-    def start(self) -> None:
+    async def start(self) -> None:
         if self._subscription is not None:
             return
-        self._subscription = self._bus.subscribe(
+        self._subscription = await self._bus.subscribe(
             "persona_metrics.alert",
             self._handle_message,
         )
 
-    def stop(self) -> None:
+    async def stop(self) -> None:
         subscription = self._subscription
         if subscription is not None:
-            subscription.cancel()
+            await subscription.cancel()
             self._subscription = None
 
     async def process_alert(self, alert: Mapping[str, Any]) -> None:
@@ -107,7 +112,7 @@ class PersonaMetricRemediationWorker:
     # ------------------------------------------------------------------
     # Message handling
     # ------------------------------------------------------------------
-    async def _handle_message(self, message: BusMessage) -> None:
+    async def _handle_message(self, message: AgentMessage) -> None:
         payload = message.payload
         if not isinstance(payload, Mapping):
             self._logger.debug("Ignoring persona_metrics.alert without mapping payload: %s", payload)

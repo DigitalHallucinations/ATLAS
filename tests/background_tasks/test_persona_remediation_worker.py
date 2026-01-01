@@ -3,8 +3,8 @@ from __future__ import annotations
 import asyncio
 from typing import Any, Dict
 
+from ATLAS.messaging import AgentBus, AgentMessage
 from modules.background_tasks.remediation import PersonaMetricRemediationWorker
-from modules.orchestration.message_bus import InMemoryQueueBackend, MessageBus
 from modules.orchestration.remediation import RemediationOrchestrator
 
 
@@ -32,9 +32,9 @@ def test_remediation_worker_executes_default_actions() -> None:
 
 
 async def _run_default_action_scenario() -> None:
-    loop = asyncio.get_running_loop()
-    bus = MessageBus(backend=InMemoryQueueBackend(), loop=loop)
-    orchestrator = RemediationOrchestrator(message_bus=bus)
+    bus = AgentBus()
+    await bus.start()
+    orchestrator = RemediationOrchestrator(agent_bus=bus)
 
     config = {
         "defaults": {
@@ -49,41 +49,41 @@ async def _run_default_action_scenario() -> None:
 
     worker = PersonaMetricRemediationWorker(
         orchestrator=orchestrator,
-        message_bus=bus,
+        agent_bus=bus,
         config_getter=lambda: config,
     )
 
     results: list[tuple[str, Dict[str, Any]]] = []
     done = asyncio.Event()
 
-    async def _collector(topic: str, message) -> None:
+    async def _collector(topic: str, message: AgentMessage) -> None:
         results.append((topic, message.payload))
         if len(results) >= 3:
             done.set()
 
     subscriptions = [
-        bus.subscribe(
+        await bus.subscribe(
             RemediationOrchestrator.HEALTH_CHECK_TOPIC,
             lambda message: _collector(RemediationOrchestrator.HEALTH_CHECK_TOPIC, message),
         ),
-        bus.subscribe(
+        await bus.subscribe(
             RemediationOrchestrator.TOOL_THROTTLE_TOPIC,
             lambda message: _collector(RemediationOrchestrator.TOOL_THROTTLE_TOPIC, message),
         ),
-        bus.subscribe(
+        await bus.subscribe(
             RemediationOrchestrator.OPERATOR_NOTIFY_TOPIC,
             lambda message: _collector(RemediationOrchestrator.OPERATOR_NOTIFY_TOPIC, message),
         ),
     ]
 
-    worker.start()
+    await worker.start()
 
-    await bus.publish(
-        "persona_metrics.alert",
-        _build_alert(persona="Atlas", metric="tool.failure_rate", z_score=4.5, observed=0.42),
-    )
+    await bus.publish(AgentMessage(
+        channel="persona_metrics.alert",
+        payload=_build_alert(persona="Atlas", metric="tool.failure_rate", z_score=4.5, observed=0.42),
+    ))
 
-    await asyncio.wait_for(done.wait(), timeout=1.0)
+    await asyncio.wait_for(done.wait(), timeout=2.0)
 
     topics = {topic for topic, _ in results}
     assert topics == {
@@ -98,10 +98,10 @@ async def _run_default_action_scenario() -> None:
         assert payload["severity"] == "high"
         assert payload["baseline"]["z_score"] == 4.5
 
-    worker.stop()
+    await worker.stop()
     for subscription in subscriptions:
-        subscription.cancel()
-    await bus.close()
+        await subscription.cancel()
+    await bus.stop()
 
 
 def test_remediation_worker_respects_tenant_policies() -> None:
@@ -109,9 +109,9 @@ def test_remediation_worker_respects_tenant_policies() -> None:
 
 
 async def _run_tenant_policy_scenario() -> None:
-    loop = asyncio.get_running_loop()
-    bus = MessageBus(backend=InMemoryQueueBackend(), loop=loop)
-    orchestrator = RemediationOrchestrator(message_bus=bus)
+    bus = AgentBus()
+    await bus.start()
+    orchestrator = RemediationOrchestrator(agent_bus=bus)
 
     config = {
         "defaults": {
@@ -138,46 +138,46 @@ async def _run_tenant_policy_scenario() -> None:
 
     worker = PersonaMetricRemediationWorker(
         orchestrator=orchestrator,
-        message_bus=bus,
+        agent_bus=bus,
         config_getter=lambda: config,
     )
 
     actions: list[tuple[str, Dict[str, Any]]] = []
     done = asyncio.Event()
 
-    async def _collect(topic: str, message) -> None:
+    async def _collect(topic: str, message: AgentMessage) -> None:
         actions.append((topic, message.payload))
         done.set()
 
     subscriptions = [
-        bus.subscribe(
+        await bus.subscribe(
             RemediationOrchestrator.HEALTH_CHECK_TOPIC,
             lambda message: _collect(RemediationOrchestrator.HEALTH_CHECK_TOPIC, message),
         ),
-        bus.subscribe(
+        await bus.subscribe(
             RemediationOrchestrator.TOOL_THROTTLE_TOPIC,
             lambda message: _collect(RemediationOrchestrator.TOOL_THROTTLE_TOPIC, message),
         ),
-        bus.subscribe(
+        await bus.subscribe(
             RemediationOrchestrator.OPERATOR_NOTIFY_TOPIC,
             lambda message: _collect(RemediationOrchestrator.OPERATOR_NOTIFY_TOPIC, message),
         ),
     ]
 
-    worker.start()
+    await worker.start()
 
-    await bus.publish(
-        "persona_metrics.alert",
-        _build_alert(
+    await bus.publish(AgentMessage(
+        channel="persona_metrics.alert",
+        payload=_build_alert(
             persona="Atlas",
             metric="tool.failure_rate",
             tenant_id="tenant-b",
             z_score=1.3,
             observed=0.11,
         ),
-    )
+    ))
 
-    await asyncio.wait_for(done.wait(), timeout=1.0)
+    await asyncio.wait_for(done.wait(), timeout=2.0)
     await asyncio.sleep(0.05)
 
     assert len(actions) == 1
@@ -187,7 +187,7 @@ async def _run_tenant_policy_scenario() -> None:
     assert payload["severity"] == "medium"
     assert payload["metric"] == "tool.failure_rate"
 
-    worker.stop()
+    await worker.stop()
     for subscription in subscriptions:
-        subscription.cancel()
-    await bus.close()
+        await subscription.cancel()
+    await bus.stop()

@@ -24,13 +24,13 @@ corresponding controller state so implementers can navigate the codebase quickly
   coverage in `tests/test_setup_wizard.py`.
 
 ### 2. Message Bus Backend Selection
-- Add a step that binds to `MessageBusState`, allowing operators to switch
-  between in-memory and Redis transports, including Redis DSN and stream prefix
-  fields that conditionally enable based on the selection.
+- Add a step that binds to `MessageBusState`, allowing operators to configure
+  the AgentBus/NCB transport options, including optional Redis bridging DSN and
+  Kafka producer settings that conditionally enable based on the selection.
 - Invoke
   `SetupWizardController.apply_message_bus_settings` when the user advances,
   surfacing validation errors within the wizard.
-- Extend test coverage to confirm Redis-specific fields are saved and documented
+- Extend test coverage to confirm bridging-specific fields are saved and documented
   in `docs/setup-wizard.md`.
 
 ### 3. Key-Value Store Configuration

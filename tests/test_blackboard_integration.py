@@ -25,18 +25,17 @@ if "jsonschema" not in sys.modules:
 
 import pytest
 
+from ATLAS.messaging import AgentBus, get_agent_bus
 from ATLAS.SkillManager import SkillExecutionContext
 from modules.Server import RequestContext
 from modules.Server.conversation_routes import ConversationAuthorizationError
 from modules.Server.routes import AtlasServer
 from modules.orchestration.blackboard import BlackboardStore, configure_blackboard
-from modules.orchestration.message_bus import InMemoryQueueBackend, configure_message_bus
 
 
 @pytest.fixture(autouse=True)
 def _reset_blackboard() -> None:
     configure_blackboard(BlackboardStore())
-    configure_message_bus(InMemoryQueueBackend())
 
 
 def test_blackboard_persists_across_contexts(_reset_blackboard):

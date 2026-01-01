@@ -1,68 +1,136 @@
 ---
 audience: Operators and backend developers
-status: in_review
-last_verified: 2026-07-02
-last_updated_hint: Documented Redis initial stream offsets alongside Redis vs in-memory defaults.
-source_of_truth: modules/orchestration/message_bus.py
+status: current
+last_verified: 2026-01-01
+last_updated_hint: Migrated from legacy MessageBus to NCB/AgentBus architecture.
+source_of_truth: ATLAS/messaging/agent_bus.py; ATLAS/messaging/NCB.py
 ---
 
 # Messaging Bus Deployment
 
-The ATLAS runtime now routes tool, skill, and analytics events through the
-central asynchronous message bus located in `modules/orchestration/message_bus.py`.
-The bus supports multiple backends so that local development remains lightweight
-while production deployments can switch to a durable Redis Streams cluster.
+The ATLAS runtime routes tool, skill, orchestration, and analytics events through
+the **AgentBus**, a high-level messaging API backed by the **Neural Cognitive Bus (NCB)**.
+The NCB provides domain-specific channels, priority queues, idempotency, dead-letter
+handling, and optional external transport bridging (Redis, Kafka).
+
+## Architecture
+
+The messaging system consists of:
+
+- **AgentBus** (`ATLAS/messaging/agent_bus.py`) — High-level typed API with `publish()`,
+  `subscribe()`, channel configuration, and convenience methods for common message patterns.
+- **NCB** (`ATLAS/messaging/NCB.py`) — Core async engine with priority queues, SQLite
+  persistence, retry support, and optional Redis/Kafka bridging.
+- **Channels** (`ATLAS/messaging/channels.py`) — 36+ fine-grained semantic channels
+  (e.g., `user.input`, `llm.request`, `tool.invoke`, `task.created`, `job.complete`).
+- **AgentMessage** (`ATLAS/messaging/messages.py`) — Base message type with ATLAS context
+  fields (agent_id, conversation_id, request_id, user_id, trace_id, payload).
 
 ## Configuration
 
-Message bus settings are controlled by the `messaging` block in
-`config.yaml` or via environment variables loaded by `ConfigManager`:
+Message bus settings are controlled by the `messaging` block in `config.yaml`:
 
 ```yaml
 messaging:
-  backend: in_memory  # or "redis"
+  backend: ncb  # default; "redis" or "kafka" for external bridging
   redis_url: redis://localhost:6379/0
-  stream_prefix: atlas_bus
-  initial_stream_id: "$"  # use "0-0" to replay existing entries
+  kafka:
+    enabled: false
+    bootstrap_servers: kafka:9092
 ```
 
-* `backend` — defaults to `in_memory`. Use `redis` to enable Redis Streams.
-* `redis_url` — connection string used when the Redis backend is active. If not
-  provided, `ConfigManager` falls back to the `REDIS_URL` environment variable or
-  `redis://localhost:6379/0`.
-* `stream_prefix` — namespace prefix applied to all stream keys created by the
-  bus when using Redis.
-* `initial_stream_id` — starting offset for new consumers on a Redis stream. The
-  default value `$` only delivers entries published after the consumer starts;
-  set to `0-0` or a saved checkpoint to replay existing messages from that ID.
+* `backend` — defaults to `ncb` (in-process async queues). External transports
+  bridge events to Redis or Kafka when configured.
+* `redis_url` — connection string for Redis bridging when enabled.
+* `kafka.enabled` — enables Kafka producer bridging for external consumers.
+* `kafka.bootstrap_servers` — Kafka cluster connection string.
 
 Changes take effect on the next application start. The bus is configured during
-`ATLAS` initialization via `ConfigManager.configure_message_bus()`.
+`ATLAS` initialization via `configure_agent_bus()`.
 
-## Default backends
+## Channel Architecture
 
-- **Local development** defaults to `in_memory` to avoid external dependencies. Events remain in-process and clear on restart.
-- **Wizard “Enterprise” preset** enables `redis` automatically so background workers and schedulers can persist queues across service restarts.
-- **Missing Redis dependency** triggers a warning and forces the in-memory fallback even if `backend: redis` is set. Install `redis` Python bindings and confirm the server is reachable to return to Redis Streams.
+The NCB uses domain-specific channels instead of generic topics:
 
-Use Redis when you need durability, multiple worker processes, or cross-host messaging. Prefer the in-memory backend for single-user laptops and short-lived demos where state loss is acceptable.
+| Channel Prefix | Purpose |
+| --- | --- |
+| `user.*` | User input/output events |
+| `llm.*` | LLM request/response/streaming |
+| `tool.*` | Tool invocation and results |
+| `agent.*` | Agent lifecycle and routing |
+| `task.*` | Task lifecycle events |
+| `job.*` | Job scheduling and completion |
+| `conversation.*` | Conversation lifecycle |
+| `system.*` | System health and metrics |
+| `blackboard.*` | Shared collaboration state |
+| `skill.*` | Skill execution events |
 
-## Redis Backend Deployment
+## Usage Patterns
 
-1. Provision a Redis 6.x (or newer) instance. Redis Streams are required.
-2. Secure the deployment with authentication and, if possible, TLS.
-3. Expose the connection string as `REDIS_URL` or update the `messaging` block in
-   `config.yaml`.
-4. Ensure the application host can reach the Redis instance and restart ATLAS.
+### Publishing messages
 
-When Redis is unavailable or the dependency is not installed, ATLAS logs a
-warning and automatically falls back to the in-memory backend. In-memory queues
-retain events only for the lifetime of the process; prefer Redis for durable or
-multi-process scenarios.
+```python
+from ATLAS.messaging import get_agent_bus, AgentMessage
 
-## Observability and Tracing
+bus = get_agent_bus()
+await bus.publish(AgentMessage(
+    channel="tool.invoke",
+    payload={"tool": "calculator", "args": {"x": 1}},
+    agent_id="main",
+    conversation_id="conv-123",
+))
+```
 
-Each message published on the bus includes correlation IDs and tracing metadata
-that capture conversation, persona, tool, and skill identifiers. Use these
-fields to connect application logs with downstream analytics or monitoring
-pipelines when deploying a Redis-backed bus.
+### Subscribing to channels
+
+```python
+async def handle_tool_result(message: AgentMessage):
+    print(f"Tool result: {message.payload}")
+
+await bus.subscribe("tool.result", handle_tool_result)
+```
+
+### Priority and retry
+
+Messages support priority levels (LOW, NORMAL, HIGH, CRITICAL) and automatic
+retry with exponential backoff for transient failures.
+
+## Deployment Options
+
+### Local Development (default)
+
+Uses in-process async queues. Events remain in-memory and clear on restart.
+No external dependencies required.
+
+### Production with Redis
+
+Enable Redis bridging for durable queues and cross-process messaging:
+
+```yaml
+messaging:
+  backend: ncb
+  redis_url: redis://localhost:6379/0
+```
+
+### Production with Kafka
+
+Enable Kafka bridging for external analytics consumers:
+
+```yaml
+messaging:
+  kafka:
+    enabled: true
+    bootstrap_servers: kafka:9092
+```
+
+## Observability
+
+Each message includes correlation IDs and tracing metadata:
+- `trace_id` — Distributed trace identifier
+- `request_id` — Request correlation
+- `agent_id` — Originating agent
+- `conversation_id` — Conversation context
+- `user_id` — User context
+
+Use these fields to connect application logs with downstream analytics or
+monitoring pipelines.

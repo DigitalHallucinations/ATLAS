@@ -10,7 +10,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 
-from modules.orchestration.message_bus import BusMessage
+from .messages import AgentMessage
 
 LOGGER = logging.getLogger(__name__)
 
@@ -102,9 +102,9 @@ class KafkaSink:
             return f"{self.topic_prefix}.{trimmed}" if trimmed else self.topic_prefix
         return cleaned
 
-    async def publish_message(self, message: BusMessage, *, topic_override: str | None = None) -> None:
-        target_topic = self.resolve_topic(topic_override or message.topic)
-        payload = self._serialize_bus_message(message)
+    async def publish_message(self, message: AgentMessage, *, topic_override: str | None = None) -> None:
+        target_topic = self.resolve_topic(topic_override or message.channel)
+        payload = self._serialize_agent_message(message)
         await self._send(target_topic, payload)
 
     async def publish_event(
@@ -163,17 +163,18 @@ class KafkaSink:
         await loop.run_in_executor(None, future.get, self.delivery_timeout)
 
     @staticmethod
-    def _serialize_bus_message(message: BusMessage) -> bytes:
+    def _serialize_agent_message(message: AgentMessage) -> bytes:
         record = {
-            "topic": message.topic,
+            "channel": message.channel,
             "payload": message.payload,
             "priority": message.priority,
-            "correlation_id": message.correlation_id,
-            "tracing": message.tracing or {},
-            "metadata": message.metadata,
-            "backend_id": message.backend_id,
-            "enqueued_time": message.enqueued_time,
-            "delivery_attempts": message.delivery_attempts,
+            "trace_id": message.trace_id,
+            "headers": message.headers or {},
+            "agent_id": message.agent_id,
+            "conversation_id": message.conversation_id,
+            "request_id": message.request_id,
+            "user_id": message.user_id,
+            "ts": message.ts,
         }
         return KafkaSink._encode(record)
 

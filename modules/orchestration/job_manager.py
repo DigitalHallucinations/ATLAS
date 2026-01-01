@@ -20,16 +20,26 @@ from modules.Jobs import manifest_loader
 from modules.Jobs.manifest_loader import JobMetadata
 from modules.Tasks import manifest_loader as task_manifest_loader
 from modules.orchestration.blackboard import BlackboardClient
-from modules.orchestration.message_bus import MessageBus, MessagePriority, get_message_bus
 from modules.orchestration.planner import ExecutionPlan, PlanStep, PlanStepStatus
 from modules.orchestration.task_manager import TaskManager
 from modules.orchestration.utils import normalize_persona_identifier
 
+from ATLAS.messaging import (
+    AgentBus,
+    AgentMessage,
+    MessagePriority,
+    get_agent_bus,
+    JOB_CREATE,
+    JOB_UPDATE,
+    JOB_RESULT,
+)
+
 _LOGGER = logging.getLogger(__name__)
 
-JOB_CREATED_TOPIC = "jobs.created"
-JOB_UPDATED_TOPIC = "jobs.updated"
-JOB_COMPLETED_TOPIC = "jobs.completed"
+# Channel names for job events
+JOB_CREATED_TOPIC = JOB_CREATE.name
+JOB_UPDATED_TOPIC = JOB_UPDATE.name
+JOB_COMPLETED_TOPIC = JOB_RESULT.name
 
 
 @dataclass
@@ -167,12 +177,12 @@ class JobManager:
         self,
         task_manager: TaskManager,
         *,
-        message_bus: Optional[MessageBus] = None,
+        agent_bus: Optional[AgentBus] = None,
         job_loader: Optional[Callable[[], Iterable[JobMetadata]]] = None,
         task_resolver: Optional[Callable[[str, Optional[str]], Optional[Mapping[str, Any]]]] = None,
     ) -> None:
         self._task_manager = task_manager
-        self._bus = message_bus or get_message_bus()
+        self._bus = agent_bus or get_agent_bus()
         self._job_loader = job_loader or manifest_loader.load_job_metadata
         self._task_resolver = task_resolver or build_task_manifest_resolver()
 
@@ -432,16 +442,17 @@ class JobManager:
 
     async def _publish(self, topic: str, payload: Mapping[str, Any]) -> None:
         try:
-            await self._bus.publish(
-                topic,
-                dict(payload),
+            message = AgentMessage(
+                channel=topic,
+                payload=dict(payload),
                 priority=MessagePriority.NORMAL,
-                metadata={
+                headers={
                     "topic": topic,
-                    "job_id": payload.get("job_id"),
-                    "job_name": payload.get("job_name"),
+                    "job_id": str(payload.get("job_id", "")),
+                    "job_name": str(payload.get("job_name", "")),
                 },
             )
+            await self._bus.publish(message)
         except Exception:  # pragma: no cover - defensive guard for bus failures
             _LOGGER.exception("Failed to publish job event on topic '%s'", topic)
 

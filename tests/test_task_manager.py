@@ -1,8 +1,8 @@
 import asyncio
 from collections import defaultdict
 
+from ATLAS.messaging import AgentBus, AgentMessage
 from modules.orchestration.blackboard import BlackboardStore, configure_blackboard
-from modules.orchestration.message_bus import InMemoryQueueBackend, MessageBus
 from modules.orchestration.task_manager import (
     TASK_COMPLETED_TOPIC,
     TASK_CREATED_TOPIC,
@@ -14,8 +14,8 @@ from modules.orchestration.task_manager import (
 def test_task_manager_executes_ready_steps():
     async def _run() -> None:
         execution_order = []
-        loop = asyncio.get_running_loop()
-        message_bus = MessageBus(backend=InMemoryQueueBackend(), loop=loop)
+        agent_bus = AgentBus()
+        await agent_bus.start()
         try:
             store = BlackboardStore()
             configure_blackboard(store)
@@ -27,7 +27,7 @@ def test_task_manager_executes_ready_steps():
 
             manager = TaskManager(
                 {"alpha": record_runner, "beta": record_runner, "gamma": record_runner},
-                message_bus=message_bus,
+                agent_bus=agent_bus,
             )
 
             manifest = {
@@ -57,15 +57,15 @@ def test_task_manager_executes_ready_steps():
             hypotheses = [entry for entry in client.list_entries(category="hypothesis")]
             assert len(hypotheses) == 3
         finally:
-            await message_bus.close()
+            await agent_bus.stop()
 
     asyncio.run(_run())
 
 
 def test_task_manager_failure_cancels_dependents():
     async def _run() -> None:
-        loop = asyncio.get_running_loop()
-        message_bus = MessageBus(backend=InMemoryQueueBackend(), loop=loop)
+        agent_bus = AgentBus()
+        await agent_bus.start()
         try:
             store = BlackboardStore()
             configure_blackboard(store)
@@ -79,7 +79,7 @@ def test_task_manager_failure_cancels_dependents():
 
             manager = TaskManager(
                 {"alpha": success_runner, "beta": failing_runner, "gamma": success_runner},
-                message_bus=message_bus,
+                agent_bus=agent_bus,
             )
 
             manifest = {
@@ -108,15 +108,16 @@ def test_task_manager_failure_cancels_dependents():
             assert any(title.startswith("Blocker: execute") for title in titles)
             assert any(title.startswith("Cancelled: report") for title in titles)
         finally:
-            await message_bus.close()
+            await agent_bus.stop()
 
     asyncio.run(_run())
 
 
 def test_task_manager_publishes_bus_events():
     async def _run() -> None:
-        loop = asyncio.get_running_loop()
-        message_bus = MessageBus(backend=InMemoryQueueBackend(), loop=loop)
+        agent_bus = AgentBus()
+        await agent_bus.start()
+        subscriptions = []
         try:
             events = defaultdict(list)
             finished = asyncio.Event()
@@ -124,22 +125,24 @@ def test_task_manager_publishes_bus_events():
             configure_blackboard(store)
             store._publish_event = lambda *args, **kwargs: None  # type: ignore[attr-defined]
 
-            def _subscribe(topic: str):
-                async def handler(message):
+            async def _subscribe(topic: str):
+                async def handler(message: AgentMessage):
                     events[topic].append(message.payload)
                     if topic == TASK_COMPLETED_TOPIC:
                         finished.set()
 
-                return message_bus.subscribe(topic, handler)
+                sub = await agent_bus.subscribe(topic, handler)
+                subscriptions.append(sub)
+                return sub
 
-            created_sub = _subscribe(TASK_CREATED_TOPIC)
-            updated_sub = _subscribe(TASK_UPDATED_TOPIC)
-            completed_sub = _subscribe(TASK_COMPLETED_TOPIC)
+            await _subscribe(TASK_CREATED_TOPIC)
+            await _subscribe(TASK_UPDATED_TOPIC)
+            await _subscribe(TASK_COMPLETED_TOPIC)
 
             async def runner(step, _context):
                 return {"id": step.identifier}
 
-            manager = TaskManager({"alpha": runner}, message_bus=message_bus)
+            manager = TaskManager({"alpha": runner}, agent_bus=agent_bus)
 
             manifest = {
                 "id": "task-3",
@@ -148,16 +151,15 @@ def test_task_manager_publishes_bus_events():
             }
 
             await manager.run_task(manifest)
-            await asyncio.wait_for(finished.wait(), timeout=1.0)
+            await asyncio.wait_for(finished.wait(), timeout=2.0)
 
             assert len(events[TASK_CREATED_TOPIC]) == 1
             assert events[TASK_CREATED_TOPIC][0]["task_id"] == "task-3"
             assert events[TASK_COMPLETED_TOPIC][-1]["status"] == "succeeded"
             assert any(payload["status"] == "running" for payload in events[TASK_UPDATED_TOPIC])
         finally:
-            created_sub.cancel()
-            updated_sub.cancel()
-            completed_sub.cancel()
-            await message_bus.close()
+            for sub in subscriptions:
+                await sub.cancel()
+            await agent_bus.stop()
 
     asyncio.run(_run())

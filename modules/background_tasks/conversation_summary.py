@@ -15,7 +15,7 @@ from modules.Tools.Base_Tools.context_tracker import context_tracker
 from modules.Tools.Base_Tools.memory_episodic import EpisodicMemoryTool
 from modules.conversation_store import ConversationStoreRepository
 from modules.logging.logger import setup_logger
-from modules.orchestration.message_bus import MessageBus, MessagePriority, Subscription
+from ATLAS.messaging import AgentBus, MessagePriority, Subscription
 
 
 def _coerce_datetime(value: Any) -> datetime | None:
@@ -477,14 +477,14 @@ class ConversationSummaryWorker:
         repository: ConversationStoreRepository,
         *,
         config_getter: Callable[[], Mapping[str, Any]] | None = None,
-        message_bus: MessageBus | None = None,
+        agent_bus: AgentBus | None = None,
         poll_interval: float = 5.0,
         subscription_refresh: float = 60.0,
         logger: logging.Logger | None = None,
     ) -> None:
         self._repository = repository
         self._config_getter = config_getter or (lambda: {})
-        self._bus = message_bus
+        self._bus = agent_bus
         self._poll_interval = max(float(poll_interval), 1.0)
         self._subscription_refresh = max(float(subscription_refresh), 5.0)
         self._logger = logger or setup_logger(__name__)
@@ -542,7 +542,7 @@ class ConversationSummaryWorker:
         except Exception:  # pragma: no cover - defensive logging only
             self._logger.exception("Conversation summary worker crashed")
         finally:
-            self._cancel_subscriptions()
+            loop.run_until_complete(self._cancel_subscriptions())
             loop.run_until_complete(loop.shutdown_asyncgens())
             loop.close()
             self._loop = None
@@ -717,13 +717,13 @@ class ConversationSummaryWorker:
                     payload.setdefault("conversation_id", conversation_id)
                     await self._event_queue.put(payload)
 
-                subscription = self._bus.subscribe(topic, _handler)
+                subscription = await self._bus.subscribe(topic, _handler)
                 self._subscriptions[conversation_id] = subscription
 
-    def _cancel_subscriptions(self) -> None:
+    async def _cancel_subscriptions(self) -> None:
         for subscription in list(self._subscriptions.values()):
             try:
-                subscription.cancel()
+                await subscription.cancel()
             except Exception:  # pragma: no cover - defensive logging only
                 self._logger.debug("Failed to cancel subscription cleanly", exc_info=True)
         self._subscriptions.clear()

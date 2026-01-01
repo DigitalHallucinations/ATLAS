@@ -16,16 +16,17 @@ from typing import Any, Callable, Dict, Iterable, Mapping, Optional, Sequence
 
 from modules.Tools.tool_event_system import publish_bus_event
 from modules.orchestration.blackboard import BlackboardClient, get_blackboard
-from modules.orchestration.message_bus import MessagePriority, get_message_bus
 from modules.orchestration.planner import Planner, PlanStep, PlanStepStatus
 from modules.logging.logger import setup_logger
+
+from ATLAS.messaging import MessagePriority, get_agent_bus
 
 
 logger = setup_logger(__name__)
 
-# Ensure the message bus is initialized outside of any running event loop to avoid
+# Ensure the agent bus is initialized outside of any running event loop to avoid
 # nested ``asyncio.run`` calls during skill execution in tests.
-get_message_bus()
+get_agent_bus()
 
 SKILL_ACTIVITY_EVENT = "skill_activity"
 _DEFAULT_TOOL_TIMEOUT_SECONDS = 30.0

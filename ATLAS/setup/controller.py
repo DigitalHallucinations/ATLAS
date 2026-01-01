@@ -88,7 +88,7 @@ class JobSchedulingState:
 
 @dataclass
 class MessageBusState:
-    backend: str = "in_memory"
+    backend: str = "in_memory"  # NCB always used; this controls bridging mode
     redis_url: Optional[str] = None
     stream_prefix: Optional[str] = None
     initial_offset: str = "$"
@@ -120,7 +120,7 @@ class MessageBusState:
     kafka_bridge_max_attempts: int = 3
     kafka_bridge_backoff_seconds: float = 1.0
     kafka_bridge_dlq_topic: str = "atlas.bridge.dlq"
-    # NCB settings
+    # NCB settings (Neural Cognitive Bus)
     ncb_persistence_path: Optional[str] = None
     ncb_enable_prometheus: bool = False
     ncb_prometheus_port: int = 8000

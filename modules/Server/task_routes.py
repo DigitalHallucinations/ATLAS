@@ -11,7 +11,7 @@ from typing import Any, AsyncIterator, Dict, Iterable, Mapping, Optional, Sequen
 from jsonschema import Draft202012Validator
 
 from modules.logging.logger import setup_logger
-from modules.orchestration.message_bus import MessageBus
+from ATLAS.messaging import AgentBus
 from modules.task_store.repository import (
     TaskConcurrencyError,
     TaskNotFoundError,
@@ -125,12 +125,12 @@ class TaskRoutes:
         self,
         service: TaskService,
         *,
-        message_bus: MessageBus | None = None,
+        agent_bus: AgentBus | None = None,
         page_size_limit: int = 100,
         poll_interval: float = 0.5,
     ) -> None:
         self._service = service
-        self._bus = message_bus
+        self._bus = agent_bus
         self._page_size_limit = max(int(page_size_limit), 1)
         self._poll_interval = max(float(poll_interval), 0.05)
         self._create_validator = _JsonSchemaValidator(

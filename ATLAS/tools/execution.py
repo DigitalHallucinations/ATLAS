@@ -32,7 +32,7 @@ from modules.logging.logger import setup_logger
 from modules.Tools.tool_event_system import event_system, publish_bus_event
 from modules.orchestration import budget_tracker
 from modules.orchestration.capability_registry import get_capability_registry
-from modules.orchestration.message_bus import MessagePriority
+from ATLAS.messaging import MessagePriority
 
 from ATLAS.config import ConfigManager
 from ATLAS.tools.cache import (

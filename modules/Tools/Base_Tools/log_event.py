@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from typing import Any, Mapping
 
 from modules.Tools.tool_event_system import publish_bus_event
-from modules.orchestration.message_bus import MessagePriority
+from ATLAS.messaging import MessagePriority
 
 _REDACTION_REPLACEMENT = "[REDACTED]"
 _SENSITIVE_MARKERS = (

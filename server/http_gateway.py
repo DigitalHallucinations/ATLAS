@@ -17,6 +17,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from ATLAS.ATLAS import ATLAS
+from ATLAS.messaging import shutdown_agent_bus
 from modules.Server.conversation_routes import (
     ConversationAuthorizationError,
     ConversationRouteError,
@@ -26,7 +27,6 @@ from modules.Server.job_routes import JobRouteError
 from modules.Server.routes import AtlasServer
 from modules.Server.task_routes import TaskRouteError
 from modules.Personas import PersonaBundleError, PersonaValidationError
-from modules.orchestration.message_bus import shutdown_message_bus
 from modules.user_accounts.user_account_service import AccountLockedError
 
 LOGGER = logging.getLogger("atlas.http_gateway")
@@ -448,9 +448,9 @@ async def lifespan(app: FastAPI):
             except Exception:  # pragma: no cover
                 LOGGER.exception("Message bus shutdown failed")
         try:
-            await shutdown_message_bus()
+            await shutdown_agent_bus()
         except Exception:  # pragma: no cover
-            LOGGER.exception("Global message bus shutdown failed")
+            LOGGER.exception("Global agent bus shutdown failed")
 
 
 def _get_atlas(request: Request) -> ATLAS:

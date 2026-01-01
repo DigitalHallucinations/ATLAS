@@ -13,10 +13,11 @@ from dataclasses import dataclass
 from typing import Any, Dict, Mapping, MutableMapping, Optional, Tuple
 
 from modules.orchestration import budget_tracker
-from modules.orchestration.message_bus import (
-    MessageBus,
+from ATLAS.messaging import (
+    AgentBus,
+    AgentMessage,
     MessagePriority,
-    get_message_bus,
+    get_agent_bus,
 )
 
 
@@ -43,9 +44,9 @@ class RemediationOrchestrator:
     def __init__(
         self,
         *,
-        message_bus: MessageBus | None = None,
+        agent_bus: AgentBus | None = None,
     ) -> None:
-        self._bus = message_bus or get_message_bus()
+        self._bus = agent_bus or get_agent_bus()
         self._throttle_state: MutableMapping[
             Tuple[Optional[str], Optional[str], Optional[str]],
             Mapping[str, Any],
@@ -55,9 +56,9 @@ class RemediationOrchestrator:
     async def trigger_health_check(self, context: RemediationActionContext) -> None:
         """Publish a health-check request for the impacted persona metric."""
 
-        await self._bus.publish(
-            self.HEALTH_CHECK_TOPIC,
-            {
+        message = AgentMessage(
+            channel=self.HEALTH_CHECK_TOPIC,
+            payload={
                 "tenant_id": context.tenant_id,
                 "persona": context.persona,
                 "metric": context.metric,
@@ -67,8 +68,9 @@ class RemediationOrchestrator:
                 "alert": dict(context.alert),
             },
             priority=MessagePriority.HIGH,
-            metadata={"component": "remediation"},
+            headers={"component": "remediation"},
         )
+        await self._bus.publish(message)
 
     async def apply_tool_throttle(self, context: RemediationActionContext) -> Mapping[str, Any]:
         """Record and publish a throttle directive for the affected persona."""
@@ -93,21 +95,22 @@ class RemediationOrchestrator:
             }
             self._throttle_state[key] = snapshot
 
-        await self._bus.publish(
-            self.TOOL_THROTTLE_TOPIC,
-            payload,
+        message = AgentMessage(
+            channel=self.TOOL_THROTTLE_TOPIC,
+            payload=payload,
             priority=MessagePriority.HIGH,
-            metadata={"component": "remediation"},
+            headers={"component": "remediation"},
         )
+        await self._bus.publish(message)
 
         return snapshot
 
     async def notify_operators(self, context: RemediationActionContext) -> None:
         """Emit an operator notification request for downstream handlers."""
 
-        await self._bus.publish(
-            self.OPERATOR_NOTIFY_TOPIC,
-            {
+        message = AgentMessage(
+            channel=self.OPERATOR_NOTIFY_TOPIC,
+            payload={
                 "tenant_id": context.tenant_id,
                 "persona": context.persona,
                 "metric": context.metric,
@@ -117,8 +120,9 @@ class RemediationOrchestrator:
                 "alert": dict(context.alert),
             },
             priority=MessagePriority.HIGH,
-            metadata={"component": "remediation"},
+            headers={"component": "remediation"},
         )
+        await self._bus.publish(message)
 
     def get_throttle_snapshot(
         self,
