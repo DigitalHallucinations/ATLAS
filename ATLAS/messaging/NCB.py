@@ -4,7 +4,6 @@ Neural Cognitive Bus (NCB)
 
 Multi-channel, async communication bus for multi-agent systems.
 
-
 Author: Jeremy Shows – Digital Hallucinations
 Date: Dec 30, 2025
 """
@@ -12,7 +11,9 @@ Date: Dec 30, 2025
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import dataclasses
+import heapq
 import json
 import logging
 import os
@@ -34,74 +35,178 @@ from typing import (
     Set,
     Tuple,
     Union,
+    cast,
 )
 
 # ---------------- Optional deps (degrade gracefully) ----------------
 
 try:
-    import yaml  # type: ignore
+    import yaml  
 except Exception:
-    yaml = None  # type: ignore
+    yaml = None  
 
 try:
-    import msgpack  # type: ignore
+    import msgpack as _msgpack  
 except Exception:
-    msgpack = None  # type: ignore
+    _msgpack = None  
 
 try:
-    import zlib
+    import zlib as _zlib
 except Exception:
-    zlib = None  # type: ignore
+    _zlib = None  
 
 try:
-    from prometheus_client import Counter, Gauge, Histogram, start_http_server  # type: ignore
+    from prometheus_client import Counter, Gauge, Histogram, start_http_server  
 except Exception:
-    Counter = Gauge = Histogram = start_http_server = None  # type: ignore
+    Counter = Gauge = Histogram = start_http_server = None  
 
 try:
-    import jwt  # PyJWT  # type: ignore
+    import jwt    # PyJWT
 except Exception:
-    jwt = None  # type: ignore
+    jwt = None  
 
 try:
-    import redis.asyncio as aioredis  # type: ignore
+    import redis.asyncio as aioredis  
 except Exception:
-    aioredis = None  # type: ignore
+    aioredis = None  
 
 try:
-    from aiokafka import AIOKafkaProducer, AIOKafkaConsumer  # type: ignore
+    from aiokafka import AIOKafkaProducer, AIOKafkaConsumer  
 except Exception:
-    AIOKafkaProducer = AIOKafkaConsumer = None  # type: ignore
+    AIOKafkaProducer = AIOKafkaConsumer = None  
 
 try:
-    import jsonschema  # type: ignore
+    import jsonschema  
 except Exception:
-    jsonschema = None  # type: ignore
+    jsonschema = None  
 
 # Optional torch nn.Module compatibility (NCB does not require torch)
 try:
-    import torch.nn as nn  # type: ignore
+    import torch.nn as nn  
 except Exception:
-    nn = None  # type: ignore
+    nn = None  
 
 
 ###############################################################################
-# Logging Setup
+# Structured Logging (JSON) + trace_id context
 ###############################################################################
 
-def setup_logging(level: int = logging.INFO, logger_name: str = "NCB") -> logging.Logger:
+_trace_id_var: contextvars.ContextVar[str] = contextvars.ContextVar("ncb_trace_id", default="")
+
+
+def get_trace_id() -> str:
+    return _trace_id_var.get() or ""
+
+
+class TraceIdFilter(logging.Filter):
+    """Injects trace_id into log records (from record.extra or contextvar)."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if not hasattr(record, "trace_id") or not getattr(record, "trace_id"):
+            setattr(record, "trace_id", get_trace_id())
+        return True
+
+
+class JSONFormatter(logging.Formatter):
+    """Lightweight JSON formatter for structured logs."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        base: Dict[str, Any] = {
+            "ts": time.time(),
+            "level": record.levelname,
+            "logger": record.name,
+            "msg": record.getMessage(),
+        }
+
+        # Standard extras if present
+        for k in ("event", "channel", "subscriber", "msg_id", "trace_id", "error_type"):
+            if hasattr(record, k):
+                v = getattr(record, k)
+                if v is not None and v != "":
+                    base[k] = v
+
+        # Exception info
+        if record.exc_info:
+            base["exc"] = self.formatException(record.exc_info)
+
+        # Add selected fields from record.__dict__ that are not built-ins
+        # (kept conservative to avoid dumping huge objects)
+        extras: Dict[str, Any] = {}
+        skip = {
+            "name",
+            "msg",
+            "args",
+            "levelname",
+            "levelno",
+            "pathname",
+            "filename",
+            "module",
+            "exc_info",
+            "exc_text",
+            "stack_info",
+            "lineno",
+            "funcName",
+            "created",
+            "msecs",
+            "relativeCreated",
+            "thread",
+            "threadName",
+            "processName",
+            "process",
+            "message",
+        }
+        for k, v in record.__dict__.items():
+            if k in skip or k in base:
+                continue
+            # don't explode logs with massive payloads
+            if isinstance(v, (str, int, float, bool)) or v is None:
+                extras[k] = v
+            elif isinstance(v, (list, dict)) and len(str(v)) < 2000:
+                extras[k] = v
+        if extras:
+            base["extra"] = extras
+
+        return json.dumps(base, ensure_ascii=False, separators=(",", ":"))
+
+
+def setup_json_logging(level: int = logging.INFO, logger_name: str = "NCB") -> logging.Logger:
     """
-    Convenience helper: create a logger named `logger_name` with standard formatting.
+    Create a JSON-logging logger with a TraceIdFilter.
     Safe to call multiple times (won't double-add handlers if already configured).
     """
     logger = logging.getLogger(logger_name)
     logger.setLevel(level)
 
-    # Avoid duplicate handlers
+    # Avoid duplicate StreamHandlers
+    if not any(isinstance(h, logging.StreamHandler) for h in logger.handlers):
+        h = logging.StreamHandler()
+        h.setLevel(level)
+        h.setFormatter(JSONFormatter())
+        h.addFilter(TraceIdFilter())
+        logger.addHandler(h)
+        logger.propagate = False
+
+    # Ensure all handlers have trace filter
+    for h in logger.handlers:
+        if not any(isinstance(f, TraceIdFilter) for f in getattr(h, "filters", [])):
+            h.addFilter(TraceIdFilter())
+
+    return logger
+
+
+def setup_logging(level: int = logging.INFO, logger_name: str = "NCB") -> logging.Logger:
+    """
+    Convenience helper: create a logger named `logger_name` with standard formatting.
+    (Non-JSON; mostly useful for local dev.)
+    """
+    logger = logging.getLogger(logger_name)
+    logger.setLevel(level)
+
     if not any(isinstance(h, logging.StreamHandler) for h in logger.handlers):
         handler = logging.StreamHandler()
-        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
         handler.setFormatter(formatter)
+        handler.addFilter(TraceIdFilter())
         logger.addHandler(handler)
         logger.propagate = False
 
@@ -164,8 +269,6 @@ class Message:
 
     @property
     def trace_id(self) -> str:
-        # If caller doesn't supply, we default it at publish-time.
-        # This is just a convenience accessor.
         return str(self.meta.get("trace_id", ""))
 
     def to_dict(self) -> Dict[str, Any]:
@@ -187,6 +290,34 @@ class CodecError(RuntimeError):
     pass
 
 
+def _msgpack_packb(obj: Any) -> bytes:
+    if _msgpack is None:
+        raise CodecError("msgpack not installed")
+    mp = cast(Any, _msgpack)
+    return cast(bytes, mp.packb(obj, use_bin_type=True))
+
+
+def _msgpack_unpackb(data: bytes) -> Any:
+    if _msgpack is None:
+        raise CodecError("msgpack not installed")
+    mp = cast(Any, _msgpack)
+    return mp.unpackb(data, raw=False)
+
+
+def _zlib_compress(data: bytes, level: int) -> bytes:
+    if _zlib is None:
+        raise CodecError("zlib not available")
+    zl = cast(Any, _zlib)
+    return cast(bytes, zl.compress(data, level=level))
+
+
+def _zlib_decompress(data: bytes) -> bytes:
+    if _zlib is None:
+        raise CodecError("zlib not available")
+    zl = cast(Any, _zlib)
+    return cast(bytes, zl.decompress(data))
+
+
 class Codec:
     """
     Supports:
@@ -199,16 +330,16 @@ class Codec:
         self.compress = bool(compress)
         self.compression_level = int(compression_level)
 
-        if self.serializer == "msgpack" and msgpack is None:
+        if self.serializer == "msgpack" and _msgpack is None:
             self.serializer = "json"
 
-        if self.compress and zlib is None:
+        if self.compress and _zlib is None:
             self.compress = False
 
     def dumps(self, obj: Any) -> bytes:
         try:
             if self.serializer == "msgpack":
-                raw = msgpack.packb(obj, use_bin_type=True)  # type: ignore
+                raw = _msgpack_packb(obj)
             elif self.serializer == "json":
                 raw = json.dumps(obj, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
             else:
@@ -218,25 +349,23 @@ class Codec:
 
         if self.compress:
             try:
-                compressed = zlib.compress(raw, level=self.compression_level)  # type: ignore
-                if compressed is not None:
-                    raw = compressed
+                raw = _zlib_compress(raw, level=self.compression_level)
             except Exception as e:
                 raise CodecError(f"Compress failed: {e}") from e
 
-        return raw  # type: ignore[return-value]
+        return raw
 
     def loads(self, data: bytes) -> Any:
         raw = data
         if self.compress:
             try:
-                raw = zlib.decompress(raw)  # type: ignore
+                raw = _zlib_decompress(raw)
             except Exception as e:
                 raise CodecError(f"Decompress failed: {e}") from e
 
         try:
             if self.serializer == "msgpack":
-                return msgpack.unpackb(raw, raw=False)  # type: ignore
+                return _msgpack_unpackb(raw)
             if self.serializer == "json":
                 return json.loads(raw.decode("utf-8"))
             raise CodecError(f"Unknown serializer: {self.serializer}")
@@ -269,7 +398,7 @@ class SQLitePersistence:
             if self._initialized:
                 return
 
-            def _init():
+            def _init() -> None:
                 os.makedirs(os.path.dirname(self.db_path) or ".", exist_ok=True)
                 con = sqlite3.connect(self.db_path)
                 try:
@@ -329,7 +458,7 @@ class SQLitePersistence:
                     (channel, after_seq, limit),
                 )
                 rows = cur.fetchall()
-                return [(int(seq), blob) for (seq, blob) in rows]
+                return [(int(seq), cast(bytes, blob)) for (seq, blob) in rows]
             finally:
                 con.close()
 
@@ -523,32 +652,47 @@ class MetricsRegistry:
     If prometheus_client is present and enabled, also exports standard metrics.
     """
 
-    def __init__(self, enable_prometheus: bool = False, prometheus_port: int = 8000, logger: Optional[logging.Logger] = None):
+    def __init__(
+        self,
+        enable_prometheus: bool = False,
+        prometheus_port: int = 8000,
+        logger: Optional[logging.Logger] = None,
+    ):
         self.logger = logger or logging.getLogger("NCB.metrics")
         self.local: Dict[str, LocalMetrics] = {}
-        self.enable_prometheus = bool(enable_prometheus and Counter is not None and Gauge is not None and Histogram is not None and start_http_server is not None)
+        self.enable_prometheus = bool(
+            enable_prometheus
+            and Counter is not None
+            and Gauge is not None
+            and Histogram is not None
+            and start_http_server is not None
+        )
 
-        self._p_published = None
-        self._p_dropped = None
-        self._p_dispatched = None
-        self._p_errors = None
-        self._p_queue = None
-        self._p_pub_lat = None
-        self._p_disp_lat = None
+        self._p_published: Any = None
+        self._p_dropped: Any = None
+        self._p_dispatched: Any = None
+        self._p_errors: Any = None
+        self._p_queue: Any = None
+        self._p_pub_lat: Any = None
+        self._p_disp_lat: Any = None
 
-        if self.enable_prometheus:
-            self._p_published = Counter("ncb_published_total", "Messages published", ["channel"])  # type: ignore
-            self._p_dropped = Counter("ncb_dropped_total", "Messages dropped", ["channel"])  # type: ignore
-            self._p_dispatched = Counter("ncb_dispatched_total", "Messages dispatched", ["channel"])  # type: ignore
-            self._p_errors = Counter("ncb_errors_total", "Errors", ["channel"])  # type: ignore
-            self._p_queue = Gauge("ncb_queue_size", "Channel queue size", ["channel"])  # type: ignore
-            self._p_pub_lat = Histogram("ncb_publish_latency_ms", "Publish latency (ms)", ["channel"])  # type: ignore
-            self._p_disp_lat = Histogram("ncb_dispatch_latency_ms", "Dispatch latency (ms)", ["channel"])  # type: ignore
+        if self.enable_prometheus and Counter and Gauge and Histogram and start_http_server:
+            self._p_published = Counter("ncb_published_total", "Messages published", ["channel"])
+            self._p_dropped = Counter("ncb_dropped_total", "Messages dropped", ["channel"])
+            self._p_dispatched = Counter("ncb_dispatched_total", "Messages dispatched", ["channel"])
+            self._p_errors = Counter("ncb_errors_total", "Errors", ["channel"])
+            self._p_queue = Gauge("ncb_queue_size", "Channel queue size", ["channel"])
+            self._p_pub_lat = Histogram("ncb_publish_latency_ms", "Publish latency (ms)", ["channel"])
+            self._p_disp_lat = Histogram("ncb_dispatch_latency_ms", "Dispatch latency (ms)", ["channel"])
             try:
-                start_http_server(prometheus_port)  # type: ignore
+                start_http_server(prometheus_port)  
                 self.logger.info("Prometheus exporter started", extra={"event": "prometheus_start"})
             except Exception as e:
-                self.logger.warning("Failed to start Prometheus exporter: %s", e, extra={"event": "prometheus_fail"})
+                self.logger.warning(
+                    "Failed to start Prometheus exporter: %s",
+                    e,
+                    extra={"event": "prometheus_fail"},
+                )
 
     def _lm(self, channel: str) -> LocalMetrics:
         if channel not in self.local:
@@ -664,16 +808,23 @@ class AsyncPriorityQueue:
         async with self._cv:
             if self.maxsize > 0 and len(self._heap) >= self.maxsize:
                 if self.drop_policy == "drop_old":
+                    # drop the worst (highest priority number; FIFO tie-break)
                     worst_idx = max(range(len(self._heap)), key=lambda i: (self._heap[i][0], self._heap[i][1]))
                     dropped = self._heap[worst_idx][2]
                     self._heap[worst_idx] = self._heap[-1]
                     self._heap.pop()
                     if worst_idx < len(self._heap):
                         import heapq
+
                         heapq.heapify(self._heap)
                     self.logger.warning(
                         "Queue full; drop_old dropped message",
-                        extra={"event": "queue_drop_old", "channel": msg.channel, "msg_id": dropped.id, "trace_id": dropped.meta.get("trace_id")},
+                        extra={
+                            "event": "queue_drop_old",
+                            "channel": msg.channel,
+                            "msg_id": dropped.id,
+                            "trace_id": str(dropped.meta.get("trace_id", "")),
+                        },
                     )
                 else:
                     return False
@@ -681,6 +832,7 @@ class AsyncPriorityQueue:
             self._seq += 1
             item = (int(priority), self._seq, msg)
             import heapq
+
             heapq.heappush(self._heap, item)
             if self._on_qsize:
                 self._on_qsize(len(self._heap))
@@ -692,6 +844,7 @@ class AsyncPriorityQueue:
             while not self._heap:
                 await self._cv.wait()
             import heapq
+
             _, _, msg = heapq.heappop(self._heap)
             if self._on_qsize:
                 self._on_qsize(len(self._heap))
@@ -709,23 +862,24 @@ class AsyncPriorityQueue:
 # Neural Cognitive Bus
 ###############################################################################
 
-BaseClass = nn.Module if nn is not None else object
+# Dynamic base class: use nn.Module when torch is available for neural integration
+_BaseClass: type = nn.Module if nn is not None else object
 
 
-class NeuralCognitiveBus(BaseClass):  # type: ignore
+class NeuralCognitiveBus(_BaseClass):  # type: ignore[misc]
     """
     Neural Cognitive Bus (NCB)
     -------------------------
     Multi-channel async messaging bus with:
       - priority queue per channel
       - optional persistence (SQLite)
-      - optional distributed bridging (Redis)
+      - optional distributed bridging (Redis, Kafka)
       - security + RBAC
       - plugin hooks
       - metrics
       - rate limiting
       - dynamic config + hot reload
-      - structured logging (JSON)
+      - structured logging (JSON + trace IDs per message)
       - dead-letter channel for subscriber failures
       - bounded fan-out to cap concurrent subscriber callbacks
     """
@@ -747,9 +901,9 @@ class NeuralCognitiveBus(BaseClass):  # type: ignore
         subscriber_gc_interval_sec: float = 60.0,
         subscriber_ttl_sec: float = 15 * 60.0,
     ):
-        super().__init__()  # type: ignore[misc]
+        super().__init__()
 
-        self.logger = logger or setup_logging(logger_name="NCB")
+        self.logger = logger or setup_json_logging(logger_name="NCB")
         self._loop = loop
         self._channel_validator = channel_validator
         self._kafka_topic_prefix = "ncb"  # default
@@ -775,7 +929,9 @@ class NeuralCognitiveBus(BaseClass):  # type: ignore
 
         self._plugins: List[Plugin] = []
 
-        self._persistence: Optional[SQLitePersistence] = SQLitePersistence(persistence_path, self.logger) if persistence_path else None
+        self._persistence: Optional[SQLitePersistence] = (
+            SQLitePersistence(persistence_path, self.logger) if persistence_path else None
+        )
 
         # Replay/seq bookkeeping (bounded by GC)
         self._last_seq_seen: Dict[Tuple[str, str], int] = {}
@@ -784,11 +940,11 @@ class NeuralCognitiveBus(BaseClass):  # type: ignore
         self._subscriber_ttl = float(subscriber_ttl_sec)
 
         # Redis client
-        self._redis_client = None
+        self._redis_client: Any = None
 
         # Kafka clients
-        self._kafka_producer = None
-        self._kafka_consumer = None
+        self._kafka_producer: Any = None
+        self._kafka_consumer: Any = None
 
         # Hot reload
         self._hot_cfg_path = Path(hot_reload_config_path) if hot_reload_config_path else None
@@ -826,12 +982,12 @@ class NeuralCognitiveBus(BaseClass):  # type: ignore
         self._subs[channel_name] = []
 
         if cfg.rate_limit_per_sec and cfg.rate_limit_burst:
-            self._channel_limiters[channel_name] = TokenBucket(cfg.rate_limit_per_sec, cfg.rate_limit_burst)
+            self._channel_limiters[channel_name] = TokenBucket(float(cfg.rate_limit_per_sec), float(cfg.rate_limit_burst))
 
         # Bounded fan-out semaphore per channel
         self._fanout_semaphores[channel_name] = asyncio.Semaphore(max(1, int(cfg.fanout_max_concurrency)))
 
-        # DLQ channel creation (if requested) is safe even if same as channel (we block that)
+        # DLQ channel creation (if requested)
         if cfg.dead_letter_channel:
             if cfg.dead_letter_channel == channel_name:
                 self.logger.warning(
@@ -839,16 +995,12 @@ class NeuralCognitiveBus(BaseClass):  # type: ignore
                     extra={"event": "dlq_invalid", "channel": channel_name},
                 )
             elif cfg.dead_letter_channel not in self._queues:
-                # Create DLQ with sane defaults; no persistence by default unless user config sets it separately later
-                self.create_channel(cfg.dead_letter_channel, ChannelConfig(name=cfg.dead_letter_channel, max_queue_size=self.default_max_queue_size))
+                self.create_channel(
+                    cfg.dead_letter_channel,
+                    ChannelConfig(name=cfg.dead_letter_channel, max_queue_size=self.default_max_queue_size),
+                )
 
-        self.logger.info(
-            "Created channel",
-            extra={
-                "event": "channel_create",
-                "channel": channel_name,
-            },
-        )
+        self.logger.info("Created channel", extra={"event": "channel_create", "channel": channel_name})
 
     def remove_channel(self, channel_name: str) -> None:
         self._channel_cfg.pop(channel_name, None)
@@ -868,8 +1020,8 @@ class NeuralCognitiveBus(BaseClass):  # type: ignore
         if p.suffix.lower() in (".yaml", ".yml"):
             if yaml is None:
                 raise RuntimeError("PyYAML not installed; cannot load YAML config")
-            return yaml.safe_load(text) or {}
-        return json.loads(text)
+            return cast(Dict[str, Any], yaml.safe_load(text) or {})
+        return cast(Dict[str, Any], json.loads(text))
 
     def apply_config(self, cfg: Mapping[str, Any]) -> None:
         """
@@ -896,9 +1048,9 @@ class NeuralCognitiveBus(BaseClass):  # type: ignore
             api_keys = sec.get("api_keys")
             if isinstance(api_keys, (list, set, tuple)):
                 self._security.api_keys = set(map(str, api_keys))
-            self._security.jwt_secret = sec.get("jwt_secret", self._security.jwt_secret)
-            self._security.jwt_audience = sec.get("jwt_audience", self._security.jwt_audience)
-            self._security.jwt_issuer = sec.get("jwt_issuer", self._security.jwt_issuer)
+            self._security.jwt_secret = cast(Optional[str], sec.get("jwt_secret", self._security.jwt_secret))
+            self._security.jwt_audience = cast(Optional[str], sec.get("jwt_audience", self._security.jwt_audience))
+            self._security.jwt_issuer = cast(Optional[str], sec.get("jwt_issuer", self._security.jwt_issuer))
             algos = sec.get("jwt_algorithms")
             if isinstance(algos, (list, tuple)):
                 self._security.jwt_algorithms = [str(a) for a in algos]
@@ -908,12 +1060,12 @@ class NeuralCognitiveBus(BaseClass):  # type: ignore
 
         # Create / update channels
         for name, raw in channels.items():
-            name = str(name)
-            raw = raw or {}
-            if name not in self._queues:
-                self.create_channel(name, self._channelcfg_from_mapping(name, raw))
+            cname = str(name)
+            m = cast(Mapping[str, Any], raw or {})
+            if cname not in self._queues:
+                self.create_channel(cname, self._channelcfg_from_mapping(cname, m))
             else:
-                self._hot_update_channel(name, raw)
+                self._hot_update_channel(cname, m)
 
     def _channelcfg_from_mapping(self, name: str, m: Mapping[str, Any]) -> ChannelConfig:
         return ChannelConfig(
@@ -921,17 +1073,17 @@ class NeuralCognitiveBus(BaseClass):  # type: ignore
             max_queue_size=int(m.get("max_queue_size", self.default_max_queue_size)),
             drop_policy=str(m.get("drop_policy", "drop_new")),
             default_priority=int(m.get("default_priority", 100)),
-            rate_limit_per_sec=m.get("rate_limit_per_sec"),
-            rate_limit_burst=m.get("rate_limit_burst"),
+            rate_limit_per_sec=cast(Optional[float], m.get("rate_limit_per_sec")),
+            rate_limit_burst=cast(Optional[float], m.get("rate_limit_burst")),
             persistent=bool(m.get("persistent", False)),
             serializer=str(m.get("serializer", "msgpack")),
             compress=bool(m.get("compress", False)),
             compression_level=int(m.get("compression_level", 3)),
-            redis_in=m.get("redis_in"),
-            redis_out=m.get("redis_out"),
-            kafka_in=m.get("kafka_in"),
-            kafka_out=m.get("kafka_out"),
-            dead_letter_channel=m.get("dead_letter_channel"),
+            redis_in=cast(Optional[str], m.get("redis_in")),
+            redis_out=cast(Optional[str], m.get("redis_out")),
+            kafka_in=cast(Optional[str], m.get("kafka_in")),
+            kafka_out=cast(Optional[str], m.get("kafka_out")),
+            dead_letter_channel=cast(Optional[str], m.get("dead_letter_channel")),
             fanout_max_concurrency=int(m.get("fanout_max_concurrency", 500)),
         )
 
@@ -941,10 +1093,10 @@ class NeuralCognitiveBus(BaseClass):  # type: ignore
         # Update limiter settings
         rl = raw.get("rate_limit_per_sec", cfg.rate_limit_per_sec)
         burst = raw.get("rate_limit_burst", cfg.rate_limit_burst)
-        cfg.rate_limit_per_sec = rl
-        cfg.rate_limit_burst = burst
-        if rl and burst:
-            self._channel_limiters[name] = TokenBucket(float(rl), float(burst))
+        cfg.rate_limit_per_sec = cast(Optional[float], rl)
+        cfg.rate_limit_burst = cast(Optional[float], burst)
+        if cfg.rate_limit_per_sec and cfg.rate_limit_burst:
+            self._channel_limiters[name] = TokenBucket(float(cfg.rate_limit_per_sec), float(cfg.rate_limit_burst))
         else:
             self._channel_limiters.pop(name, None)
 
@@ -959,21 +1111,18 @@ class NeuralCognitiveBus(BaseClass):  # type: ignore
 
         # Drop policy update
         cfg.drop_policy = str(raw.get("drop_policy", cfg.drop_policy))
-        self._queues[name].drop_policy = cfg.drop_policy  # type: ignore[attr-defined]
+        self._queues[name].drop_policy = cfg.drop_policy
 
         # DLQ update
-        cfg.dead_letter_channel = raw.get("dead_letter_channel", cfg.dead_letter_channel)
-        if cfg.dead_letter_channel and cfg.dead_letter_channel not in self._queues:
+        cfg.dead_letter_channel = cast(Optional[str], raw.get("dead_letter_channel", cfg.dead_letter_channel))
+        if cfg.dead_letter_channel and cfg.dead_letter_channel not in self._queues and cfg.dead_letter_channel != name:
             self.create_channel(cfg.dead_letter_channel, ChannelConfig(name=cfg.dead_letter_channel, max_queue_size=self.default_max_queue_size))
 
         # Fan-out semaphore update
         cfg.fanout_max_concurrency = int(raw.get("fanout_max_concurrency", cfg.fanout_max_concurrency))
         self._fanout_semaphores[name] = asyncio.Semaphore(max(1, cfg.fanout_max_concurrency))
 
-        self.logger.info(
-            "Hot-updated channel",
-            extra={"event": "channel_hot_update", "channel": name},
-        )
+        self.logger.info("Hot-updated channel", extra={"event": "channel_hot_update", "channel": name})
 
     # ----------------------- Subscribers -----------------------
 
@@ -1010,7 +1159,7 @@ class NeuralCognitiveBus(BaseClass):  # type: ignore
         self._subs[channel_name].append(sub)
 
         if rate_limit_per_sec and rate_limit_burst:
-            self._subscriber_limiters[(channel_name, module_name)] = TokenBucket(rate_limit_per_sec, rate_limit_burst)
+            self._subscriber_limiters[(channel_name, module_name)] = TokenBucket(float(rate_limit_per_sec), float(rate_limit_burst))
 
         self._subscriber_last_seen[(channel_name, module_name)] = time.time()
 
@@ -1042,7 +1191,17 @@ class NeuralCognitiveBus(BaseClass):  # type: ignore
 
     # ----------------------- Lifecycle -----------------------
 
-    async def start(self, *, redis_url: Optional[str] = None, kafka_bootstrap_servers: Optional[str] = None, kafka_topic_prefix: str = "ncb", kafka_client_id: str = "ncb-bridge", kafka_acks: str = "all", kafka_max_in_flight: int = 5, **kwargs) -> None:
+    async def start(
+        self,
+        *,
+        redis_url: Optional[str] = None,
+        kafka_bootstrap_servers: Optional[str] = None,
+        kafka_topic_prefix: str = "ncb",
+        kafka_client_id: str = "ncb-bridge",
+        kafka_acks: str = "all",
+        kafka_max_in_flight: int = 5,
+        **kwargs: Any,
+    ) -> None:
         async with self._life_lock:
             if self.running:
                 self.logger.warning("NCB already running", extra={"event": "start_noop"})
@@ -1071,15 +1230,15 @@ class NeuralCognitiveBus(BaseClass):  # type: ignore
             if redis_url and aioredis is not None:
                 await self._start_redis(redis_url)
             elif redis_url and aioredis is None:
-                self.logger.warning("Redis requested but redis.asyncio not installed")
+                self.logger.warning("Redis requested but redis.asyncio not installed", extra={"event": "redis_missing"})
 
             # Kafka bridge tasks
             if kafka_bootstrap_servers and AIOKafkaProducer is not None:
                 await self._start_kafka(kafka_bootstrap_servers, kafka_topic_prefix, kafka_client_id, kafka_acks, kafka_max_in_flight)
             elif kafka_bootstrap_servers and AIOKafkaProducer is None:
-                self.logger.warning("Kafka requested but aiokafka not installed")
+                self.logger.warning("Kafka requested but aiokafka not installed", extra={"event": "kafka_missing"})
 
-            self.logger.info("NCB started")
+            self.logger.info("NCB started", extra={"event": "start"})
 
     async def stop(self) -> None:
         async with self._life_lock:
@@ -1115,7 +1274,7 @@ class NeuralCognitiveBus(BaseClass):  # type: ignore
                 self._kafka_producer = None
             if self._kafka_consumer is not None:
                 try:
-                    await self._kafka_consumer.stop()  # type: ignore
+                    await self._kafka_consumer.stop()
                 except Exception:
                     pass
                 self._kafka_consumer = None
@@ -1155,7 +1314,7 @@ class NeuralCognitiveBus(BaseClass):  # type: ignore
             raise ValueError(f"Invalid channel name: {channel_name}")
 
         if channel_name not in self._queues:
-            self.logger.error(f"Channel does not exist: {channel_name}")
+            self.logger.error("Channel does not exist", extra={"event": "publish_no_channel", "channel": channel_name})
             return None
 
         self._security.verify(auth, channel_name)
@@ -1164,7 +1323,6 @@ class NeuralCognitiveBus(BaseClass):  # type: ignore
         pr = int(priority if priority is not None else cfg.default_priority)
 
         m = dict(meta or {})
-        # Ensure trace_id exists for structured logging and tracing
         m.setdefault("trace_id", str(uuid.uuid4()))
         m.setdefault("published_by", (auth or {}).get("sub") or (auth or {}).get("api_key") or "unknown")
 
@@ -1177,59 +1335,67 @@ class NeuralCognitiveBus(BaseClass):  # type: ignore
             meta=m,
         )
 
-        # Plugins: validate + pre_publish transforms
+        # Ensure logs inside this publish path carry this message trace id
+        token = _trace_id_var.set(msg.trace_id)
         try:
-            msg = await self._run_validate_and_transform(msg, phase="pre_publish")
-        except Exception as e:
-            self._metrics.inc_errors(channel_name)
-            self.logger.error(
-                "pre_publish failed",
-                extra={"event": "pre_publish_fail", "channel": channel_name, "msg_id": msg.id, "trace_id": msg.trace_id, "error_type": type(e).__name__},
-                exc_info=True,
-            )
-            return None
+            # Plugins: validate + pre_publish transforms
+            try:
+                msg = await self._run_validate_and_transform(msg, phase="pre_publish")
+            except Exception as e:
+                self._metrics.inc_errors(channel_name)
+                self.logger.error(
+                    "pre_publish failed",
+                    extra={
+                        "event": "pre_publish_fail",
+                        "channel": channel_name,
+                        "msg_id": msg.id,
+                        "trace_id": msg.trace_id,
+                        "error_type": type(e).__name__,
+                    },
+                    exc_info=True,
+                )
+                return None
 
-        limiter = self._channel_limiters.get(channel_name)
-        if limiter:
-            await limiter.acquire(1.0)
+            limiter = self._channel_limiters.get(channel_name)
+            if limiter:
+                await limiter.acquire(1.0)
 
-        t0 = time.perf_counter()
-        ok = await self._queues[channel_name].put(pr, msg)
-        dt_ms = (time.perf_counter() - t0) * 1000.0
-        self._metrics.observe_publish_latency_ms(channel_name, dt_ms)
+            t0 = time.perf_counter()
+            ok = await self._queues[channel_name].put(pr, msg)
+            dt_ms = (time.perf_counter() - t0) * 1000.0
+            self._metrics.observe_publish_latency_ms(channel_name, dt_ms)
 
-        if not ok:
-            self._metrics.inc_dropped(channel_name)
-            self.logger.warning(
-                "Queue full; dropped publish",
-                extra={"event": "publish_drop", "channel": channel_name, "msg_id": msg.id, "trace_id": msg.trace_id},
-            )
-            return None
+            if not ok:
+                self._metrics.inc_dropped(channel_name)
+                self.logger.warning(
+                    "Queue full; dropped publish",
+                    extra={"event": "publish_drop", "channel": channel_name, "msg_id": msg.id, "trace_id": msg.trace_id},
+                )
+                return None
 
-        self._metrics.inc_published(channel_name)
+            self._metrics.inc_published(channel_name)
 
-        self.logger.debug(
-            "Published",
-            extra={"event": "publish", "channel": channel_name, "msg_id": msg.id, "trace_id": msg.trace_id},
-        )
+            self.logger.debug("Published", extra={"event": "publish", "channel": channel_name, "msg_id": msg.id, "trace_id": msg.trace_id})
 
-        # Persistence (fire-and-forget append)
-        if self._persistence and cfg.persistent:
-            asyncio.create_task(self._persist_message(msg), name=f"NCB.persist.{channel_name}")
+            # Persistence (fire-and-forget append)
+            if self._persistence and cfg.persistent:
+                asyncio.create_task(self._persist_message(msg), name=f"NCB.persist.{channel_name}")
 
-        # Plugins: post_publish sinks
-        asyncio.create_task(self._run_sinks(msg, phase="post_publish"), name=f"NCB.post_publish.{channel_name}")
+            # Plugins: post_publish sinks
+            asyncio.create_task(self._run_sinks(msg, phase="post_publish"), name=f"NCB.post_publish.{channel_name}")
 
-        # Redis outbound bridge
-        if self._redis_client and cfg.redis_out:
-            asyncio.create_task(self._redis_publish(cfg.redis_out, msg), name=f"NCB.redis_out.{channel_name}")
+            # Redis outbound bridge
+            if self._redis_client and cfg.redis_out:
+                asyncio.create_task(self._redis_publish(cfg.redis_out, msg), name=f"NCB.redis_out.{channel_name}")
 
-        # Kafka outbound bridge
-        if self._kafka_producer and cfg.kafka_out:
-            topic = f"{self._kafka_topic_prefix}.{cfg.kafka_out}" if hasattr(self, '_kafka_topic_prefix') else cfg.kafka_out
-            asyncio.create_task(self._kafka_publish(topic, msg), name=f"NCB.kafka_out.{channel_name}")
+            # Kafka outbound bridge
+            if self._kafka_producer and cfg.kafka_out:
+                topic = f"{self._kafka_topic_prefix}.{cfg.kafka_out}"
+                asyncio.create_task(self._kafka_publish(topic, msg), name=f"NCB.kafka_out.{channel_name}")
 
-        return msg.id
+            return msg.id
+        finally:
+            _trace_id_var.reset(token)
 
     # ----------------------- Internal loops -----------------------
 
@@ -1239,28 +1405,38 @@ class NeuralCognitiveBus(BaseClass):  # type: ignore
             try:
                 msg = await q.get()
 
-                # Plugins: pre_dispatch transforms
+                token = _trace_id_var.set(msg.trace_id)
                 try:
-                    msg = await self._run_validate_and_transform(msg, phase="pre_dispatch")
-                except Exception as e:
-                    self._metrics.inc_errors(channel_name)
-                    self.logger.error(
-                        "pre_dispatch failed",
-                        extra={"event": "pre_dispatch_fail", "channel": channel_name, "msg_id": msg.id, "trace_id": msg.trace_id, "error_type": type(e).__name__},
-                        exc_info=True,
-                    )
-                    continue
+                    # Plugins: pre_dispatch transforms
+                    try:
+                        msg = await self._run_validate_and_transform(msg, phase="pre_dispatch")
+                    except Exception as e:
+                        self._metrics.inc_errors(channel_name)
+                        self.logger.error(
+                            "pre_dispatch failed",
+                            extra={
+                                "event": "pre_dispatch_fail",
+                                "channel": channel_name,
+                                "msg_id": msg.id,
+                                "trace_id": msg.trace_id,
+                                "error_type": type(e).__name__,
+                            },
+                            exc_info=True,
+                        )
+                        continue
 
-                subs = list(self._subs.get(channel_name, []))
-                if not subs:
-                    continue
+                    subs = list(self._subs.get(channel_name, []))
+                    if not subs:
+                        continue
 
-                t0 = time.perf_counter()
-                await self._dispatch_to_subscribers(channel_name, msg, subs)
-                dt_ms = (time.perf_counter() - t0) * 1000.0
-                self._metrics.observe_dispatch_latency_ms(channel_name, dt_ms)
+                    t0 = time.perf_counter()
+                    await self._dispatch_to_subscribers(channel_name, msg, subs)
+                    dt_ms = (time.perf_counter() - t0) * 1000.0
+                    self._metrics.observe_dispatch_latency_ms(channel_name, dt_ms)
 
-                asyncio.create_task(self._run_sinks(msg, phase="post_dispatch"), name=f"NCB.post_dispatch.{channel_name}")
+                    asyncio.create_task(self._run_sinks(msg, phase="post_dispatch"), name=f"NCB.post_dispatch.{channel_name}")
+                finally:
+                    _trace_id_var.reset(token)
 
             except asyncio.CancelledError:
                 break
@@ -1296,10 +1472,16 @@ class NeuralCognitiveBus(BaseClass):  # type: ignore
                         self._metrics.inc_errors(channel_name)
                         self.logger.error(
                             "Filter error",
-                            extra={"event": "filter_error", "channel": channel_name, "subscriber": sub.module_name, "msg_id": msg.id, "trace_id": msg.trace_id, "error_type": type(e).__name__},
+                            extra={
+                                "event": "filter_error",
+                                "channel": channel_name,
+                                "subscriber": sub.module_name,
+                                "msg_id": msg.id,
+                                "trace_id": msg.trace_id,
+                                "error_type": type(e).__name__,
+                            },
                             exc_info=True,
                         )
-                        # Treat filter exceptions as subscriber failure -> DLQ (optional)
                         await self._publish_to_dlq(dlq, channel_name, msg, sub.module_name, e)
                         return
 
@@ -1311,12 +1493,18 @@ class NeuralCognitiveBus(BaseClass):  # type: ignore
                     self._metrics.inc_errors(channel_name)
                     self.logger.error(
                         "Subscriber error",
-                        extra={"event": "subscriber_error", "channel": channel_name, "subscriber": sub.module_name, "msg_id": msg.id, "trace_id": msg.trace_id, "error_type": type(e).__name__},
+                        extra={
+                            "event": "subscriber_error",
+                            "channel": channel_name,
+                            "subscriber": sub.module_name,
+                            "msg_id": msg.id,
+                            "trace_id": msg.trace_id,
+                            "error_type": type(e).__name__,
+                        },
                         exc_info=True,
                     )
                     await self._publish_to_dlq(dlq, channel_name, msg, sub.module_name, e)
 
-        # Gather bounded tasks; semaphore enforces concurrency limit
         await asyncio.gather(*(_call_sub(s) for s in subs), return_exceptions=True)
 
     async def _publish_to_dlq(
@@ -1330,11 +1518,18 @@ class NeuralCognitiveBus(BaseClass):  # type: ignore
         """
         Publish subscriber failures to a DLQ, if configured.
         DLQ payload contains original message + error info.
+
+        Safety:
+          - if the message is already a DLQ message, do not DLQ it again (avoids loops).
         """
         if not dlq_channel:
             return
+        if msg.meta.get("dlq"):
+            return
+        if dlq_channel == origin_channel:
+            return
+
         if dlq_channel not in self._queues:
-            # If config added DLQ after start, ensure it exists.
             self.create_channel(dlq_channel, ChannelConfig(name=dlq_channel, max_queue_size=self.default_max_queue_size))
 
         payload = {
@@ -1346,9 +1541,7 @@ class NeuralCognitiveBus(BaseClass):  # type: ignore
             "message": msg.to_dict(),
         }
 
-        # DLQ should preserve trace_id (so you can trace a failure chain)
         dlq_meta = {"trace_id": msg.trace_id, "dlq": True, "origin_msg_id": msg.id}
-        # Avoid recursive DLQ loops: DLQ channels typically have no DLQ configured.
         await self.publish(dlq_channel, payload, priority=0, meta=dlq_meta, auth=None)
 
     # ----------------------- Persistence helpers -----------------------
@@ -1362,16 +1555,18 @@ class NeuralCognitiveBus(BaseClass):  # type: ignore
         try:
             codec = self._codec[msg.channel]
             blob = codec.dumps(msg.to_dict())
-            seq = await self._persistence.append(msg.channel, msg, blob)
-            try:
-                msg.meta["persist_seq"] = seq
-            except Exception:
-                pass
+            _ = await self._persistence.append(msg.channel, msg, blob)
         except Exception as e:
             self._metrics.inc_errors(msg.channel)
             self.logger.error(
                 "Persistence append failed",
-                extra={"event": "persistence_append_fail", "channel": msg.channel, "msg_id": msg.id, "trace_id": msg.trace_id, "error_type": type(e).__name__},
+                extra={
+                    "event": "persistence_append_fail",
+                    "channel": msg.channel,
+                    "msg_id": msg.id,
+                    "trace_id": msg.trace_id,
+                    "error_type": type(e).__name__,
+                },
                 exc_info=True,
             )
 
@@ -1385,27 +1580,26 @@ class NeuralCognitiveBus(BaseClass):  # type: ignore
             rows = await self._persistence.replay(channel, after_seq=after_seq, limit=5000)
             codec = self._codec[channel]
             for seq, blob in rows:
-                d = codec.loads(blob)
+                d = cast(Dict[str, Any], codec.loads(blob))
+                meta = dict(d.get("meta") or {})
+                meta["replay"] = True
+                meta["persist_seq"] = seq
+                meta.setdefault("trace_id", meta.get("trace_id") or str(uuid.uuid4()))
+
                 replay_msg = Message(
-                    id=str(d.get("id")),
-                    channel=str(d.get("channel")),
-                    ts=float(d.get("ts")),
-                    priority=int(d.get("priority")),
+                    id=str(d.get("id") or ""),
+                    channel=str(d.get("channel") or ""),
+                    ts=float(d.get("ts") or 0.0),
+                    priority=int(d.get("priority") or 0),
                     payload=d.get("payload"),
-                    meta=dict(d.get("meta") or {}),
+                    meta=meta,
                 )
-                replay_msg.meta["replay"] = True
-                replay_msg.meta["persist_seq"] = seq
-                replay_msg.meta.setdefault("trace_id", replay_msg.meta.get("trace_id") or str(uuid.uuid4()))
 
                 await self._dispatch_to_subscribers(channel, replay_msg, [sub])
                 self._last_seq_seen[(channel, sub.module_name)] = seq
                 self._subscriber_last_seen[(channel, sub.module_name)] = time.time()
 
-            self.logger.info(
-                "Replay complete",
-                extra={"event": "replay", "channel": channel, "subscriber": sub.module_name},
-            )
+            self.logger.info("Replay complete", extra={"event": "replay", "channel": channel, "subscriber": sub.module_name})
         except Exception as e:
             self._metrics.inc_errors(channel)
             self.logger.error(
@@ -1429,102 +1623,12 @@ class NeuralCognitiveBus(BaseClass):  # type: ignore
                     self._redis_tasks.add(t)
                     t.add_done_callback(self._redis_tasks.discard)
 
-            self.logger.info("Redis bridge started")
+            self.logger.info("Redis bridge started", extra={"event": "redis_start"})
         except Exception as e:
-            self.logger.warning("Failed to start Redis bridge: %s", e)
+            self.logger.warning("Failed to start Redis bridge: %s", e, extra={"event": "redis_start_fail"})
             self._redis_client = None
 
-    async def _start_kafka(self, bootstrap_servers: str, topic_prefix: str, client_id: str, acks: str, max_in_flight: int) -> None:
-        if AIOKafkaProducer is None or AIOKafkaConsumer is None:
-            return
-
-        self._kafka_topic_prefix = topic_prefix
-        try:
-            self._kafka_producer = AIOKafkaProducer(
-                bootstrap_servers=bootstrap_servers,
-                client_id=client_id,
-                acks=acks,
-            )
-            await self._kafka_producer.start()
-
-            self._kafka_consumer = AIOKafkaConsumer(
-                bootstrap_servers=bootstrap_servers,
-                client_id=f"{client_id}-consumer",
-                group_id=f"{client_id}-group",
-                auto_offset_reset="latest",
-            )
-            await self._kafka_consumer.start()  # type: ignore
-
-            for ch, cfg in self._channel_cfg.items():
-                if cfg.kafka_in:
-                    topic = f"{topic_prefix}.{cfg.kafka_in}"
-                    t = asyncio.create_task(self._kafka_in_loop(topic, ch), name=f"NCB.kafka_in.{ch}")
-                    self._kafka_tasks.add(t)
-                    t.add_done_callback(self._kafka_tasks.discard)
-
-            self.logger.info("Kafka bridge started")
-        except Exception as e:
-            self.logger.warning("Failed to start Kafka bridge: %s", e)
-            self._kafka_producer = None
-            self._kafka_consumer = None
-
-    async def _kafka_publish(self, kafka_topic: str, msg: Message) -> None:
-        if not self._kafka_producer:
-            return
-        try:
-            codec = self._codec[msg.channel]
-            blob = codec.dumps(msg.to_dict())
-            await self._kafka_producer.send_and_wait(kafka_topic, blob)
-        except Exception as e:
-            self._metrics.inc_errors(msg.channel)
-            self.logger.error(
-                "Kafka publish failed: %s", e,
-                exc_info=True,
-            )
-
-    async def _kafka_in_loop(self, kafka_topic: str, local_channel: str) -> None:
-        """
-        Kafka inbound with retry + exponential backoff.
-        """
-        if not self._kafka_consumer:
-            return
-
-        await self._kafka_consumer.subscribe([kafka_topic])  # type: ignore
-        self.logger.info(
-            "Kafka inbound subscribed to %s", kafka_topic
-        )
-
-        try:
-            async for msg in self._kafka_consumer:
-                if not self.running:
-                    break
-                try:
-                    if msg.value is None:  # type: ignore
-                        continue
-                    d = self._codec[local_channel].loads(msg.value)
-                    ncb_msg = Message(
-                        id=str(d.get("id") or uuid.uuid4()),
-                        channel=local_channel,
-                        ts=float(d.get("ts") or time.time()),
-                        priority=int(d.get("priority") or self._channel_cfg[local_channel].default_priority),
-                        payload=d.get("payload"),
-                        meta=dict(d.get("meta") or {}),
-                    )
-                    ncb_msg.meta.setdefault("trace_id", ncb_msg.meta.get("trace_id") or str(uuid.uuid4()))
-                    ncb_msg.meta["kafka_in"] = kafka_topic
-
-                    await self._queues[local_channel].put(ncb_msg.priority, ncb_msg)
-                    self._metrics.inc_published(local_channel)
-                except Exception as e:
-                    self._metrics.inc_errors(local_channel)
-                    self.logger.error(
-                        "Kafka inbound failed: %s", e,
-                        exc_info=True,
-                    )
-        except Exception as e:
-            self.logger.error("Kafka consumer error: %s", e)
-        finally:
-            self._kafka_consumer.unsubscribe()
+    async def _redis_publish(self, redis_channel: str, msg: Message) -> None:
         if not self._redis_client:
             return
         try:
@@ -1535,7 +1639,13 @@ class NeuralCognitiveBus(BaseClass):  # type: ignore
             self._metrics.inc_errors(msg.channel)
             self.logger.error(
                 "Redis publish failed",
-                extra={"event": "redis_publish_fail", "channel": msg.channel, "msg_id": msg.id, "trace_id": msg.trace_id, "error_type": type(e).__name__},
+                extra={
+                    "event": "redis_publish_fail",
+                    "channel": msg.channel,
+                    "msg_id": msg.id,
+                    "trace_id": msg.trace_id,
+                    "error_type": type(e).__name__,
+                },
                 exc_info=True,
             )
 
@@ -1554,10 +1664,7 @@ class NeuralCognitiveBus(BaseClass):  # type: ignore
             try:
                 pubsub = self._redis_client.pubsub()
                 await pubsub.subscribe(redis_channel)
-                self.logger.info(
-                    "Redis inbound subscribed",
-                    extra={"event": "redis_subscribe", "channel": local_channel},
-                )
+                self.logger.info("Redis inbound subscribed", extra={"event": "redis_subscribe", "channel": local_channel})
                 backoff = 0.5
 
                 async for item in pubsub.listen():
@@ -1570,19 +1677,21 @@ class NeuralCognitiveBus(BaseClass):  # type: ignore
                         continue
 
                     try:
-                        d = self._codec[local_channel].loads(bytes(data))
-                        msg = Message(
+                        d = cast(Dict[str, Any], self._codec[local_channel].loads(bytes(data)))
+                        meta = dict(d.get("meta") or {})
+                        meta.setdefault("trace_id", meta.get("trace_id") or str(uuid.uuid4()))
+                        meta["redis_in"] = redis_channel
+
+                        ncb_msg = Message(
                             id=str(d.get("id") or uuid.uuid4()),
                             channel=local_channel,
                             ts=float(d.get("ts") or time.time()),
                             priority=int(d.get("priority") or self._channel_cfg[local_channel].default_priority),
                             payload=d.get("payload"),
-                            meta=dict(d.get("meta") or {}),
+                            meta=meta,
                         )
-                        msg.meta.setdefault("trace_id", msg.meta.get("trace_id") or str(uuid.uuid4()))
-                        msg.meta["redis_in"] = redis_channel
 
-                        await self._queues[local_channel].put(msg.priority, msg)
+                        await self._queues[local_channel].put(ncb_msg.priority, ncb_msg)
                         self._metrics.inc_published(local_channel)
                     except Exception as e:
                         self._metrics.inc_errors(local_channel)
@@ -1610,6 +1719,131 @@ class NeuralCognitiveBus(BaseClass):  # type: ignore
                         await pubsub.close()
                     except Exception:
                         pass
+
+    # ----------------------- Kafka bridge -----------------------
+
+    async def _start_kafka(
+        self,
+        bootstrap_servers: str,
+        topic_prefix: str,
+        client_id: str,
+        acks: str,
+        max_in_flight: int,
+    ) -> None:
+        if AIOKafkaProducer is None or AIOKafkaConsumer is None:
+            return
+
+        self._kafka_topic_prefix = topic_prefix
+
+        try:
+            self._kafka_producer = AIOKafkaProducer(
+                bootstrap_servers=bootstrap_servers,
+                client_id=client_id,
+                acks=acks,
+                max_batch_size=max(1, int(max_in_flight)) * 16384,  # Scale batch size based on concurrency
+            )
+            await self._kafka_producer.start()
+
+            self._kafka_consumer = AIOKafkaConsumer(  
+                bootstrap_servers=bootstrap_servers,
+                client_id=f"{client_id}-consumer",
+                group_id=f"{client_id}-group",
+                auto_offset_reset="latest",
+                enable_auto_commit=True,
+            )
+            await self._kafka_consumer.start()
+
+            for ch, cfg in self._channel_cfg.items():
+                if cfg.kafka_in:
+                    topic = f"{topic_prefix}.{cfg.kafka_in}"
+                    t = asyncio.create_task(self._kafka_in_loop(topic, ch), name=f"NCB.kafka_in.{ch}")
+                    self._kafka_tasks.add(t)
+                    t.add_done_callback(self._kafka_tasks.discard)
+
+            self.logger.info("Kafka bridge started", extra={"event": "kafka_start"})
+        except Exception as e:
+            self.logger.warning("Failed to start Kafka bridge: %s", e, extra={"event": "kafka_start_fail"})
+            self._kafka_producer = None
+            self._kafka_consumer = None
+
+    async def _kafka_publish(self, kafka_topic: str, msg: Message) -> None:
+        if not self._kafka_producer:
+            return
+        try:
+            codec = self._codec[msg.channel]
+            blob = codec.dumps(msg.to_dict())
+            await self._kafka_producer.send_and_wait(kafka_topic, blob)
+        except Exception as e:
+            self._metrics.inc_errors(msg.channel)
+            self.logger.error(
+                "Kafka publish failed",
+                extra={"event": "kafka_publish_fail", "channel": msg.channel, "msg_id": msg.id, "trace_id": msg.trace_id, "error_type": type(e).__name__},
+                exc_info=True,
+            )
+
+    async def _kafka_in_loop(self, kafka_topic: str, local_channel: str) -> None:
+        """
+        Kafka inbound with retry + exponential backoff.
+        """
+        if not self._kafka_consumer:
+            return
+
+        backoff = 0.5
+        backoff_max = 15.0
+
+        while self.running:
+            try:
+                # aiokafka subscribe is sync
+                self._kafka_consumer.subscribe([kafka_topic])
+                self.logger.info("Kafka inbound subscribed", extra={"event": "kafka_subscribe", "channel": local_channel})
+
+                async for km in self._kafka_consumer:
+                    if not self.running:
+                        break
+                    try:
+                        if km.value is None:
+                            continue
+                        d = cast(Dict[str, Any], self._codec[local_channel].loads(cast(bytes, km.value)))
+                        meta = dict(d.get("meta") or {})
+                        meta.setdefault("trace_id", meta.get("trace_id") or str(uuid.uuid4()))
+                        meta["kafka_in"] = kafka_topic
+
+                        ncb_msg = Message(
+                            id=str(d.get("id") or uuid.uuid4()),
+                            channel=local_channel,
+                            ts=float(d.get("ts") or time.time()),
+                            priority=int(d.get("priority") or self._channel_cfg[local_channel].default_priority),
+                            payload=d.get("payload"),
+                            meta=meta,
+                        )
+
+                        await self._queues[local_channel].put(ncb_msg.priority, ncb_msg)
+                        self._metrics.inc_published(local_channel)
+                    except Exception as e:
+                        self._metrics.inc_errors(local_channel)
+                        self.logger.error(
+                            "Kafka inbound decode failed",
+                            extra={"event": "kafka_decode_fail", "channel": local_channel, "error_type": type(e).__name__},
+                            exc_info=True,
+                        )
+
+                backoff = 0.5  # if loop exits cleanly, reset
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                self._metrics.inc_errors(local_channel)
+                self.logger.warning(
+                    "Kafka inbound loop error; retrying",
+                    extra={"event": "kafka_in_retry", "channel": local_channel, "error_type": type(e).__name__},
+                    exc_info=True,
+                )
+                await asyncio.sleep(backoff)
+                backoff = min(backoff_max, backoff * 2)
+            finally:
+                try:
+                    self._kafka_consumer.unsubscribe()
+                except Exception:
+                    pass
 
     # ----------------------- Hot reload -----------------------
 
@@ -1639,7 +1873,7 @@ class NeuralCognitiveBus(BaseClass):  # type: ignore
                 )
                 await asyncio.sleep(self._hot_interval)
 
-    # ----------------------- Subscriber GC (prevents unbounded maps) -----------------------
+    # ----------------------- Subscriber GC -----------------------
 
     async def _subscriber_gc_loop(self) -> None:
         while self.running:
@@ -1685,7 +1919,13 @@ class NeuralCognitiveBus(BaseClass):  # type: ignore
                     self._metrics.inc_errors(msg.channel)
                     self.logger.error(
                         "Plugin sink error",
-                        extra={"event": "plugin_sink_error", "channel": msg.channel, "msg_id": msg.id, "trace_id": msg.trace_id, "error_type": type(e).__name__},
+                        extra={
+                            "event": "plugin_sink_error",
+                            "channel": msg.channel,
+                            "msg_id": msg.id,
+                            "trace_id": msg.trace_id,
+                            "error_type": type(e).__name__,
+                        },
                         exc_info=True,
                     )
 
@@ -1773,7 +2013,7 @@ if __name__ == "__main__":
     async def example_callback(msg: Message) -> None:
         print(f"[{msg.channel}] pr={msg.priority} id={msg.id} trace={msg.trace_id} payload={msg.payload}")
 
-    async def main():
+    async def main() -> None:
         # Structured logging (JSON)
         logger = setup_json_logging(level=logging.INFO, logger_name="NCB")
 
@@ -1849,7 +2089,7 @@ if __name__ == "__main__":
         # Publish
         await ncb.publish("agent_commands", {"command": "move", "direction": "north"}, priority=10, auth=auth)
         await ncb.publish("sensor_data", {"type": "vision", "data": "image_bytes"}, priority=200)
-        await ncb.publish("sensor_data", {"type": "audio", "data": "audio_bytes"}, priority=200)  # filtered out
+        await ncb.publish("sensor_data", {"type": "audio", "data": "audio_bytes"}, priority=200)
 
         await asyncio.sleep(0.5)
 
