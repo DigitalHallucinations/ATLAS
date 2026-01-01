@@ -258,40 +258,19 @@ class AtlasServer:
         return self._conversation_routes
 
     def _build_conversation_repository(self) -> ConversationStoreRepository | None:
-        if self._config_manager is None:
-            return None
-        conversation_section = getattr(getattr(self._config_manager, "persistence", None), "conversation", None)
-        session_factory = None
-        retention: Mapping[str, Any] = {}
-        if conversation_section is not None:
-            try:
-                session_factory = conversation_section.get_session_factory()
-            except Exception:  # pragma: no cover - defensive path
-                session_factory = None
-            try:
-                retention = conversation_section.get_retention_policies()
-            except Exception:
-                retention = {}
+        """Get conversation repository from StorageManager."""
+        from modules.storage import get_storage_manager_sync
 
-        if session_factory is None:
-            getter = getattr(self._config_manager, "get_conversation_store_session_factory", None)
-            if not callable(getter):
-                return None
-            session_factory = getter()
-        if session_factory is None:
+        storage = get_storage_manager_sync()
+        if storage is None:
+            logger.error("StorageManager not initialized")
             return None
-        if not retention:
-            retention_getter = getattr(self._config_manager, "get_conversation_retention_policies", None)
-            retention = retention_getter() if callable(retention_getter) else {}
-        repository = ConversationStoreRepository(
-            session_factory,
-            retention=retention,
-            require_tenant_context=True,
-        )
-        try:
-            repository.create_schema()
-        except Exception as exc:  # pragma: no cover - defensive logging only
-            logger.warning("Failed to initialize conversation store schema: %s", exc)
+
+        repository = storage.conversations
+        if repository is None:
+            logger.error("Conversation repository not available from StorageManager")
+            return None
+
         return repository
 
     def _export_persona_manifests(self) -> List[Dict[str, Any]]:
@@ -358,16 +337,21 @@ class AtlasServer:
         return secret_text
 
     def _build_task_service(self) -> "TaskService" | None:
-        if self._config_manager is None:
+        """Get task service from StorageManager."""
+        from modules.storage import get_storage_manager_sync
+        from modules.task_store.service import TaskService
+
+        storage = get_storage_manager_sync()
+        if storage is None:
+            logger.error("StorageManager not initialized")
             return None
-        getter = getattr(self._config_manager, "get_task_service", None)
-        if not callable(getter):
+
+        repository = storage.tasks
+        if repository is None:
+            logger.error("Task repository not available from StorageManager")
             return None
-        try:
-            return getter()
-        except Exception as exc:  # pragma: no cover - defensive logging only
-            logger.warning("Failed to initialize task service: %s", exc)
-            return None
+
+        return TaskService(repository=repository)
 
     def _ensure_task_routes(self) -> TaskRoutes | None:
         if self._task_routes is not None:
@@ -394,16 +378,21 @@ class AtlasServer:
         return routes
 
     def _build_job_service(self) -> "JobService" | None:
-        if self._config_manager is None:
+        """Get job service from StorageManager."""
+        from modules.storage import get_storage_manager_sync
+        from modules.job_store.service import JobService
+
+        storage = get_storage_manager_sync()
+        if storage is None:
+            logger.error("StorageManager not initialized")
             return None
-        getter = getattr(self._config_manager, "get_job_service", None)
-        if not callable(getter):
+
+        repository = storage.jobs
+        if repository is None:
+            logger.error("Job repository not available from StorageManager")
             return None
-        try:
-            return getter()
-        except Exception as exc:  # pragma: no cover - defensive logging only
-            logger.warning("Failed to initialize job service: %s", exc)
-            return None
+
+        return JobService(repository=repository)
 
     def _build_job_manager(self) -> JobManager | None:
         if self._config_manager is None:

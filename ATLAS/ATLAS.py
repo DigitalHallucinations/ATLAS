@@ -51,6 +51,18 @@ from ATLAS.services.conversations import ConversationService
 from ATLAS.services.providers import ProviderService
 from ATLAS.services.speech import SpeechService
 
+# Lazy import for StorageManager to avoid circular imports
+_storage_manager_module = None
+
+
+def _get_storage_module():
+    """Lazy loader for storage module to avoid startup overhead when disabled."""
+    global _storage_manager_module
+    if _storage_manager_module is None:
+        from modules import storage as _sm
+        _storage_manager_module = _sm
+    return _storage_manager_module
+
 class ATLAS:
     """
     The main ATLAS application class that manages configurations, providers, personas, and speech services.
@@ -90,6 +102,9 @@ class ATLAS:
         self.conversation_repository: ConversationStoreRepository | None = None
         self.conversation_service: ConversationService | None = None
 
+        # StorageManager is the primary storage orchestrator
+        self._storage_manager: Any = None
+
         tenant_value = self.config_manager.config.get("tenant_id")
         if tenant_value is None:
             tenant_value = self.config_manager.env_config.get("TENANT_ID")
@@ -105,52 +120,9 @@ class ATLAS:
             tenant_id=self.tenant_id,
         )
 
-        try:
-            session_factory = self.config_manager.get_conversation_store_session_factory()
-        except Exception as exc:  # pragma: no cover - verification issues during startup
-            self.logger.error(
-                "Conversation store verification failed: %s", exc, exc_info=True
-            )
-            raise
-
-        if session_factory is None or not self.config_manager.is_conversation_store_verified():
-            message = (
-                "Conversation store verification sentinel missing; run the standalone setup utility "
-                "before launching ATLAS."
-            )
-            self.logger.error(message)
-            raise RuntimeError(message)
-
-        retention = self.config_manager.get_conversation_retention_policies()
-        try:
-            repository = ConversationStoreRepository(
-                session_factory,
-                retention=retention,
-                require_tenant_context=True,
-            )
-        except Exception as exc:  # pragma: no cover - repository initialisation issues
-            self.logger.error(
-                "Conversation store unavailable: %s", exc, exc_info=True
-            )
-            raise
-        else:
-            self.conversation_repository = repository
-            self.conversation_service = ConversationService(
-                repository=self.conversation_repository,
-                logger=self.logger,
-                tenant_id=self.tenant_id,
-                chat_session_getter=self._require_chat_session,
-                server_getter=lambda: getattr(self, "server", None),
-            )
-            self.user_account_facade = UserAccountFacade(
-                config_manager=self.config_manager,
-                conversation_repository=self.conversation_repository,
-                logger=self.logger,
-            )
-        self.user_account_facade.add_active_user_change_listener(
-            self._handle_active_user_change
-        )
-
+        # StorageManager initialization is deferred to async initialize()
+        # Repositories will be created after StorageManager is ready
+        self.user_account_facade = None
         self._verify_background_workers()
 
     # ------------------------------------------------------------------
@@ -767,6 +739,12 @@ class ATLAS:
         """
         Asynchronously initialize the ATLAS instance.
         """
+        # Initialize StorageManager - the primary storage orchestrator
+        await self._initialize_storage_manager()
+
+        # Set up repositories from StorageManager
+        await self._setup_repositories()
+
         self.provider_manager = await ProviderManager.create(self.config_manager)
         user_identifier, _ = self._ensure_user_identity()
         self.persona_manager = PersonaManager(master=self, user=user_identifier, config_manager=self.config_manager)
@@ -847,6 +825,117 @@ class ATLAS:
             bool: True if ATLAS is initialized, False otherwise.
         """
         return self._initialized
+
+    # ------------------------------------------------------------------
+    # StorageManager integration
+    # ------------------------------------------------------------------
+
+    async def _initialize_storage_manager(self) -> None:
+        """Initialize the unified StorageManager."""
+        try:
+            storage_module = _get_storage_module()
+            self._storage_manager = await storage_module.get_storage_manager()
+            self.logger.info("StorageManager initialized successfully.")
+        except Exception as exc:
+            self.logger.error(
+                "StorageManager initialization failed: %s",
+                exc,
+                exc_info=True,
+            )
+            raise RuntimeError(
+                "StorageManager initialization failed. Ensure database is configured correctly."
+            ) from exc
+
+    async def _setup_repositories(self) -> None:
+        """Set up domain repositories from StorageManager."""
+        if self._storage_manager is None:
+            raise RuntimeError("StorageManager not initialized")
+
+        # Get conversation repository from StorageManager
+        self.conversation_repository = self._storage_manager.conversations
+        self.logger.debug("Conversation repository initialized from StorageManager")
+
+        # Set up conversation service
+        self.conversation_service = ConversationService(
+            repository=self.conversation_repository,
+            logger=self.logger,
+            tenant_id=self.tenant_id,
+            chat_session_getter=self._require_chat_session,
+            server_getter=lambda: getattr(self, "server", None),
+        )
+
+        # Set up user account facade
+        self.user_account_facade = UserAccountFacade(
+            config_manager=self.config_manager,
+            conversation_repository=self.conversation_repository,
+            logger=self.logger,
+        )
+        self.user_account_facade.add_active_user_change_listener(
+            self._handle_active_user_change
+        )
+
+    async def shutdown_storage(self) -> None:
+        """Shutdown the StorageManager gracefully."""
+        if self._storage_manager is not None:
+            try:
+                await self._storage_manager.shutdown()
+                self.logger.info("StorageManager shut down successfully.")
+            except Exception as exc:
+                self.logger.error("StorageManager shutdown failed: %s", exc, exc_info=True)
+            finally:
+                self._storage_manager = None
+
+    @property
+    def storage_manager(self) -> Any:
+        """
+        Access the unified StorageManager instance.
+
+        Returns:
+            The StorageManager instance.
+
+        Raises:
+            RuntimeError: If StorageManager is not initialized.
+        """
+        if self._storage_manager is None:
+            raise RuntimeError("StorageManager not initialized. Call initialize() first.")
+        return self._storage_manager
+
+    def get_storage_health(self) -> Dict[str, Any]:
+        """
+        Get health status of all storage subsystems.
+
+        Returns:
+            Dictionary with storage health information.
+        """
+        if self._storage_manager is None:
+            return {"status": "not_initialized", "message": "StorageManager not yet initialized"}
+
+        try:
+            import asyncio
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # Running in async context - caller should use async version
+                return {"status": "unknown", "message": "Use async health_check in async context"}
+            health = loop.run_until_complete(self._storage_manager.health_check())
+            return health.to_dict()
+        except Exception as exc:
+            return {"status": "error", "message": str(exc)}
+
+    async def get_storage_health_async(self) -> Dict[str, Any]:
+        """
+        Async version of storage health check.
+
+        Returns:
+            Dictionary with storage health information.
+        """
+        if self._storage_manager is None:
+            return {"status": "not_initialized", "message": "StorageManager not yet initialized"}
+
+        try:
+            health = await self._storage_manager.health_check()
+            return health.to_dict()
+        except Exception as exc:
+            return {"status": "error", "message": str(exc)}
 
     def _require_persona_manager(self) -> PersonaManager:
         """Return the initialized persona manager or raise an error if unavailable."""

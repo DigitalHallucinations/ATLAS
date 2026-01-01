@@ -120,7 +120,39 @@ class PersistenceConfigSection:
 
 
 class PersistenceConfigMixin:
-    """Mixin exposing persistence and task-queue helpers for ConfigManager."""
+    """Mixin exposing persistence and task-queue helpers for ConfigManager.
+    
+    All persistence operations delegate to StorageManager. StorageManager is
+    required and must be initialized before calling these methods.
+    """
+
+    def _get_storage_manager(self):
+        """Get the StorageManager instance (required).
+        
+        Returns:
+            StorageManager: The initialized storage manager.
+            
+        Raises:
+            RuntimeError: If StorageManager is not initialized.
+        """
+        from modules.storage.manager import get_storage_manager_sync
+        storage = get_storage_manager_sync()
+        if storage is None:
+            raise RuntimeError(
+                "StorageManager not initialized. Call ATLAS.initialize() first."
+            )
+        return storage
+
+    def _get_storage_manager_optional(self):
+        """Get the StorageManager instance if available, else None.
+        
+        Use this only in methods that must gracefully handle pre-initialization.
+        """
+        try:
+            from modules.storage.manager import get_storage_manager_sync
+            return get_storage_manager_sync()
+        except ImportError:
+            return None
 
     def get_kv_store_settings(self) -> Dict[str, Any]:
         """Return normalized configuration for the key-value store adapter."""
@@ -189,13 +221,18 @@ class PersistenceConfigMixin:
 
     def is_conversation_store_verified(self) -> bool:
         """Return ``True`` if the conversation store connection has been verified."""
-
-        return self.persistence.conversation.is_verified()
+        storage = self._get_storage_manager_optional()
+        if storage is not None:
+            return storage.is_initialized
+        return False
 
     def get_conversation_retention_policies(self) -> Dict[str, Any]:
         """Return configured retention policies for the conversation store."""
-
-        return self.persistence.conversation.get_retention_policies()
+        storage = self._get_storage_manager()
+        return {
+            "days": storage.settings.retention.conversation_days,
+            "history_limit": storage.settings.retention.conversation_history_limit,
+        }
 
     def get_retention_worker_settings(self) -> Dict[str, Any]:
         """Return configuration overrides for the retention worker scheduler."""
@@ -217,163 +254,44 @@ class PersistenceConfigMixin:
 
     def get_conversation_store_engine(self) -> Any | None:
         """Return a configured engine or client for the conversation store."""
-
-        return self.persistence.conversation.get_engine()
+        storage = self._get_storage_manager()
+        return storage.get_sql_engine()
 
     def get_conversation_store_session_factory(
         self,
     ) -> sessionmaker | MongoConversationStoreRepository | None:
         """Return a configured session factory or repository for the conversation store."""
-
-        return self.persistence.conversation.get_session_factory()
+        storage = self._get_storage_manager()
+        return storage.get_session_factory()
 
     def get_task_store_session_factory(self) -> sessionmaker | None:
-        """Return a session factory for task persistence that shares the conversation engine."""
-
-        if self._task_session_factory is not None:
-            return self._task_session_factory
-
-        conversation_factory = self.get_conversation_store_session_factory()
-        if conversation_factory is None:
-            return None
-        if isinstance(conversation_factory, MongoConversationStoreRepository):
-            return None
-
-        self._task_session_factory = conversation_factory
-        return conversation_factory
+        """Return a session factory for task persistence."""
+        storage = self._get_storage_manager()
+        return storage.get_session_factory()
 
     def get_task_repository(self) -> TaskStoreRepository | None:
         """Return a configured repository for task persistence."""
-
-        if self._task_repository is not None:
-            return self._task_repository
-
-        factory = self.get_task_store_session_factory()
-        if factory is None:
-            return None
-
-        repository = TaskStoreRepository(factory)
-        try:
-            repository.create_schema()
-        except Exception as exc:  # pragma: no cover - defensive logging only
-            self.logger.warning("Failed to initialize task store schema: %s", exc)
-        self._task_repository = repository
-        return repository
+        storage = self._get_storage_manager()
+        return storage.tasks
 
     def get_task_service(self) -> TaskService | None:
         """Return the task lifecycle service backed by the repository."""
-
-        if self._task_service is not None:
-            return self._task_service
-
         repository = self.get_task_repository()
         if repository is None:
             return None
-
-        service = TaskService(repository)
-        self._task_service = service
-        return service
+        return TaskService(repository)
 
     def get_job_repository(self) -> JobStoreRepository | MongoJobStoreRepository | None:
         """Return a configured repository for scheduled job persistence."""
-
-        if self._job_repository is not None:
-            return self._job_repository
-
-        repository = self._build_job_repository()
-        if repository is None:
-            return None
-
-        self._job_repository = repository
-        return repository
-
-    def _build_job_repository(self) -> JobStoreRepository | MongoJobStoreRepository | None:
-        settings = self.get_job_scheduling_settings()
-        job_store_url = settings.get("job_store_url")
-        if isinstance(job_store_url, str) and self._is_mongo_jobstore(job_store_url):
-            repository = self._build_mongo_job_repository(job_store_url)
-            if repository is not None:
-                return repository
-
-        factory = self.get_task_store_session_factory()
-        if factory is None:
-            return None
-
-        previous = getattr(self, "_job_mongo_client", None)
-        if previous is not None:
-            close = getattr(previous, "close", None)
-            if callable(close):
-                try:
-                    close()
-                except Exception:  # pragma: no cover - best-effort cleanup
-                    pass
-            self._job_mongo_client = None
-
-        repository = JobStoreRepository(factory)
-        try:
-            repository.create_schema()
-        except Exception as exc:  # pragma: no cover - defensive logging only
-            self.logger.warning("Failed to initialize job store schema: %s", exc)
-        return repository
-
-    @staticmethod
-    def _is_mongo_jobstore(url: Any) -> bool:
-        if not isinstance(url, str):
-            return False
-        candidate = url.strip().lower()
-        return candidate.startswith("mongodb://") or candidate.startswith("mongodb+srv://")
-
-    def _build_mongo_job_repository(self, url: str) -> MongoJobStoreRepository | None:
-        normalized = url.strip()
-        if not normalized:
-            return None
-
-        try:  # pragma: no cover - optional dependency path
-            from pymongo import MongoClient
-        except Exception as exc:
-            self.logger.warning("PyMongo driver unavailable for job store: %s", exc)
-            return None
-
-        try:
-            client = MongoClient(normalized)
-        except Exception as exc:
-            self.logger.error("Failed to connect to Mongo job store", exc_info=True)
-            return None
-
-        parsed = urlparse(normalized)
-        database_name = parsed.path.lstrip("/").split("?", 1)[0] or "atlas_jobs"
-        try:
-            database = client.get_database(database_name)
-        except Exception as exc:
-            self.logger.error("Mongo job store configuration invalid", exc_info=True)
-            client.close()
-            return None
-
-        repository = MongoJobStoreRepository.from_database(database, client=client)
-        previous = getattr(self, "_job_mongo_client", None)
-        if previous is not None and previous is not client:
-            close = getattr(previous, "close", None)
-            if callable(close):
-                try:
-                    close()
-                except Exception:  # pragma: no cover - best-effort cleanup
-                    pass
-        self._job_mongo_client = client
-        return repository
+        storage = self._get_storage_manager()
+        return storage.jobs
 
     def get_job_service(self) -> JobService | None:
         """Return the job orchestration service backed by the repository."""
-
-        if self._job_service is not None:
-            return self._job_service
-
         repository = self.get_job_repository()
         if repository is None:
             return None
-
-        service = JobService(repository)
-        self._job_service = service
-        return service
+        return JobService(repository)
 
     def get_job_manager(self) -> "JobManager" | None:
         """Return the active job manager registered with the configuration."""
