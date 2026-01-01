@@ -237,6 +237,7 @@ class SetupTypeState:
     mode: str = "custom"
     applied: bool = False
     local_only: bool = False
+    developer_mode: bool = False
 
 
 @dataclass
@@ -789,12 +790,19 @@ class SetupWizardController:
 
     # -- presets ------------------------------------------------------------
 
-    def apply_setup_type(self, mode: str, *, local_only: Optional[bool] = None) -> SetupTypeState:
+    def apply_setup_type(
+        self,
+        mode: str,
+        *,
+        local_only: Optional[bool] = None,
+        developer_mode: Optional[bool] = None,
+    ) -> SetupTypeState:
         normalized = (mode or "").strip().lower()
-        if normalized not in {"personal", "developer", "enterprise", "regulatory"}:
+        valid_modes = {"student", "personal", "enthusiast", "enterprise", "regulatory"}
+        if normalized not in valid_modes:
             fallback_mode = normalized or "custom"
             logger.info("Unknown setup mode '%s'; falling back to custom configuration", mode)
-            setup_state = SetupTypeState(mode=fallback_mode, applied=False, local_only=False)
+            setup_state = SetupTypeState(mode=fallback_mode, applied=False, local_only=False, developer_mode=False)
             self.state.setup_type = setup_state
             return setup_state
 
@@ -854,9 +862,60 @@ class SetupWizardController:
             profile = self._load_setup_profile("personal")
             self._apply_profile_overrides(profile)
 
-        elif normalized == "developer":
+        elif normalized == "student":
+            # Free tier for learners with simple defaults and usage limits
+            self.state.message_bus = dataclasses.replace(
+                self.state.message_bus,
+                backend="in_memory",
+                redis_url=None,
+                stream_prefix=None,
+                initial_offset="$",
+            )
+            self.state.job_scheduling = dataclasses.replace(
+                self.state.job_scheduling,
+                enabled=False,
+                job_store_url=None,
+                max_workers=None,
+                retry_policy=dataclasses.replace(self.state.job_scheduling.retry_policy),
+                timezone=None,
+                queue_size=None,
+            )
+            self.state.kv_store = dataclasses.replace(
+                self.state.kv_store,
+                reuse_conversation_store=True,
+                url=None,
+            )
+            self.state.optional = dataclasses.replace(
+                self.state.optional,
+                retention_days=7,
+                retention_history_limit=100,
+                http_auto_start=True,
+                audit_template=None,
+            )
+
+            if local_flag:
+                sqlite_dsn = "sqlite:///atlas.sqlite3"
+                self.state.database = DatabaseState(
+                    backend="sqlite",
+                    host="",
+                    port=0,
+                    database="atlas.sqlite3",
+                    user="",
+                    password="",
+                    dsn=sqlite_dsn,
+                    options="",
+                )
+                self.state.vector_store = dataclasses.replace(
+                    self.state.vector_store,
+                    adapter="in_memory",
+                )
+            profile = self._load_setup_profile("student")
+            self._apply_profile_overrides(profile)
+
+        elif normalized == "enthusiast":
+            # Power user tier with all features unlocked
             redis_url = self.state.message_bus.redis_url or "redis://localhost:6379/0"
-            stream_prefix = self.state.message_bus.stream_prefix or "atlas-dev"
+            stream_prefix = self.state.message_bus.stream_prefix or "atlas-power"
             self.state.message_bus = dataclasses.replace(
                 self.state.message_bus,
                 backend="redis",
@@ -892,20 +951,20 @@ class SetupWizardController:
             )
             self.state.kv_store = dataclasses.replace(
                 self.state.kv_store,
-                reuse_conversation_store=True,
-                url=None,
+                reuse_conversation_store=False,
+                url=self.state.kv_store.url or "postgresql+psycopg://atlas:atlas@localhost:5432/atlas_cache",
             )
             self.state.optional = dataclasses.replace(
                 self.state.optional,
-                retention_days=14,
-                retention_history_limit=300,
+                retention_days=90,
+                retention_history_limit=1000,
                 http_auto_start=True,
-                audit_template=self.state.optional.audit_template,
+                audit_template="detailed_90d",
             )
             architecture = StorageArchitecture(
-                performance_mode=PerformanceMode.BALANCED,
+                performance_mode=PerformanceMode.PERFORMANCE,
                 conversation_backend="postgresql",
-                kv_reuse_conversation_store=True,
+                kv_reuse_conversation_store=False,
                 vector_store_adapter="in_memory",
             )
             self.state.vector_store = dataclasses.replace(
@@ -913,7 +972,7 @@ class SetupWizardController:
                 adapter=architecture.vector_store_adapter,
             )
             self.apply_storage_architecture(architecture)
-            profile = self._load_setup_profile("developer")
+            profile = self._load_setup_profile("enthusiast")
             self._apply_profile_overrides(profile)
 
         elif normalized == "enterprise":
@@ -1032,12 +1091,83 @@ class SetupWizardController:
             profile = self._load_setup_profile("regulatory")
             self._apply_profile_overrides(profile)
 
-        setup_state = SetupTypeState(mode=normalized, applied=True)
-        if normalized == "personal":
+        dev_flag = current.developer_mode if developer_mode is None else bool(developer_mode)
+        setup_state = SetupTypeState(mode=normalized, applied=True, developer_mode=dev_flag)
+        if normalized in {"personal", "student"}:
             setup_state = dataclasses.replace(setup_state, local_only=local_flag)
         elif local_only is not None:
             setup_state = dataclasses.replace(setup_state, local_only=False)
         self.state.setup_type = setup_state
+
+        # Apply developer mode overlay if enabled
+        if dev_flag:
+            self._apply_developer_mode_overlay()
+
+        return setup_state
+
+    def _apply_developer_mode_overlay(self) -> None:
+        """Apply developer-friendly defaults as an overlay on the current configuration.
+
+        Developer mode enables local Redis streams and PostgreSQL job scheduling
+        to mirror production behaviours while iterating. This can be toggled on
+        any base tier (Student, Personal, Enthusiast, Enterprise, Regulatory).
+        """
+        logger.info("Applying developer mode overlay")
+
+        # Enable Redis message bus for production-like messaging
+        redis_url = self.state.message_bus.redis_url or "redis://localhost:6379/0"
+        stream_prefix = self.state.message_bus.stream_prefix or "atlas-dev"
+        self.state.message_bus = dataclasses.replace(
+            self.state.message_bus,
+            backend="redis",
+            redis_url=redis_url,
+            stream_prefix=stream_prefix,
+            initial_offset=self.state.message_bus.initial_offset or "$",
+        )
+
+        # Enable job scheduling with local PostgreSQL
+        default_workers, default_queue_size = self._resolve_queue_defaults(
+            backend=self.state.message_bus.backend
+        )
+        job_store_url = self.state.job_scheduling.job_store_url or (
+            "postgresql+psycopg://atlas:atlas@localhost:5432/atlas_jobs"
+        )
+        self.state.job_scheduling = dataclasses.replace(
+            self.state.job_scheduling,
+            enabled=True,
+            job_store_url=job_store_url,
+            max_workers=self.state.job_scheduling.max_workers or default_workers,
+            retry_policy=dataclasses.replace(self.state.job_scheduling.retry_policy),
+            timezone=self.state.job_scheduling.timezone or "UTC",
+            queue_size=self.state.job_scheduling.queue_size or default_queue_size,
+        )
+
+        # If database is SQLite, upgrade to PostgreSQL for developer mode
+        if (self.state.database.backend or "").lower() == "sqlite":
+            self.state.database = dataclasses.replace(
+                self.state.database,
+                backend="postgresql",
+                host="localhost",
+                port=5432,
+                database="atlas",
+                user="atlas",
+                password=self.state.database.password or "",
+                dsn="",
+                options=self.state.database.options,
+            )
+
+    def set_developer_mode(self, enabled: bool) -> SetupTypeState:
+        """Toggle developer mode on the current setup type."""
+        current = self.state.setup_type
+        if current.developer_mode == enabled:
+            return current
+
+        setup_state = dataclasses.replace(current, developer_mode=enabled)
+        self.state.setup_type = setup_state
+
+        if enabled:
+            self._apply_developer_mode_overlay()
+
         return setup_state
 
     def _apply_profile_overrides(self, profile: Mapping[str, Any]) -> None:

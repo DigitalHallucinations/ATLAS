@@ -1,0 +1,21 @@
+metadata:
+  title: Enthusiast
+  description: Power user tier with all features unlocked, including experimental capabilities.
+retention:
+  days: 90
+  history_limit: 1000
+auditing:
+  template: detailed_90d
+  data_region: null
+  residency_requirement: null
+personas:
+  defaults: ["ATLAS", "Developer", "Analyst", "Creative"]
+  tenant: null
+providers:
+  default_provider: openai
+  default_model: gpt-4o
+  recommended: [openai, anthropic, google, local]
+features:
+  experimental: true
+  all_tools: true
+  advanced_scheduling: true

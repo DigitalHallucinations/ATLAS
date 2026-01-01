@@ -46,10 +46,11 @@ class FakeController:
         self.setup_type_calls = []
         self.next_import_host = "imported-host"
 
-    def apply_setup_type(self, mode):
+    def apply_setup_type(self, mode, *, local_only=None, developer_mode=None):
         normalized = (mode or "").strip().lower()
         self.setup_type_calls.append(normalized)
-        if normalized not in {"personal", "enterprise"}:
+        valid_modes = {"student", "personal", "enthusiast", "enterprise", "regulatory"}
+        if normalized not in valid_modes:
             self.state.setup_type = SetupTypeState(mode=normalized or "custom", applied=False)
             return self.state.setup_type
 
@@ -57,21 +58,23 @@ class FakeController:
         if current.mode == normalized and current.applied:
             return current
 
-        if normalized == "personal":
+        if normalized in {"personal", "student"}:
             self.state.message_bus = MessageBusState(backend="in_memory")
             self.state.job_scheduling = JobSchedulingState(enabled=False)
             self.state.kv_store = KvStoreState(reuse_conversation_store=True, url=None)
+            retention_days = 7 if normalized == "student" else None
+            retention_limit = 100 if normalized == "student" else None
             self.state.optional = OptionalState(
                 tenant_id=self.state.optional.tenant_id,
-                retention_days=None,
-                retention_history_limit=None,
+                retention_days=retention_days,
+                retention_history_limit=retention_limit,
                 scheduler_timezone=self.state.optional.scheduler_timezone,
                 scheduler_queue_size=self.state.optional.scheduler_queue_size,
                 http_auto_start=True,
             )
-        else:
+        elif normalized == "enthusiast":
             self.state.message_bus = MessageBusState(
-                backend="redis", redis_url=self.state.message_bus.redis_url or "redis://localhost:6379/0", stream_prefix=self.state.message_bus.stream_prefix or "atlas"
+                backend="redis", redis_url=self.state.message_bus.redis_url or "redis://localhost:6379/0", stream_prefix="atlas-power"
             )
             self.state.job_scheduling = JobSchedulingState(
                 enabled=True,
@@ -88,14 +91,52 @@ class FakeController:
             )
             self.state.optional = OptionalState(
                 tenant_id=self.state.optional.tenant_id,
-                retention_days=30,
+                retention_days=90,
+                retention_history_limit=1000,
+                scheduler_timezone=self.state.optional.scheduler_timezone or "UTC",
+                scheduler_queue_size=self.state.optional.scheduler_queue_size or 100,
+                http_auto_start=True,
+            )
+        else:  # enterprise or regulatory
+            self.state.message_bus = MessageBusState(
+                backend="redis", redis_url=self.state.message_bus.redis_url or "redis://localhost:6379/0", stream_prefix=self.state.message_bus.stream_prefix or "atlas"
+            )
+            self.state.job_scheduling = JobSchedulingState(
+                enabled=True,
+                job_store_url=self.state.job_scheduling.job_store_url
+                or "postgresql+psycopg://atlas:atlas@localhost:5432/atlas_jobs",
+                max_workers=self.state.job_scheduling.max_workers or 4,
+                retry_policy=self.state.job_scheduling.retry_policy,
+                timezone=self.state.job_scheduling.timezone or "UTC",
+                queue_size=self.state.job_scheduling.queue_size or 100,
+            )
+            self.state.kv_store = KvStoreState(
+                reuse_conversation_store=False,
+                url=self.state.kv_store.url or "postgresql+psycopg://atlas:atlas@localhost:5432/atlas_cache",
+            )
+            retention_days = 90 if normalized == "regulatory" else 30
+            self.state.optional = OptionalState(
+                tenant_id=self.state.optional.tenant_id,
+                retention_days=retention_days,
                 retention_history_limit=500,
                 scheduler_timezone=self.state.optional.scheduler_timezone or "UTC",
                 scheduler_queue_size=self.state.optional.scheduler_queue_size or 100,
                 http_auto_start=False,
             )
 
-        self.state.setup_type = SetupTypeState(mode=normalized, applied=True)
+        dev_flag = bool(developer_mode) if developer_mode is not None else False
+        local_flag = bool(local_only) if local_only is not None else False
+        self.state.setup_type = SetupTypeState(mode=normalized, applied=True, local_only=local_flag, developer_mode=dev_flag)
+        return self.state.setup_type
+
+    def set_developer_mode(self, enabled):
+        current = self.state.setup_type
+        self.state.setup_type = SetupTypeState(
+            mode=current.mode,
+            applied=current.applied,
+            local_only=current.local_only,
+            developer_mode=enabled,
+        )
         return self.state.setup_type
 
     def apply_database_settings(self, state):

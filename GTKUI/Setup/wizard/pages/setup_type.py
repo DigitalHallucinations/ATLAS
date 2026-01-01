@@ -50,19 +50,29 @@ def build_setup_type_page(wizard: "SetupWizardWindow") -> Gtk.Widget:
 
     radio_descriptors = [
         (
-            "personal",
-            "Personal",
-            "Single administrator, defaults favor convenience on one host.",
+            "student",
+            "Student",
+            "Free tier for learners with guidance-focused defaults and usage limits.",
         ),
         (
-            "developer",
-            "Developer",
-            "Local PostgreSQL and Redis so you can mirror production behaviours while iterating.",
+            "personal",
+            "Personal",
+            "Everyday users with tiered scaling by user count.",
+        ),
+        (
+            "enthusiast",
+            "Enthusiast",
+            "Power users with all features unlocked, including experimental capabilities.",
         ),
         (
             "enterprise",
             "Enterprise",
             "Team rollout with Redis, schedulers, and stricter retention defaults.",
+        ),
+        (
+            "regulatory",
+            "Regulatory",
+            "Enterprise with extended retention, residency controls, and compliance auditing.",
         ),
     ]
 
@@ -91,11 +101,25 @@ def build_setup_type_page(wizard: "SetupWizardWindow") -> Gtk.Widget:
 
     box.append(button_column)
 
+    # Developer mode toggle (available on any tier)
+    developer_mode_toggle = Gtk.CheckButton(
+        label="Enable Developer mode (local Redis and PostgreSQL for production-like testing)"
+    )
+    if hasattr(developer_mode_toggle, "set_tooltip_text"):
+        developer_mode_toggle.set_tooltip_text(
+            "Overlay developer-friendly defaults on any tier: local Redis streams, "
+            "PostgreSQL job store, and verbose logging for debugging and development."
+        )
+    developer_mode_toggle.set_halign(Gtk.Align.START)
+    developer_mode_toggle.connect("toggled", wizard._on_developer_mode_toggled)
+    wizard._developer_mode_toggle = developer_mode_toggle
+    box.append(developer_mode_toggle)
+
     table = Gtk.Grid(column_spacing=12, row_spacing=6)
     table.set_hexpand(True)
     table.set_vexpand(False)
 
-    headers = ["Area", "Personal", "Developer", "Enterprise"]
+    headers = ["Area", "Student", "Personal", "Enthusiast", "Enterprise"]
     for col, title in enumerate(headers):
         label = Gtk.Label(label=title)
         label.set_wrap(True)
@@ -104,47 +128,61 @@ def build_setup_type_page(wizard: "SetupWizardWindow") -> Gtk.Widget:
             label.add_css_class("heading")
         table.attach(label, col, 0, 1, 1)
         if col == 1:
-            wizard._setup_type_headers["personal"] = label
+            wizard._setup_type_headers["student"] = label
         elif col == 2:
-            wizard._setup_type_headers["developer"] = label
+            wizard._setup_type_headers["personal"] = label
         elif col == 3:
+            wizard._setup_type_headers["enthusiast"] = label
+        elif col == 4:
             wizard._setup_type_headers["enterprise"] = label
 
     rows = [
         (
             "Message bus",
-            "In-memory queue for a single app server.",
-            "Local Redis streams on one host to match production protocols.",
-            "Redis backend with shared streams.",
+            "In-memory queue.",
+            "In-memory queue.",
+            "Local Redis streams.",
+            "Redis with shared streams.",
         ),
         (
             "Job scheduling",
-            "Disabled so nothing else is required.",
-            "Enabled with a local PostgreSQL job store for background tasks.",
-            "Enabled with a dedicated database-backed job store.",
+            "Disabled.",
+            "Disabled.",
+            "Enabled with PostgreSQL.",
+            "Enabled with dedicated store.",
         ),
         (
             "Key-value store",
-            "Reuse the conversation database.",
-            "Reuse PostgreSQL alongside the main database.",
-            "Separate database-backed cache for scale.",
+            "Reuse conversation DB.",
+            "Reuse conversation DB.",
+            "Separate PostgreSQL cache.",
+            "Separate database cache.",
         ),
         (
-            "Retention & policies",
-            "No retention limits are pre-set.",
-            "14 day retention and 300 message history.",
-            "30 day retention and 500 message history.",
+            "Retention",
+            "7 days, 100 messages.",
+            "No limits pre-set.",
+            "90 days, 1000 messages.",
+            "30 days, 500 messages.",
         ),
         (
             "HTTP server",
-            "Auto-start for easy local testing.",
-            "Auto-start with developer-friendly defaults.",
-            "Manual start so ops can control ingress.",
+            "Auto-start.",
+            "Auto-start.",
+            "Auto-start.",
+            "Manual start.",
+        ),
+        (
+            "Pricing",
+            "Free.",
+            "Tiered by users.",
+            "Paid, all features.",
+            "Paid, team features.",
         ),
     ]
 
-    for row_index, (area, personal, developer, enterprise) in enumerate(rows, start=1):
-        for column, text in enumerate((area, personal, developer, enterprise)):
+    for row_index, (area, student, personal, enthusiast, enterprise) in enumerate(rows, start=1):
+        for column, text in enumerate((area, student, personal, enthusiast, enterprise)):
             label = Gtk.Label(label=text)
             label.set_wrap(True)
             label.set_xalign(0.0)

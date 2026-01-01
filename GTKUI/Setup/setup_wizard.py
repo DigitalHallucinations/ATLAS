@@ -529,6 +529,7 @@ class SetupWizardWindow(AtlasWindow):
         self._setup_type_buttons: Dict[str, Gtk.CheckButton] = {}
         self._setup_type_headers: Dict[str, Gtk.Label] = {}
         self._setup_type_syncing = False
+        self._developer_mode_toggle: Gtk.CheckButton | None = None
         self._storage_architecture_radios: Dict[str | PerformanceMode, Gtk.CheckButton] = {}
         self._storage_architecture_manual_widgets: Dict[str, Gtk.Widget] = {}
         self._storage_architecture_manual_box: Gtk.Widget | None = None
@@ -1538,7 +1539,8 @@ class SetupWizardWindow(AtlasWindow):
         state = getattr(self.controller.state, "setup_type", None)
         mode = (state.mode if state else "") or ""
         normalized = mode.strip().lower()
-        if normalized not in {"personal", "enterprise", "developer"}:
+        valid_modes = {"student", "personal", "enthusiast", "enterprise", "regulatory"}
+        if normalized not in valid_modes:
             normalized = "personal"
 
         self._setup_type_syncing = True
@@ -1548,8 +1550,12 @@ class SetupWizardWindow(AtlasWindow):
                     button.set_active(key == normalized)
             local_toggle = self._local_only_toggle
             if isinstance(local_toggle, Gtk.CheckButton):
-                local_toggle.set_sensitive(normalized == "personal")
+                # Local mode available for personal and student tiers
+                local_toggle.set_sensitive(normalized in {"personal", "student"})
                 local_toggle.set_active(bool(state.local_only) if state else False)
+            dev_toggle = self._developer_mode_toggle
+            if isinstance(dev_toggle, Gtk.CheckButton):
+                dev_toggle.set_active(bool(state.developer_mode) if state else False)
             self._update_setup_type_header_styles(normalized)
         finally:
             self._setup_type_syncing = False
@@ -1582,6 +1588,13 @@ class SetupWizardWindow(AtlasWindow):
         state = getattr(self.controller.state, "setup_type", None)
         return bool(state.local_only) if state else False
 
+    def _get_developer_mode_enabled(self) -> bool:
+        toggle = self._developer_mode_toggle
+        if isinstance(toggle, Gtk.CheckButton):
+            return toggle.get_active()
+        state = getattr(self.controller.state, "setup_type", None)
+        return bool(state.developer_mode) if state else False
+
     def _on_setup_type_toggled(
         self, button: Gtk.CheckButton, mode: str
     ) -> None:
@@ -1595,26 +1608,40 @@ class SetupWizardWindow(AtlasWindow):
         if self._setup_type_syncing:
             return
         mode = getattr(self.controller.state.setup_type, "mode", "").strip().lower()
-        if mode != "personal":
+        # Local mode is available for personal and student tiers
+        if mode not in {"personal", "student"}:
             if button.get_active():
                 button.set_active(False)
             return
         message, applied = self._apply_setup_type_selection(
-            "personal", update_status=False, local_only=button.get_active()
+            mode, update_status=False, local_only=button.get_active()
         )
         if applied:
             if button.get_active():
                 self._set_status("On-device mode enabled. Data stays on this device.")
             else:
-                self._set_status("Personal preset updated.")
+                self._set_status(f"{mode.title()} preset updated.")
         else:
             self._set_status(message)
+
+    def _on_developer_mode_toggled(self, button: Gtk.CheckButton) -> None:
+        """Handle toggling of developer mode overlay."""
+        if self._setup_type_syncing:
+            return
+        enabled = button.get_active()
+        self.controller.set_developer_mode(enabled)
+        if enabled:
+            self._set_status("Developer mode enabled. Redis and PostgreSQL configured for local development.")
+        else:
+            self._set_status("Developer mode disabled.")
+        self._refresh_setup_type_defaults()
 
     def _apply_setup_type_selection(
         self, mode: str | None, *, update_status: bool, local_only: bool | None = None
     ) -> tuple[str, bool]:
         selected = (mode or self._get_selected_setup_type() or "").strip().lower()
-        if selected not in {"personal", "enterprise", "developer"}:
+        valid_modes = {"student", "personal", "enthusiast", "enterprise", "regulatory"}
+        if selected not in valid_modes:
             message = "No preset selected. Configure each service manually."
             if update_status:
                 self._set_status(message)
@@ -1625,7 +1652,8 @@ class SetupWizardWindow(AtlasWindow):
         before_applied = current_state.applied if current_state else False
 
         local_flag = self._get_local_mode_enabled() if local_only is None else local_only
-        new_state = self.controller.apply_setup_type(selected, local_only=local_flag)
+        dev_flag = self._get_developer_mode_enabled()
+        new_state = self.controller.apply_setup_type(selected, local_only=local_flag, developer_mode=dev_flag)
         after_mode = new_state.mode
         after_applied = new_state.applied
         changed = (before_mode != after_mode) or (before_applied != after_applied)
@@ -1650,7 +1678,7 @@ class SetupWizardWindow(AtlasWindow):
         else:
             message = f"{after_mode.title()} preset saved."
 
-        if after_mode == "personal" and getattr(new_state, "local_only", False):
+        if after_mode in {"personal", "student"} and getattr(new_state, "local_only", False):
             message = f"{message} On-device mode is keeping services local."
 
         self._refresh_hosting_summary()
