@@ -15,7 +15,7 @@ from typing import Any, Protocol, runtime_checkable
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gtk, GLib
+from gi.repository import Gtk, GLib  # type: ignore[attr-defined]
 
 logger = logging.getLogger(__name__)
 
@@ -208,6 +208,12 @@ def get_html_styles() -> str:
       @media (prefers-color-scheme: dark) {
         a { color: #58a6ff; }
       }
+      /* Mermaid diagram styling */
+      pre.mermaid {
+        background: transparent;
+        border: none;
+        text-align: center;
+      }
     """
 
 
@@ -222,7 +228,14 @@ def wrap_html_content(title: str, toc: str, content: str) -> str:
     <style>{styles}</style>
     <script type="module">
       import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
-      mermaid.initialize({{ startOnLoad: true }});
+      // Transform fenced code blocks with language-mermaid class to mermaid format
+      document.querySelectorAll('pre > code.language-mermaid').forEach(codeEl => {{
+        const preEl = codeEl.parentElement;
+        const content = codeEl.textContent;
+        preEl.className = 'mermaid';
+        preEl.textContent = content;
+      }});
+      mermaid.initialize({{ startOnLoad: true, theme: 'default' }});
     </script>
   </head>
   <body>
@@ -265,7 +278,7 @@ def render_markdown(doc_path: Path) -> str:
             "sane_lists",
             "smarty",
         ],
-        output_format="html5",
+        output_format="html",
         extension_configs={
             "toc": {
                 "permalink": True,
@@ -276,7 +289,7 @@ def render_markdown(doc_path: Path) -> str:
         },
     )
     html_content = md_converter.convert(raw)
-    toc = md_converter.toc or ""
+    toc = getattr(md_converter, "toc", "") or ""
 
     return wrap_html_content(doc_path.name, toc, html_content)
 
@@ -421,6 +434,7 @@ class DocsViewerFactory:
         on_navigate: DocViewerCallback | None = None,
     ) -> Gtk.Widget:
         """Create a WebKit-based viewer."""
+        assert self._webkit is not None, "WebKit is required for web view"
         web_view = self._webkit.WebView()
         web_view.set_hexpand(True)
         web_view.set_vexpand(True)

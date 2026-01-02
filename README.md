@@ -1,236 +1,436 @@
+# 🦅 SCOUT
 
-# 🧠 ATLAS
+## Scalable Cognitive Operations Unified Team
+
+**Your Intelligence. Your Rules. Your Data.**
+
 [![CI](https://github.com/Digital-Hallucinations/ATLAS/actions/workflows/ci.yml/badge.svg)](https://github.com/Digital-Hallucinations/ATLAS/actions/workflows/ci.yml)
-### Modular, Multi-Provider, Multi-Persona Agentic Framework  
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![License](https://img.shields.io/badge/license-Proprietary-orange.svg)](LICENSE)
+[![GTK4](https://img.shields.io/badge/GTK-4.0-green.svg)](https://gtk.org/)
+
+*A modular, multi-provider, multi-persona agentic framework*  
 *By Digital Hallucinations — Jeremy Shows*
 
 ---
 
-> **ATLAS** combines a GTK desktop shell, configurable personas, and an orchestration back end to coordinate multi-agent work across conversations, scheduled jobs, and automation services.  
->  
-> It merges **systemic orchestration** with **personal agency**, forming a unified runtime where configuration, provider management, persona logic, and automation coexist under one roof.
+[Quick Start](#-5-minute-quickstart) • [Philosophy](#-why-scout-exists) • [Architecture](#-architecture-at-a-glance) • [Personas](#-the-persona-ecosystem) • [Setup Tiers](#%EF%B8%8F-setup-tiers) • [Docs](#-documentation)
 
-Where other frameworks chase closed ecosystems, ATLAS emphasizes **control**, **autonomy**, and **adaptability**.  
-It allows you to define not just *what* an agent does, but *how* it thinks, *who* it represents, and *which* provider powers it — all from a locally controlled, extensible environment.
+<!-- markdownlint-disable-next-line MD051 -->
 
----
-
-## 🌍 Core Philosophy
-
-ATLAS exists to give creators control over the frameworks that define their agents.  
-Every design choice supports *freedom from lock-in* and *clarity of orchestration*.
-
-> “I wanted features that mainstream companies only offered fractured examples of —  
-> and the freedom to make it do what I want, not what a corporation or government says I can.”
-
-Built under the **Digital Hallucinations** ecosystem, ATLAS merges precision engineering with persona-driven cognition and modular autonomy.
+</div>
 
 ---
 
-## 🧩 Major Subsystems
+## 🎯 Why SCOUT Exists
 
-- **GTK Desktop Shell** –  
-  `main.py` boots a GTK 4 application that initializes ATLAS instances on demand, launches the first-run coordinator, and keeps setup, shell, and window controllers alive for the duration of the session.
+Most AI tools are powerful—but brittle, opaque, and locked into a single provider, mindset, or workflow.
 
-- **Persona Runtime** –  
-  Persona definitions, toolboxes, and validation rules live under `modules/Personas/` and are documented in the persona guide.  
-  They control which tools, skills, and collaboration patterns each persona can access, and include task manifests for persona-specific workflows.
+As someone who works across technical, operational, and service-oriented roles, I needed an assistant that could **adapt**—not just respond. I wanted a system that could reason across domains, switch providers without breaking workflows, run locally or online, and remain transparent enough that I could understand *why* it behaved the way it did.
 
-- **Orchestration Back End** –  
-  The orchestration layer manages message-bus communication, task dispatch, job planning, and capability registry services that feed both automation APIs and UI analytics.
+**Most assistants optimize for conversation. SCOUT was built to optimize for usefulness under constraint.**
+
+That meant:
+
+- ✅ No hard dependency on a single model or vendor
+- ✅ Clear separation between personas, tools, memory, and orchestration
+- ✅ Graceful degradation when services fail
+- ✅ A system that respects user control over data, configuration, and behavior
+
+> SCOUT is not meant to replace human judgment.  
+> It is meant to **augment it**—reliably, inspectably, and without pretending to be more than it is.
 
 ---
 
-## 🧠 High-Level Architecture
+## 🔮 The Bigger Picture
 
-At startup, ATLAS configures message-bus backends, speech services, persona and provider managers, and the PostgreSQL-backed conversation repository via the central `ConfigManager`.
+Sooner or later, the major labs will consolidate intelligent systems—and the everyday user will be left renting access on someone else's terms.
 
-The orchestration stack layers task and job managers on top of that state, while the embedded **AtlasServer** exposes REST routes for conversations, tasks, jobs, tools, skills, and collaboration surfaces.  
-This shared infrastructure lets the GTK shell, automation jobs, and external callers operate against the same message bus, storage, and capability registries.
+**SCOUT exists to change that equation.**
+
+```Text
+┌─────────────────────────────────────────────────────────────────┐
+│                     THE SCOUT DIFFERENCE                        │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│   Traditional AI Services          SCOUT                        │
+│   ─────────────────────           ─────                         │
+│   🔒 Vendor lock-in          →    🔓 Provider-agnostic          │
+│   ☁️  Cloud-only             →    🏠 Local-first option         │
+│   📊 Your data, their profit →    🛡️  Your data, your control   │
+│   🤖 One-size-fits-all       →    🎭 Persona-driven adaptation  │
+│   💸 Subscription treadmill  →    ⚡ Own your infrastructure    │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+Whether you're a student learning to code, a developer shipping products, or an enterprise managing compliance—SCOUT scales to your needs while keeping you in control.
+
+---
+
+## ✨ What Makes SCOUT Different
+
+### 🎭 Persona-Driven Intelligence
+
+Not one assistant—a **team** of specialized personas. CodeGenius for development. DocGenius for documentation. FitnessCoach for wellness. Each with their own tools, skills, and behavioral patterns.
+
+Coming soon: Persona Builder & Marketplace
+
+### 🔄 Provider Freedom
+
+OpenAI today? Anthropic tomorrow? Local Llama next week? Switch providers **without rewriting workflows**. Your personas, tools, and memory stay intact.
+
+### 🤖 Built-in Agentic Systems
+
+Native support for agents and sub-agents. Task decomposition, job scheduling, capability routing—all orchestrated through a unified runtime.
+
+### 🏠 True Data Sovereignty
+
+PostgreSQL for persistence. Redis for messaging. Run it all locally, or deploy to your own cloud. **Your data never leaves unless you choose.**
+
+---
+
+## 🏗️ Architecture at a Glance
+
+SCOUT combines a GTK desktop shell, configurable personas, and an orchestration backend to coordinate multi-agent work across conversations, scheduled jobs, and automation services.
 
 ```mermaid
 flowchart TD
-    subgraph Core["ATLAS Core Runtime"]
-        A1[ConfigManager] --> A2[Message Bus / Redis Streams]
-        A1 --> A3[PostgreSQL Repository]
-        A1 --> A4[Provider Manager]
-        A1 --> A5[Persona Manager]
+    subgraph User["👤 User Interfaces"]
+        U1[GTK Desktop Shell]
+        U2[REST API Clients]
+        U3[Automation Scripts]
     end
-    subgraph Orchestration["Task + Job Orchestration"]
-        B1[Task Dispatcher] --> B2[Job Scheduler]
-        B2 --> B3[Capability Registry]
+
+    subgraph Core["🧠 SCOUT Core Runtime"]
+        C1[ConfigManager]
+        C2[Provider Manager]
+        C3[Persona Manager]
+        C4[Tool Manager]
+        C5[Skill Manager]
     end
-    subgraph Interfaces["Interfaces"]
-        C1[GTK Desktop Shell]
-        C2[AtlasServer REST / Streaming APIs]
-        C3[Automation Services]
+
+    subgraph Data["💾 Data Layer"]
+        D1[(PostgreSQL)]
+        D2[(Redis Streams)]
+        D3[Vector Store]
     end
-    Core --> Orchestration --> Interfaces
-````
+
+    subgraph Orchestration["⚡ Orchestration Engine"]
+        O1[Task Dispatcher]
+        O2[Job Scheduler]
+        O3[Capability Registry]
+        O4[Message Bus]
+    end
+
+    subgraph Providers["🌐 AI Providers"]
+        P1[OpenAI]
+        P2[Anthropic]
+        P3[xAI]
+        P4[Local LLMs]
+    end
+
+    User --> Core
+    Core --> Data
+    Core --> Orchestration
+    Core --> Providers
+    Orchestration --> Data
+```
 
 ---
 
-## ⚙️ Runtime Prerequisites
+## 🎭 The Persona Ecosystem
 
-* **Python 3.10+** – uses modern union type syntax (e.g., `ATLAS | None`).
-* **PostgreSQL 14+** – backs conversation history, key-value state, and scheduling primitives.
-* **Redis (optional)** – durable message-bus backend; in-memory queues available for local dev.
-* **SQLAlchemy with PostgreSQL dialect and pgvector** – required for the conversation store bootstrap flow; install with `pip install SQLAlchemy pgvector psycopg[binary]`.
+Personas are more than prompts—they're complete cognitive profiles with their own tools, skills, permissions, and behavioral patterns.
 
-Follow the [developer environment setup runbook](docs/ops/developer-setup.md) to create the virtual environment, install dependencies, and choose between CLI or GTK setup flows.
-Review the [configuration reference](docs/configuration.md) to map environment variables and YAML blocks before first launch.
+```mermaid
+flowchart LR
+    subgraph System["System Personas"]
+        S1[🦅 SCOUT<br/>Flagship Orchestrator]
+        S2[🔍 Echo<br/>Diagnostic & Debug]
+        S3[⚖️ ComplianceOfficer<br/>Policy Enforcement]
+    end
+
+    subgraph Domain["Domain Specialists"]
+        D1[💻 CodeGenius<br/>Development]
+        D2[📚 DocGenius<br/>Documentation]
+        D3[🌐 WebDev<br/>Full-Stack]
+        D4[🧮 MathTutor<br/>Education]
+    end
+
+    subgraph Personal["Personal Assistants"]
+        P1[🏃 FitnessCoach<br/>Wellness]
+        P2[📅 FocusPlanner<br/>Productivity]
+        P3[📓 DailyJournal<br/>Reflection]
+        P4[🗣️ LanguageTutor<br/>Learning]
+    end
+
+    subgraph Creative["Creative & Research"]
+        C1[💡 IdeaSpark<br/>Brainstorming]
+        C2[🎨 Muse<br/>Creative Writing]
+        C3[📖 KnowledgeCurator<br/>Research]
+    end
+
+    S1 -.->|delegates to| Domain
+    S1 -.->|delegates to| Personal
+    S1 -.->|delegates to| Creative
+```
+
+### Persona Capabilities
+
+Each persona can be configured with:
+
+- **Tools**: What actions can it take? (calendar, terminal, web search, code execution)
+- **Skills**: What compound behaviors can it perform? (research briefs, daily digests, safety audits)
+- **Permissions**: Read-only terminal? Write access to calendar? Code sandbox?
+- **Provider**: Which AI backend powers this persona?
+
+**25+ personas included** • CodeGenius • DocGenius • WebDev • FitnessCoach • HealthCoach • MathTutor • ScienceTutor • LanguageTutor • FrenchPracticePartner • FocusPlanner • DailyJournal • KnowledgeCurator • IdeaSpark • Muse • WeatherGenius • ResumeGenius • ComplianceOfficer • Einstein • Nikola Tesla • Hermes • Specter • MEDIC • and more...
 
 ---
 
-## 📡 Messaging configuration
+## 🎚️ Setup Tiers
 
-Drive non-interactive setup runs or fine-tune the messaging stack with environment variables:
+SCOUT adapts to your scale and requirements—from free learning environments to enterprise compliance.
 
-- `ATLAS_MESSAGE_BUS_BACKEND`, `ATLAS_REDIS_URL`, `ATLAS_STREAM_PREFIX` – choose the backend and Redis connection details.
-- `ATLAS_MESSAGING_INITIAL_OFFSET`, `ATLAS_MESSAGING_REPLAY_START` – control whether the bus tails (`$`) or replays (`0-0`) past messages.
-- `ATLAS_MESSAGING_TIER`, `ATLAS_MESSAGING_DLQ_ENABLED`, `ATLAS_MESSAGING_DLQ_TEMPLATE` – set the default policy tier and dead-letter queue template.
-- `ATLAS_MESSAGING_RETENTION_SECONDS`, `ATLAS_MESSAGING_TRIM_MAXLEN` – retention and stream trimming knobs.
-- `ATLAS_MESSAGING_IDEMPOTENCY_ENABLED`, `ATLAS_MESSAGING_IDEMPOTENCY_KEY`, `ATLAS_MESSAGING_IDEMPOTENCY_TTL` – idempotency hints for topic policies.
-- `ATLAS_KAFKA_ENABLED`, `ATLAS_KAFKA_BOOTSTRAP`, `ATLAS_KAFKA_TOPIC_PREFIX`, `ATLAS_KAFKA_CLIENT_ID`, `ATLAS_KAFKA_DRIVER`, `ATLAS_KAFKA_IDEMPOTENCE`, `ATLAS_KAFKA_ACKS`, `ATLAS_KAFKA_MAX_IN_FLIGHT`, `ATLAS_KAFKA_DELIVERY_TIMEOUT` – Kafka sink bootstrap, topic prefixing, and idempotence controls.
-- `ATLAS_BRIDGE_ENABLED`, `ATLAS_BRIDGE_TOPICS`, `ATLAS_BRIDGE_BATCH_SIZE`, `ATLAS_BRIDGE_MAX_ATTEMPTS`, `ATLAS_BRIDGE_BACKOFF_SECONDS`, `ATLAS_BRIDGE_DLQ_TOPIC` – Redis-to-Kafka bridge toggles, topic list, batching, retry, backoff, and DLQ routing.
+```mermaid
+flowchart LR
+    subgraph Tiers["Choose Your Path"]
+        T1["🎓 Student<br/>───────<br/>Free tier<br/>Guidance-focused<br/>Usage limits"]
+        T2["👤 Personal<br/>───────<br/>Up to 5 profiles<br/>No preset limits<br/>Local control"]
+        T3["⚡ Enthusiast<br/>───────<br/>All features<br/>Experimental access<br/>Power user mode"]
+        T4["🏢 Enterprise<br/>───────<br/>Team rollout<br/>Redis + schedulers<br/>Strict retention"]
+        T5["📋 Regulatory<br/>───────<br/>Extended retention<br/>Residency controls<br/>Compliance auditing"]
+    end
+
+    T1 --> T2 --> T3 --> T4 --> T5
+```
+
+| Feature | Student | Personal | Enthusiast | Enterprise | Regulatory |
+| ------- | ------- | -------- | ---------- | ---------- | ---------- |
+| **Message Bus** | In-memory | In-memory | Redis Streams | Shared Redis | Shared Redis |
+| **Job Scheduling** | ❌ | ❌ | ✅ PostgreSQL | ✅ Dedicated | ✅ Dedicated |
+| **Retention** | 7 days / 100 msgs | No limits | 90 days / 1000 msgs | 30 days / 500 msgs | Extended |
+| **HTTP Server** | Auto-start | Auto-start | Auto-start | Manual | Manual |
+| **Pricing** | Free | Tiered | Paid | Team license | Compliance license |
+
+**Developer Mode**: Available on any tier—enables local Redis, PostgreSQL, and verbose logging for production-like testing.
 
 ---
 
-## 🪶 Installation
+## ⚡ The 100x Multiplier
+
+SCOUT isn't just an assistant—it's an **orchestration engine** that multiplies your effectiveness.
+
+```mermaid
+sequenceDiagram
+    participant You
+    participant SCOUT
+    participant CodeGenius
+    participant DocGenius
+    participant Tools
+
+    You->>SCOUT: "Refactor auth module and update docs"
+    SCOUT->>SCOUT: Decompose task
+    
+    par Parallel Execution
+        SCOUT->>CodeGenius: Analyze & refactor code
+        CodeGenius->>Tools: Read files, run tests
+        Tools-->>CodeGenius: Results
+        CodeGenius-->>SCOUT: Refactored code
+    and
+        SCOUT->>DocGenius: Draft documentation updates
+        DocGenius->>Tools: Fetch current docs
+        Tools-->>DocGenius: Content
+        DocGenius-->>SCOUT: Updated docs
+    end
+    
+    SCOUT->>SCOUT: Synthesize results
+    SCOUT-->>You: "Done. Here's what changed..."
+```
+
+**One request. Multiple specialists. Parallel execution. Unified result.**
+
+---
+
+## 🚀 5-Minute Quickstart
 
 ```bash
-# Clone ATLAS
+# Clone SCOUT
 git clone https://github.com/DigitalHallucinations/ATLAS.git
 cd ATLAS
 
-# Install GTK build prerequisites (choose the command for your OS)
-# Linux (Debian/Ubuntu)
+# Install GTK prerequisites (choose your OS)
+# Debian/Ubuntu
 sudo apt install libgtk-4-dev libadwaita-1-dev gobject-introspection gir1.2-gtk-4.0
-# Linux (Fedora)
+# Fedora
 sudo dnf install gtk4-devel libadwaita-devel gobject-introspection-devel
-# macOS (Homebrew)
+# macOS
 brew install gtk4 libadwaita gobject-introspection
 
-# Create a virtual environment
+# Create virtual environment
 python3 -m venv .venv
 source .venv/bin/activate
 
-# Install dependencies (base runtime)
+# Install dependencies
 pip install -r requirements.txt
 
-# Optional: install Hugging Face fine-tuning, local Whisper STT, and accelerator extras
-# (Skip this step on CPU-only hosts.)
-pip install -r requirements-accelerators.txt
-
-# Confirm GTK bindings are available
-python -c "import gi"
-```
-
-> 💡 Use `python3 scripts/install_environment.py --with-accelerators` to automate both the
-> virtualenv creation and optional accelerator extras installation. The extras layer pulls in
-> Torch, Hugging Face fine-tuning stacks, and local Whisper tooling—run without the flag on
-> CPU-only hosts to skip those GPU-focused packages.
-
----
-
-## 🚀 Launching the Desktop Shell and Automation APIs
-
-Start the GTK shell from the repository root:
-
-```bash
+# Launch SCOUT
 python3 main.py
 ```
 
-The application initializes the ATLAS runtime and presents the primary window or, when configuration is missing, guides you through the setup wizard.
-Server and automation surfaces live in `modules/Server/`, where `AtlasServer` wires REST and streaming routes for conversations, tasks, jobs, tools, skills, and shared blackboard collaboration.
-Tool discovery endpoints (e.g., `/tools`) and capability registries feed downstream automations and dashboards.
+> 💡 **Pro tip**: Use `python3 scripts/install_environment.py --with-accelerators` to automate virtualenv creation and install GPU/ML extras (Torch, Hugging Face, Whisper). Skip the flag on CPU-only systems.
+
+### Runtime Requirements
+
+| Component | Version | Purpose |
+| --------- | ------- | ------- |
+| Python | 3.10+ | Modern type syntax support |
+| PostgreSQL | 14+ | Conversations, state, scheduling |
+| Redis | Optional | Durable message bus (in-memory available) |
+| GTK | 4.0 | Native desktop interface |
 
 ---
 
-## 🧰 Features
+## 🧰 Core Capabilities
 
-* 🧠 Multi-Persona Management — define and switch between intelligent, specialized personas.
-* 🌐 Multi-Provider Layer — dynamically select between OpenAI, Anthropic, xAI, or local LLMs.
-* 🧩 Extensible Tools — universal tool API for integrating retrieval, scheduling, or external modules.
-* 🪶 GTK Interface — sleek, native desktop environment for agent orchestration.
-* 🎙️ GPT-4o Live Speech-to-Text — capture microphone audio in-app for GPT-4o transcription (requires `sounddevice`/`soundfile`).
-* 🔐 Privacy & Local Autonomy — all control stays local; no enforced cloud dependency.
-* 🔄 Persistent Context — PostgreSQL-backed state and modular message-bus design.
-* 🧭 Unified Orchestration — conversations, jobs, and automations share a single runtime.
+### Tools (60+ Built-in)
 
----
+From web search to code execution, from calendar management to threat scanning:
 
-## 🧾 Documentation Map
+```Text
+📡 Web & Research        💾 Data & Storage       🔧 System & Dev
+─────────────────       ─────────────────       ─────────────────
+• Google Search         • Vector Store          • Terminal Command
+• Webpage Fetch         • KV Store              • Filesystem I/O
+• Browser (Lite)        • Memory Graph          • Code Execution
+• API Connector         • Content Repository    • Schema Infer
+                        • Spreadsheet           • Log Parser
 
-Start with the audience-specific landing pages, then drill into topic guides:
+📅 Productivity         🛡️ Governance           🎨 Creative
+─────────────────       ─────────────────       ─────────────────
+• Calendar Service      • Policy Reference      • Lyricist
+• Task Queue            • Audit Reporter        • Story Weaver
+• Priority Queue        • Threat Scanner        • Visual Prompt
+• Planner Decompose     • HITL Approval         • Mood Map
+• Notification          • Vault Secrets         • Emotive Tagger
+```
 
-* [User docs](docs/user/README.md) – setup wizard, GTK UI navigation, and day-to-day workflows
-* [Developer docs](docs/developer/README.md) – environment setup, configuration references, personas, tools, and API surfaces
-* [Enterprise docs](docs/enterprise/README.md) – retention, password policies, export controls, and backups
+### Skills (Compound Behaviors)
 
-Topic deep-dives:
+Skills combine tools and reasoning into higher-order capabilities:
 
-* [Setup Wizard](docs/setup-wizard.md) – guided configuration and bootstrap flow
-* [Persona Definitions](docs/Personas.md) – schema, validation, and persona-specific tooling
-* [Task Lifecycle Overview](docs/tasks/overview.md) – routing, analytics, and UI integration
-* [Job Services](docs/jobs/api.md) / [Job Dashboards](docs/jobs/ui.md) – APIs and analytics
-* [Tool Manifest Metadata](docs/tool-manifest.md) / [Generated Tool Catalog](docs/generated/tools.md)
-* [Task Queue](docs/tools/task_queue.md) / [Key-Value Store](docs/tools/kv_store.md)
-* [Conversation Retention](docs/conversation_retention.md) – policy and workers
-* [Conversation Store Data Model](docs/conversation-store.md) – PostgreSQL schema and helpers
-* [User Account Management](docs/user-accounts.md) – credentials, lockouts, and operator flows
-* [Shared Blackboard](docs/blackboard.md) – collaborative API surfaces
-* [AtlasServer API Reference](docs/server/api.md) – REST endpoints and semantics
-* [Architecture & Codebase Tour](docs/architecture-overview.md) – deeper walkthrough of runtime, personas, and orchestration
-* [Operations Runbooks](docs/ops/README.md) – dev environment and bus deployment guides
-* [GTK UI Overview](docs/ui/gtk-overview.md) – workspace controllers and extensions
+- **ContextualSummarizer** – Snapshot recaps of goals, blockers, and commitments
+- **SafetyScout** – Policy-aware safety review before risky actions
+- **ResearchBrief** – Rapid web research with citations and follow-up questions
+- **DailyDigest** – Morning briefing fusing news with work context
+- **SevereWeatherAlert** – NOAA-integrated monitoring with escalation guidance
 
 ---
 
-## 🧭 Project Roadmap
+## 🔌 Provider Flexibility
 
-| Phase                       | Focus                                                |
-| --------------------------- | ---------------------------------------------------- |
-| ✅ **Core Framework**        | Multi-persona, multi-provider orchestration          |
-| 🧩 **Tool Ecosystem**       | Expand universal built-ins and automation primitives |
-| 🪶 **UI Enhancements**      | Themes, visualization, live context tracing          |
-| ⚡ **CI/CD + Testing**       | GitHub Actions, linting, and coverage                |
-| 🔄 **Plugin Registry**      | Public index for ATLAS modules and personas          |
-| 💬 **Documentation Portal** | Interactive docs and tutorials                       |
+Connect to any provider—or run models locally:
+
+```mermaid
+flowchart TD
+    subgraph SCOUT["SCOUT Runtime"]
+        PM[Provider Manager]
+    end
+
+    subgraph Cloud["☁️ Cloud Providers"]
+        O[OpenAI<br/>GPT-4, GPT-4o]
+        A[Anthropic<br/>Claude 3.5, Opus]
+        X[xAI<br/>Grok]
+        G[Google<br/>Gemini]
+    end
+
+    subgraph Local["🏠 Local Options"]
+        L[Ollama]
+        LM[LM Studio]
+        HF[Hugging Face<br/>Transformers]
+    end
+
+    PM --> Cloud
+    PM --> Local
+```
+
+**Switch providers per-persona or globally**—your workflows and memory persist regardless.
+
+---
+
+## 📚 Documentation
+
+### By Audience
+
+| Path | For |
+| ---- | --- |
+| [User Docs](docs/user/README.md) | Setup wizard, GTK navigation, daily workflows |
+| [Developer Docs](docs/developer/README.md) | Environment setup, APIs, extending SCOUT |
+| [Enterprise Docs](docs/enterprise/README.md) | Retention, policies, compliance, backups |
+
+### Deep Dives
+
+- [Architecture Overview](docs/architecture-overview.md) – Runtime, personas, orchestration
+- [Persona Definitions](docs/Personas.md) – Schema, validation, tooling
+- [Task Lifecycle](docs/tasks/overview.md) – Routing, analytics, UI integration
+- [Job Services](docs/jobs/api.md) – APIs and scheduling
+- [Tool Manifest](docs/tool-manifest.md) – Metadata and discovery
+- [AtlasServer API](docs/server/api.md) – REST endpoints and semantics
+- [GTK UI Overview](docs/ui/gtk-overview.md) – Shell architecture
+
+---
+
+## 🗺️ Roadmap
+
+| Status | Phase | Focus |
+| ------ | ----- | ----- |
+| ✅ | **Core Framework** | Multi-persona, multi-provider orchestration |
+| ✅ | **Tool Ecosystem** | 60+ built-in tools and skill framework |
+| ✅ | **GTK Shell** | Native desktop with setup wizard |
+| 🔨 | **Persona Builder** | Visual persona creation and editing |
+| 🔨 | **Persona Marketplace** | Share, download, and purchase personas |
+| 📋 | **Plugin Registry** | Public index for community modules |
+| 📋 | **Mobile Companion** | Lightweight mobile interface |
+| 📋 | **Team Collaboration** | Shared workspaces and blackboard sync |
 
 ---
 
 ## 🤝 Contributing
 
-Contributions are welcome.
-If you’d like to build a persona, tool, or provider adapter, fork the repo and open a pull request.
-Follow PEP 8 and ensure tests pass with `pytest` before submitting.
+Contributions welcome! Whether you're building a persona, tool, or provider adapter:
 
-### Agent roles, guardrails, and AGENTS lookup
-- UI Agent (GTKUI/), Backend Agent (ATLAS/, modules/, atlas_provider.py), Data/DB Agent (conversation/task/job stores and migrations), Infra/Config Agent (server/, config.yaml, ATLAS/config/, scripts/ affecting runtime), Docs Agent (docs/), Testing Agent (tests/), and Security Agent (configuration reviews).
-- Always read `AGENTS.md` from the repository root down to the directory you’re editing; nested files override parent guidance and document additional required checks.
+1. Fork the repo
+2. Read `AGENTS.md` from root to your target directory
+3. Follow [Agent Workflow](docs/contributing/agent-workflow.md) guidelines
+4. Ensure tests pass: `pytest`
+5. Open a pull request
 
-### Workflow, audits, and new audit folders
-- Follow the shared [Agent Workflow](docs/contributing/agent-workflow.md) for intent capture, guardrail discovery, design alignment, validation, and traceability.
-- Documentation updates must refresh `docs/_audit/inventory.md` and `docs/_audit/architecture-alignment-report.md` to keep traceability current.
-- When spinning up a new audit folder, start with the [_audit_template](docs/_audit_template) and adapt it to the new scope before adding content.
+### Agent Roles
 
-### Required validations by change type
-- Backend/infra changes: run `pytest tests/test_persona_schema.py` and `pytest`.
-- UI changes: run the tests above and capture updated screenshots for visible GTK modifications.
-- Documentation-only changes: refresh the audit inventory/report, and run link or spell checks if available before submitting.
+| Role | Scope |
+| ---- | ----- |
+| UI Agent | `GTKUI/`, `Icons/`, UI entry points |
+| Backend Agent | `ATLAS/`, `modules/`, orchestration |
+| Data/DB Agent | Stores, migrations, persistence |
+| Infra/Config Agent | `server/`, `config.yaml`, runtime scripts |
+| Docs Agent | `docs/` only |
+| Testing Agent | `tests/` only |
+| Security Agent | Configuration and policy review |
 
 ---
 
 ## 🜂 Credits
 
-Created and maintained by **Jeremy Shows**
-Part of the **Digital Hallucinations** ecosystem.
-
-> “ATLAS isn’t just an assistant — it’s a framework for agency.”
+Created and maintained by **Jeremy Shows**  
+Part of the **Digital Hallucinations** ecosystem
 
 ---
 
-## 📣 Tags
+"Systems should serve users, not enclose them."
 
-`#AI` `#AgenticFramework` `#OpenSource` `#GTK` `#MultiProvider` `#DigitalHallucinations` `#Python`
+---
+
+`#AI` `#AgenticFramework` `#OpenSource` `#GTK` `#MultiProvider` `#DataSovereignty` `#Python`
+
+</div>
