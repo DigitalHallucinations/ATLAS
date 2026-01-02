@@ -158,6 +158,7 @@ class TestMessageEntry:
             content="",
             tool_calls=[{"id": "call_1", "function": {"name": "test"}}],
         )
+        assert msg.tool_calls is not None
         assert len(msg.tool_calls) == 1
 
     def test_to_dict(self):

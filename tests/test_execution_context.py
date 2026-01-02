@@ -48,7 +48,7 @@ class TestExecutionContext:
         """Test that context is immutable (frozen)."""
         ctx = ExecutionContext(tenant_id="test")
         with pytest.raises(AttributeError):
-            ctx.tenant_id = "changed"
+            ctx.tenant_id = "changed"  # type: ignore[misc]
 
     def test_with_conversation(self):
         """Test creating new context with conversation ID."""
@@ -58,7 +58,7 @@ class TestExecutionContext:
         assert new_ctx.conversation_id == "conv123"
         assert new_ctx.tenant_id == "acme"
         assert new_ctx.user_id == "user1"
-        assert ctx.conversation_id is None  # Original unchanged
+        assert ctx.conversation_id is None  
 
     def test_with_user(self):
         """Test creating new context with user ID."""
@@ -67,7 +67,7 @@ class TestExecutionContext:
         
         assert new_ctx.user_id == "user456"
         assert new_ctx.tenant_id == "acme"
-        assert ctx.user_id is None  # Original unchanged
+        assert ctx.user_id is None  
 
     def test_with_metadata(self):
         """Test creating new context with additional metadata."""
@@ -75,7 +75,7 @@ class TestExecutionContext:
         new_ctx = ctx.with_metadata(new_key="new_value")
         
         assert new_ctx.metadata == {"existing": "value", "new_key": "new_value"}
-        assert ctx.metadata == {"existing": "value"}  # Original unchanged
+        assert ctx.metadata == {"existing": "value"}  
 
     def test_with_roles(self):
         """Test creating new context with roles."""
@@ -84,7 +84,7 @@ class TestExecutionContext:
         
         assert new_ctx.roles == ("admin", "user")
         assert new_ctx.tenant_id == "acme"
-        assert ctx.roles == ()  # Original unchanged
+        assert ctx.roles == ()  
 
     def test_with_roles_from_list(self):
         """Test creating new context with roles from a list."""
@@ -182,6 +182,7 @@ class TestContextAccess:
         
         try:
             retrieved = get_current_context()
+            assert retrieved is not None
             assert retrieved is ctx
             assert retrieved.tenant_id == "test"
         finally:
@@ -224,6 +225,7 @@ class TestExecutionContextManager:
             
             # Should restore outer context
             current = get_current_context()
+            assert current is not None
             assert current is outer
             assert current.conversation_id is None
 
@@ -268,6 +270,7 @@ class TestRequireContextDecorator:
         
         with execution_context(tenant_id="test"):
             ctx = needs_context()
+            assert ctx is not None
             assert ctx.tenant_id == "test"
 
     @pytest.mark.asyncio
@@ -285,6 +288,7 @@ class TestRequireContextDecorator:
         # Should pass when set
         with execution_context(tenant_id="async_test"):
             ctx = await async_needs_context()
+            assert ctx is not None
             assert ctx.tenant_id == "async_test"
 
 

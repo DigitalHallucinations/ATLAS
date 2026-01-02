@@ -111,6 +111,7 @@ context_dict = ctx.to_dict()
 ## LLMContext and LLMContextManager
 
 `LLMContextManager` assembles everything needed for an LLM API call:
+
 - System prompt with injected context
 - Conversation history (token-budgeted)
 - Tool definitions (local and MCP)
@@ -144,6 +145,7 @@ llm_context = await manager.build_context(max_history_tokens=4000)
 ### Token Budgeting
 
 LLMContextManager automatically:
+
 1. Estimates token usage for system prompt, tools, and history
 2. Truncates history from the oldest messages to fit within limits
 3. Preserves a configurable reserve for the model's response
@@ -228,10 +230,10 @@ context = await manager.build_context()
 
 ## API Reference
 
-### ExecutionContext
+### ExecutionContext Fields
 
 | Field | Type | Description |
-|-------|------|-------------|
+| ----- | ---- | ----------- |
 | `tenant_id` | `str` | Tenant identifier (default: "default") |
 | `user_id` | `str \| None` | User identifier |
 | `conversation_id` | `str \| None` | Conversation identifier |
@@ -242,7 +244,7 @@ context = await manager.build_context()
 ### LLMContext
 
 | Field | Type | Description |
-|-------|------|-------------|
+| ----- | ---- | ----------- |
 | `model_name` | `str` | Model identifier |
 | `system_prompt` | `str` | Complete system prompt |
 | `history` | `list[MessageEntry]` | Conversation messages |
@@ -254,7 +256,7 @@ context = await manager.build_context()
 ### Context Functions
 
 | Function | Description |
-|----------|-------------|
+| -------- | ----------- |
 | `get_current_context()` | Get active context or None |
 | `get_context_or_default()` | Get active context or create default |
 | `set_current_context(ctx)` | Set the active context |

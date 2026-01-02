@@ -20,7 +20,7 @@ architecture and database screens, while the roster and admin pages stage the
 accounts and credentials the controller reuses across later infrastructure
 steps.【F:GTKUI/Setup/setup_wizard.py†L994-L1088】【F:ATLAS/setup/controller.py†L555-L707】【F:ATLAS/setup/controller.py†L1375-L1429】
 
-### Introduction and branching
+## Introduction and branching
 
 The wizard opens with an introduction followed by a setup type choice, then
 preflight hardware scoring so the suggested performance tier can steer storage
@@ -35,7 +35,7 @@ account management guide](./user-accounts.md) and the [developer setup
 runbook](./ops/developer-setup.md) for the onboarding material that follows this
 branching step.【F:GTKUI/Setup/setup_wizard.py†L1031-L1140】【F:ATLAS/setup/controller.py†L711-L810】【F:ATLAS/setup/controller.py†L1280-L1399】
 
-### Step-by-step configuration
+## Step-by-step configuration
 
 > **Callout:** Prefer to script the bootstrap? Run `python3 scripts/setup_atlas.py`
 > to mirror the wizard's prompts from the terminal. Larger rollouts often
@@ -86,7 +86,7 @@ the same controller methods used by the CLI to persist settings. The final step
 registers the staged administrator once all configuration has been applied and
 the setup marker written.
 
-### User setup
+## User setup
 
 Smaller rollouts often stop at the administrator profile, but the wizard also
 streamlines onboarding for up to five local users. Once the environment is
@@ -119,7 +119,7 @@ rather than waiting for users to sign in interactively.
   `ACCOUNT_PASSWORD_FORBID_WHITESPACE`), and the [password policy
   reference](./password-policy.md) outlines enforcement guidance for each flag.【F:modules/user_accounts/user_account_service.py†L473-L518】【F:docs/password-policy.md†L3-L24】
 
-#### Password requirements
+### Password requirements
 
 The wizard mirrors the configurable password policy defined in
 `config.yaml`. Administrators can adjust the following keys to tune enforcement:
@@ -142,7 +142,7 @@ deployments. These safeguards remain important even when operating near the
 five-user ceiling because they mitigate credential reuse, shoulder surfing, and
 accidental lockouts in lightweight deployments.
 
-### Step details
+## Step details
 
 Each step mirrors the questions asked by the CLI setup utility:
 
@@ -159,7 +159,7 @@ Each step mirrors the questions asked by the CLI setup utility:
   retention limits, scheduler overrides, and the HTTP auto-start flag before you
   move into the admin credentials form.
 
-### Company setup for enterprise rollouts
+## Company setup for enterprise rollouts
 
 Selecting the **Company (Enterprise)** path front-loads tenancy, retention, and
 scheduler defaults before fleets begin connecting. The **Tenant identifier**
@@ -204,7 +204,7 @@ additional tenants.【F:modules/Server/conversation_routes.py†L30-L209】【F:
   skill, and API activity is captured with tenant context beyond the default
   local logging path.【F:modules/logging/audit.py†L33-L126】【F:modules/conversation_store/repository.py†L2622-L2765】
 
-#### Audit and retention templates
+### Audit and retention templates
 
 The company step also exposes audit/retention templates so operators can align
 defaults with their compliance posture without memorising every field. Pick an
@@ -246,12 +246,12 @@ choosing **Run setup wizard** from the application menu.
 The first screen now asks you to choose a preset so the wizard can preload
 defaults from the curated profiles under `ATLAS/config/setup_presets/`:
 
-- **Personal** keeps everything local: in-memory queues, optional SQLite
+* **Personal** keeps everything local: in-memory queues, optional SQLite
   storage, and light-touch retention for individual experimentation.【F:ATLAS/setup/controller.py†L453-L504】【F:ATLAS/config/setup_presets/personal.yaml†L1-L15】
-- **Enterprise** reuses shared Redis and PostgreSQL services, seeds 30-day
+* **Enterprise** reuses shared Redis and PostgreSQL services, seeds 30-day
   retention with SIEM-friendly auditing, and prefers multi-provider defaults
   for production tenants.【F:ATLAS/setup/controller.py†L505-L559】【F:ATLAS/config/setup_presets/enterprise.yaml†L1-L17】
-- **Regulatory** mirrors enterprise infrastructure but pre-fills year-long
+* **Regulatory** mirrors enterprise infrastructure but pre-fills year-long
   retention, in-region residency constraints, and Azure OpenAI defaults to
   simplify export-controlled or data-sovereign deployments.【F:ATLAS/setup/controller.py†L560-L621】【F:ATLAS/config/setup_presets/regulatory.yaml†L1-L17】
 
