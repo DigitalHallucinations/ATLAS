@@ -157,32 +157,32 @@ job_scheduling:
     max_attempts: 3
 messaging:
   backend: in_memory
+  delete_on_ack: true
+  kafka:
+    acks: all
+    bootstrap_servers: null
+    bridge:
+      backoff_seconds: 1.0
+      batch_size: 1
+      dlq_topic: atlas.bridge.dlq
+      enabled: false
+      max_attempts: 3
+      source_prefix: redis_kafka
+      topic_map: {}
+      topics: []
+    enable_idempotence: true
+    enabled: false
+    max_in_flight: 5
+    topic_prefix: atlas.bus
+  min_idle_ms: 60000
   policy:
     default:
+      dlq_topic_template: dlq.{topic}
       retry_attempts: 3
       retry_delay: 0.1
-      dlq_topic_template: dlq.{topic}
     prefixes: []
-  replay_start: "$"
-  min_idle_ms: 60000
-  delete_on_ack: true
-  trim_maxlen:
-  kafka:
-    enabled: false
-    bootstrap_servers:
-    topic_prefix: atlas.bus
-    enable_idempotence: true
-    acks: all
-    max_in_flight: 5
-    bridge:
-      enabled: false
-      source_prefix: redis_kafka
-      topics: []
-      topic_map: {}
-      batch_size: 1
-      max_attempts: 3
-      backoff_seconds: 1.0
-      dlq_topic: atlas.bridge.dlq
+  replay_start: $
+  trim_maxlen: null
 storage:
   architecture:
     conversation_backend: sqlite
@@ -197,27 +197,6 @@ task_queue:
     jitter_seconds: 5.0
     max_attempts: 3
 tools:
-  mcp:
-    enabled: false
-    default_server: default
-    timeout_seconds: 30.0
-    health_check_interval: 300.0
-    allow_tools: []
-    deny_tools: []
-    servers:
-      default:
-        transport: stdio
-        command:
-        args: []
-        env: {}
-        cwd:
-        url:
-        allow_tools: []
-        deny_tools: []
-        timeout_seconds: 30.0
-        health_check_interval: 300.0
-    server: default
-    tool: ''
   kv_store:
     adapters:
       postgres:
