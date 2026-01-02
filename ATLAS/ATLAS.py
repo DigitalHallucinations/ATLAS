@@ -23,6 +23,12 @@ from typing import (
 )
 from ATLAS import ToolManager as ToolManagerModule
 from ATLAS.config import ConfigManager
+from ATLAS.context import (
+    ExecutionContext,
+    get_current_context,
+    get_context_or_default,
+    execution_context,
+)
 from modules.logging.logger import setup_logger
 from modules.logging.audit import get_persona_audit_logger
 from ATLAS.provider_manager import ProviderManager
@@ -126,6 +132,77 @@ class ATLAS:
         self._verify_background_workers()
 
     # ------------------------------------------------------------------
+    # Execution Context helpers
+    # ------------------------------------------------------------------
+    def get_execution_context(
+        self,
+        *,
+        conversation_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        include_roles: bool = True,
+    ) -> ExecutionContext:
+        """Get or create an execution context for the current request.
+        
+        If an execution context is already active (via contextvars), returns it
+        potentially updated with the provided conversation/user IDs. Otherwise,
+        creates a new context using the ATLAS instance's tenant_id, user identity,
+        and configured roles.
+        
+        Args:
+            conversation_id: Optional conversation ID to include in context.
+            user_id: Optional user ID to include in context.
+            include_roles: Whether to include active user roles from config.
+            
+        Returns:
+            An ExecutionContext instance for use with operations.
+        """
+        current = get_current_context()
+        if current is not None:
+            # Update with provided values if specified
+            if conversation_id is not None and current.conversation_id != conversation_id:
+                current = current.with_conversation(conversation_id)
+            if user_id is not None and current.user_id != user_id:
+                current = current.with_user(user_id)
+            return current
+        
+        # Resolve user identity if not provided
+        resolved_user_id = user_id
+        metadata: Dict[str, Any] = {}
+        if resolved_user_id is None:
+            try:
+                username, display_name = self._ensure_user_identity()
+                resolved_user_id = username
+                if display_name:
+                    metadata["user_display_name"] = display_name
+            except Exception:  # pragma: no cover - defensive fallback
+                pass
+        
+        # Resolve roles from config
+        roles: tuple[str, ...] = ()
+        if include_roles:
+            roles = self._resolve_active_user_roles()
+        
+        # Create new context from ATLAS state
+        return ExecutionContext(
+            tenant_id=self.tenant_id or "default",
+            user_id=resolved_user_id,
+            conversation_id=conversation_id,
+            roles=roles,
+            metadata=metadata if metadata else None,
+        )
+    
+    def get_system_context(self) -> ExecutionContext:
+        """Get an execution context with system-level roles.
+        
+        Used for bundle import/export and other privileged operations
+        that require system-level access.
+        
+        Returns:
+            An ExecutionContext with roles=("system",).
+        """
+        return self.get_execution_context().with_roles(("system",))
+
+    # ------------------------------------------------------------------
     # Task operations
     # ------------------------------------------------------------------
     def search_tasks(
@@ -146,8 +223,8 @@ class ATLAS:
         if server is None:
             raise RuntimeError("ATLAS server is not configured.")
 
-        tenant_id = self.tenant_id or "default"
-        context: Dict[str, Any] = {"tenant_id": tenant_id}
+        exec_ctx = self.get_execution_context(conversation_id=conversation_id)
+        context = exec_ctx.to_server_context()
 
         base_filters: Dict[str, Any] = {}
         if status:
@@ -337,9 +414,9 @@ class ATLAS:
                 raise TypeError("metadata must be a mapping")
             payload["metadata"] = dict(metadata)
 
-        context = {"tenant_id": self.tenant_id or "default"}
+        exec_ctx = self.get_execution_context()
         server = self._require_server()
-        return server.link_job_task(str(job_id), payload, context=context)
+        return server.link_job_task(str(job_id), payload, context=exec_ctx.to_server_context())
 
     def unlink_job_task(
         self,
@@ -353,11 +430,11 @@ class ATLAS:
         if link_id is None and task_id is None:
             raise ValueError("Either link_id or task_id must be provided")
 
-        context = {"tenant_id": self.tenant_id or "default"}
+        exec_ctx = self.get_execution_context()
         server = self._require_server()
         return server.unlink_job_task(
             str(job_id),
-            context=context,
+            context=exec_ctx.to_server_context(),
             link_id=link_id,
             task_id=task_id,
         )
@@ -398,9 +475,9 @@ class ATLAS:
         if metadata_payload:
             payload["metadata"] = metadata_payload
 
-        context = {"tenant_id": self.tenant_id or "default"}
+        exec_ctx = self.get_execution_context()
         server = self._require_server()
-        return server.create_job(payload, context=context)
+        return server.create_job(payload, context=exec_ctx.to_server_context())
 
     def _normalize_mapping(
         self, value: Mapping[str, Any] | None, *, field_name: str
@@ -1246,8 +1323,14 @@ class ATLAS:
         return service.get_chat_history_snapshot()
 
     def get_active_user_roles(self) -> Tuple[str, ...]:
-        """Return the configured roles for the active user."""
-
+        """Return the configured roles for the active user.
+        
+        Uses the execution context if available, otherwise resolves
+        from configuration.
+        """
+        ctx = get_current_context()
+        if ctx is not None and ctx.roles:
+            return ctx.roles
         return self._resolve_active_user_roles()
 
     def can_run_conversation_retention(self) -> bool:
@@ -1343,9 +1426,9 @@ class ATLAS:
 
         server_method = getattr(self.server, "search_conversations", None)
         if callable(server_method):
-            context = {"tenant_id": self.tenant_id or "default"}
+            exec_ctx = self.get_execution_context()
             try:
-                response = server_method(request_payload, context=context)
+                response = server_method(request_payload, context=exec_ctx.to_server_context())
             except Exception as exc:  # pragma: no cover - logged for diagnostics
                 if hasattr(self.logger, "warning"):
                     self.logger.warning(
@@ -1463,29 +1546,9 @@ class ATLAS:
         return service.get_negotiation_log()
 
     def _build_retention_context(self) -> Dict[str, Any]:
-        tenant_id = self.tenant_id or "default"
-        context: Dict[str, Any] = {"tenant_id": tenant_id}
-
-        roles = list(self._resolve_active_user_roles())
-        if roles:
-            context["roles"] = tuple(roles)
-
-        try:
-            username, display_name = self._ensure_user_identity()
-        except Exception:  # pragma: no cover - defensive fallback
-            username = None
-            display_name = None
-
-        if username:
-            context["user_id"] = username
-
-        metadata: Dict[str, Any] = {}
-        if display_name:
-            metadata["user_display_name"] = display_name
-        if metadata:
-            context["metadata"] = metadata
-
-        return context
+        """Build a context dict for retention operations using ExecutionContext."""
+        exec_ctx = self.get_execution_context()
+        return exec_ctx.to_dict()
 
     def _resolve_active_user_roles(self) -> Tuple[str, ...]:
         manager = self.config_manager
@@ -1586,14 +1649,11 @@ class ATLAS:
     def export_persona_bundle(self, persona_name: str, *, signing_key: str) -> Dict[str, Any]:
         """Export ``persona_name`` via the shared server routes."""
 
-        context = {
-            "tenant_id": self.tenant_id or "default",
-            "roles": ("system",),
-        }
+        sys_ctx = self.get_system_context()
         response = self.server.export_persona_bundle(
             persona_name,
             signing_key=signing_key,
-            context=context,
+            context=sys_ctx.to_server_context(),
         )
 
         if not response.get("success"):
@@ -1620,14 +1680,12 @@ class ATLAS:
         """Import a persona bundle through the server routes."""
 
         encoded = base64.b64encode(bundle_bytes).decode("ascii")
+        sys_ctx = self.get_system_context()
         return self.server.import_persona_bundle(
             bundle_base64=encoded,
             signing_key=signing_key,
             rationale=rationale,
-            context={
-                "tenant_id": self.tenant_id or "default",
-                "roles": ("system",),
-            },
+            context=sys_ctx.to_server_context(),
         )
 
     def export_tool_bundle(
@@ -1639,14 +1697,12 @@ class ATLAS:
     ) -> Dict[str, Any]:
         """Export a tool definition via the shared server routes."""
 
+        sys_ctx = self.get_system_context()
         response = self.server.export_tool_bundle(
             tool_name,
             signing_key=signing_key,
             persona=persona,
-            context={
-                "tenant_id": self.tenant_id or "default",
-                "roles": ("system",),
-            },
+            context=sys_ctx.to_server_context(),
         )
 
         if not response.get("success"):
@@ -1673,14 +1729,12 @@ class ATLAS:
         """Import a tool bundle through the server routes."""
 
         encoded = base64.b64encode(bundle_bytes).decode("ascii")
+        sys_ctx = self.get_system_context()
         return self.server.import_tool_bundle(
             bundle_base64=encoded,
             signing_key=signing_key,
             rationale=rationale,
-            context={
-                "tenant_id": self.tenant_id or "default",
-                "roles": ("system",),
-            },
+            context=sys_ctx.to_server_context(),
         )
 
     def export_skill_bundle(
@@ -1692,14 +1746,12 @@ class ATLAS:
     ) -> Dict[str, Any]:
         """Export a skill definition via the shared server routes."""
 
+        sys_ctx = self.get_system_context()
         response = self.server.export_skill_bundle(
             skill_name,
             signing_key=signing_key,
             persona=persona,
-            context={
-                "tenant_id": self.tenant_id or "default",
-                "roles": ("system",),
-            },
+            context=sys_ctx.to_server_context(),
         )
 
         if not response.get("success"):
@@ -1726,14 +1778,12 @@ class ATLAS:
         """Import a skill bundle through the server routes."""
 
         encoded = base64.b64encode(bundle_bytes).decode("ascii")
+        sys_ctx = self.get_system_context()
         return self.server.import_skill_bundle(
             bundle_base64=encoded,
             signing_key=signing_key,
             rationale=rationale,
-            context={
-                "tenant_id": self.tenant_id or "default",
-                "roles": ("system",),
-            },
+            context=sys_ctx.to_server_context(),
         )
 
     def export_job_bundle(
@@ -1745,14 +1795,12 @@ class ATLAS:
     ) -> Dict[str, Any]:
         """Export a job definition via the shared server routes."""
 
+        sys_ctx = self.get_system_context()
         response = self.server.export_job_bundle(
             job_name,
             signing_key=signing_key,
             persona=persona,
-            context={
-                "tenant_id": self.tenant_id or "default",
-                "roles": ("system",),
-            },
+            context=sys_ctx.to_server_context(),
         )
 
         if not response.get("success"):
@@ -1779,14 +1827,12 @@ class ATLAS:
         """Import a job bundle through the server routes."""
 
         encoded = base64.b64encode(bundle_bytes).decode("ascii")
+        sys_ctx = self.get_system_context()
         return self.server.import_job_bundle(
             bundle_base64=encoded,
             signing_key=signing_key,
             rationale=rationale,
-            context={
-                "tenant_id": self.tenant_id or "default",
-                "roles": ("system",),
-            },
+            context=sys_ctx.to_server_context(),
         )
 
     def get_persona_metrics(
@@ -2840,12 +2886,12 @@ class ATLAS:
                 payload["metadata"] = metadata_payload
 
         server = self._require_server()
-        context = {"tenant_id": tenant_id}
+        exec_ctx = self.get_execution_context()
         return server.create_blackboard_entry(
             str(scope_type or "conversation"),
             scope_token,
             payload,
-            context=context,
+            context=exec_ctx.to_server_context(),
         )
 
     def update_blackboard_entry(
@@ -2906,13 +2952,13 @@ class ATLAS:
             raise ValueError("At least one field must be provided for update")
 
         server = self._require_server()
-        context = {"tenant_id": tenant_id}
+        exec_ctx = self.get_execution_context()
         return server.update_blackboard_entry(
             str(scope_type or "conversation"),
             scope_token,
             entry_token,
             payload,
-            context=context,
+            context=exec_ctx.to_server_context(),
         )
 
     def delete_blackboard_entry(
@@ -2933,12 +2979,12 @@ class ATLAS:
             raise ValueError("entry_id is required")
 
         server = self._require_server()
-        context = {"tenant_id": self.tenant_id or "default"}
+        exec_ctx = self.get_execution_context()
         return server.delete_blackboard_entry(
             str(scope_type or "conversation"),
             scope_token,
             entry_token,
-            context=context,
+            context=exec_ctx.to_server_context(),
         )
 
     def get_blackboard_summary(

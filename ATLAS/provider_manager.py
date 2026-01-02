@@ -13,6 +13,7 @@ from urllib.request import Request, urlopen
 from huggingface_hub import HfApi
 from ATLAS.model_manager import ModelManager
 from ATLAS.config import ConfigManager
+from ATLAS.context import LLMContextManager, LLMContext
 from modules.logging.logger import setup_logger
 from modules.Providers.HuggingFace.HF_gen_response import HuggingFaceGenerator
 from ATLAS.providers.base import build_result, get_invoker, register_invoker
@@ -1737,6 +1738,105 @@ class ProviderManager:
         """
         self.current_functions = functions
         self.logger.debug(f"Updated current functions: {self.current_functions}")
+
+    async def build_llm_context(
+        self,
+        *,
+        model: Optional[str] = None,
+        system_prompt: Optional[str] = None,
+        history: Optional[List[Dict[str, Any]]] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        mcp_client: Optional[Any] = None,
+        blackboard_facade: Optional[Any] = None,
+        active_task: Optional[Dict[str, Any]] = None,
+        max_history_tokens: Optional[int] = None,
+    ) -> LLMContext:
+        """Build a complete LLM context for a generation request.
+        
+        This method uses LLMContextManager to assemble all context needed
+        for an LLM call, including system prompts, tools, MCP tools,
+        blackboard state, and properly truncated history.
+        
+        Args:
+            model: The model name (used for token limits). Defaults to current model.
+            system_prompt: The base system prompt.
+            history: Conversation history messages.
+            tools: Tool definitions to include.
+            mcp_client: Optional MCP client for dynamic tool discovery.
+            blackboard_facade: Optional blackboard facade for state injection.
+            active_task: Optional active task for context injection.
+            max_history_tokens: Override for maximum history tokens.
+            
+        Returns:
+            LLMContext with all context assembled and token-budgeted.
+        """
+        resolved_model = model or self.get_current_model() or "gpt-4"
+        
+        manager = LLMContextManager(
+            model_name=resolved_model,
+            system_prompt=system_prompt or "",
+            history=history or [],
+            tools=tools or [],
+            mcp_client=mcp_client,
+            blackboard_facade=blackboard_facade,
+            active_task=active_task,
+        )
+        
+        return await manager.build_context(max_history_tokens=max_history_tokens)
+
+    async def generate_with_context(
+        self,
+        llm_context: LLMContext,
+        *,
+        provider: Optional[str] = None,
+        current_persona: Optional[Any] = None,
+        stream: Optional[bool] = None,
+        user: Optional[str] = None,
+        conversation_id: Optional[str] = None,
+        conversation_manager: Optional[Any] = None,
+        llm_call_type: Optional[str] = None,
+        **kwargs: Any,
+    ) -> Union[str, AsyncIterator[str]]:
+        """Generate a response using a pre-built LLMContext.
+        
+        This method takes an LLMContext (built via build_llm_context or
+        LLMContextManager) and generates a response using the appropriate
+        provider.
+        
+        Args:
+            llm_context: The pre-built LLM context containing messages, tools, etc.
+            provider: The provider to use. Defaults to current provider.
+            current_persona: The current persona for the request.
+            stream: Whether to stream the response.
+            user: Identifier for the active user.
+            conversation_id: Identifier for the active conversation.
+            conversation_manager: Conversation manager for logging.
+            llm_call_type: The type of LLM call.
+            **kwargs: Additional provider-specific parameters.
+            
+        Returns:
+            The generated response or a stream of tokens.
+        """
+        # Format messages for the provider
+        resolved_provider = provider or self.current_llm_provider
+        messages = llm_context.format_messages_for_provider(resolved_provider)
+        
+        # Format tools for the provider
+        tools = llm_context.format_tools_for_provider(resolved_provider)
+        
+        return await self.generate_response(
+            messages=messages,
+            model=llm_context.model_name,
+            provider=resolved_provider,
+            functions=tools if tools else None,
+            current_persona=current_persona,
+            stream=stream,
+            user=user,
+            conversation_id=conversation_id,
+            conversation_manager=conversation_manager,
+            llm_call_type=llm_call_type,
+            **kwargs,
+        )
 
     async def generate_response(
         self,

@@ -17,6 +17,7 @@ source_of_truth: README.md; scripts/install_environment.py; docs/architecture-ov
 - [Developer environment setup](../ops/developer-setup.md) — Virtualenv creation, dependency installation, and CLI/GTK bootstrap steps.
 - [Configuration reference](../configuration.md) — Environment variables and YAML blocks consumed by the runtime.
 - [Architecture overview](../architecture-overview.md) — System walkthrough and codebase map for new contributors.
+- [Context management](context-management.md) — ExecutionContext and LLMContextManager for request-scoped and LLM context.
 - [Persona guide](../Personas.md) — Schema, validation, and manifest expectations.
 - [Tool manifest guide](../tool-manifest.md) — Metadata required for adding or updating tools.
 - [AtlasServer API reference](../server/api.md) — REST endpoints for conversations, tasks, jobs, and tools.
