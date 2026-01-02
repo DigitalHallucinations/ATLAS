@@ -14,11 +14,7 @@
 
 ---
 
-[Quick Start](#-5-minute-quickstart) • [Philosophy](#-why-scout-exists) • [Architecture](#-architecture-at-a-glance) • [Personas](#-the-persona-ecosystem) • [Setup Tiers](#%EF%B8%8F-setup-tiers) • [Docs](#-documentation)
-
-<!-- markdownlint-disable-next-line MD051 -->
-
-</div>
+[Quick Start](#-5-minute-quickstart) • [Philosophy](#-why-scout-exists) • [Architecture](#-architecture-at-a-glance) • [Personas](#-the-persona-ecosystem) • [Setup Tiers](#️-setup-tiers) • [Docs](#-documentation)
 
 ---
 
@@ -56,8 +52,8 @@ Sooner or later, the major labs will consolidate intelligent systems—and the e
 │   Traditional AI Services          SCOUT                        │
 │   ─────────────────────           ─────                         │
 │   🔒 Vendor lock-in          →    🔓 Provider-agnostic          │
-│   ☁️  Cloud-only             →    🏠 Local-first option         │
-│   📊 Your data, their profit →    🛡️  Your data, your control   │
+│   ☁  Cloud-only              →    🏠 Local-first option         │
+│   📊 Your data, their profit →    🛡  Your data, your control   │
 │   🤖 One-size-fits-all       →    🎭 Persona-driven adaptation  │
 │   💸 Subscription treadmill  →    ⚡ Own your infrastructure    │
 │                                                                 │
@@ -90,7 +86,7 @@ PostgreSQL for persistence. Redis for messaging. Run it all locally, or deploy t
 
 ---
 
-## 🏗️ Architecture at a Glance
+## 🏗 Architecture at a Glance
 
 SCOUT combines a GTK desktop shell, configurable personas, and an orchestration backend to coordinate multi-agent work across conversations, scheduled jobs, and automation services.
 
@@ -148,7 +144,7 @@ flowchart LR
     subgraph System["System Personas"]
         S1[🦅 SCOUT<br/>Flagship Orchestrator]
         S2[🔍 Echo<br/>Diagnostic & Debug]
-        S3[⚖️ ComplianceOfficer<br/>Policy Enforcement]
+        S3[⚖ ComplianceOfficer<br/>Policy Enforcement]
     end
 
     subgraph Domain["Domain Specialists"]
@@ -162,7 +158,7 @@ flowchart LR
         P1[🏃 FitnessCoach<br/>Wellness]
         P2[📅 FocusPlanner<br/>Productivity]
         P3[📓 DailyJournal<br/>Reflection]
-        P4[🗣️ LanguageTutor<br/>Learning]
+        P4[🗣 LanguageTutor<br/>Learning]
     end
 
     subgraph Creative["Creative & Research"]
@@ -189,7 +185,7 @@ Each persona can be configured with:
 
 ---
 
-## 🎚️ Setup Tiers
+## ⚙️ Setup Tiers
 
 SCOUT adapts to your scale and requirements—from free learning environments to enterprise compliance.
 
@@ -307,7 +303,7 @@ From web search to code execution, from calendar management to threat scanning:
 • API Connector         • Content Repository    • Schema Infer
                         • Spreadsheet           • Log Parser
 
-📅 Productivity         🛡️ Governance           🎨 Creative
+📅 Productivity         🛡 Governance           🎨 Creative
 ─────────────────       ─────────────────       ─────────────────
 • Calendar Service      • Policy Reference      • Lyricist
 • Task Queue            • Audit Reporter        • Story Weaver
@@ -338,7 +334,7 @@ flowchart TD
         PM[Provider Manager]
     end
 
-    subgraph Cloud["☁️ Cloud Providers"]
+    subgraph Cloud["☁ Cloud Providers"]
         O[OpenAI<br/>GPT-4, GPT-4o]
         A[Anthropic<br/>Claude 3.5, Opus]
         X[xAI<br/>Grok]
@@ -381,7 +377,7 @@ flowchart TD
 
 ---
 
-## 🗺️ Roadmap
+## 🗺 Roadmap
 
 | Status | Phase | Focus |
 | ------ | ----- | ----- |
@@ -420,7 +416,7 @@ Contributions welcome! Whether you're building a persona, tool, or provider adap
 
 ---
 
-## 🜂 Credits
+## � Credits
 
 Created and maintained by **Jeremy Shows**  
 Part of the **Digital Hallucinations** ecosystem

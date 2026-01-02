@@ -267,8 +267,8 @@ def render_markdown(doc_path: Path) -> str:
         output_format="html",
         extension_configs={
             "toc": {
-                "permalink": True,
-                "anchorlink": True,
+                "permalink": "",
+                "anchorlink": False,
                 "title": "Table of Contents",
                 "toc_depth": "2-6",
             }
