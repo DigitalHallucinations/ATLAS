@@ -228,10 +228,17 @@ class PersistenceConfigMixin:
 
     def get_conversation_retention_policies(self) -> Dict[str, Any]:
         """Return configured retention policies for the conversation store."""
-        storage = self._get_storage_manager()
+        storage = self._get_storage_manager_optional()
+        if storage is not None:
+            return {
+                "days": storage.settings.retention.conversation_days,
+                "history_limit": storage.settings.retention.conversation_history_limit,
+            }
+        # Fall back to config-based defaults when storage isn't initialized
+        config_policies = self.persistence.conversation.get_retention_policies()
         return {
-            "days": storage.settings.retention.conversation_days,
-            "history_limit": storage.settings.retention.conversation_history_limit,
+            "days": config_policies.get("days"),
+            "history_limit": config_policies.get("history_message_limit"),
         }
 
     def get_retention_worker_settings(self) -> Dict[str, Any]:
