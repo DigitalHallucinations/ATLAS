@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """RAG Evaluation CLI.
 
 Command-line interface for running RAG evaluation harness.

@@ -1,7 +1,7 @@
 ---
 audience: Documentation maintainers and contributors
 status: active
-last_verified: 2026-01-01
+last_verified: 2026-01-03
 source_of_truth: docs/_audit/style-guide.md
 ---
 
@@ -14,6 +14,8 @@ source_of_truth: docs/_audit/style-guide.md
 | path | owner | last_audited | audit_status | gaps_found | next_review | notes |
 | --- | --- | --- | --- | --- | --- | --- |
 | docs/storage-manager.md | @data-eng | 2026-01-01 | Current | New documentation for StorageManager, the sole storage mechanism in ATLAS. | 2026-04-01 | High-traffic; keep aligned with `modules/storage/` implementation. |
+| docs/configuration.md | @docs-core | 2026-01-03 | Current | Added RAG hybrid search, query routing, compression, caching, observability, and evaluation config sections. | 2026-04-03 | High-traffic; keep aligned with SOTA RAG config changes. |
+| docs/ops/README.md | @docs-core | 2026-01-03 | Current | Added Observability section linking to Grafana dashboard and Prometheus config for RAG. | 2026-04-03 | Keep observability links current as dashboards evolve. |
 | docs/contributing/audit-rollout.md | @docs-core | 2026-02-27 | Current | New rollout plan added for onboarding subsystem audits. | 2026-05-31 | Ensure future rollouts log findings into alignment report. |
 | docs/contributing/visual-assets.md | @docs-core | 2026-04-20 | Current | Added source storage guidance, reviewer checklist, and optional validation steps for diagrams. | 2026-07-31 | Confirm assets include sources under `docs/assets/.../src/` and that reviewer checks/validation steps stay in use. |
 | docs/contributing/agent-owners.md | @docs-core | 2026-02-26 | Current | New owner registry added for audited subsystems. | 2026-05-31 | Keep owner/next review fields aligned with `_audit` inventory entries. |

@@ -299,7 +299,7 @@ class RelevancyCalculator(MetricCalculator):
         self._initialized = True
         
         try:
-            from sentence_transformers import SentenceTransformer
+            from sentence_transformers import SentenceTransformer  
             
             self._model = SentenceTransformer("all-MiniLM-L6-v2")
             logger.info("Loaded embedding model for relevancy calculation")

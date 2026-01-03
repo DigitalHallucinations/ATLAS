@@ -1,7 +1,7 @@
 ---
 audience: Backend and data service owners
 status: draft
-last_verified: 2026-01-01
+last_verified: 2026-01-03
 source_of_truth: ./style-guide.md
 ---
 
@@ -16,6 +16,7 @@ This report captures backend and data-service risks, observed drift, and remedia
 | claim_or_area | risk_summary | owner | due_date | status | related_inventory_row |
 | --- | --- | --- | --- | --- | --- |
 | StorageManager migration | All storage operations now route through StorageManager; legacy fallback paths removed. | @data-eng | 2026-02-01 | Resolved | modules/storage/manager.py |
+| SOTA RAG upgrade | Implemented hybrid retrieval, query routing, evidence gating, hierarchical chunking, context compression, caching, evaluation harness, and observability. | @data-eng | 2026-01-03 | Resolved | modules/storage/retrieval/, modules/storage/evaluation/, modules/storage/observability/ |
 | Scheduler retry semantics | Recent retry/backoff changes may diverge between scheduler defaults and documented behavior. | @backend-core | 2026-03-10 | Tracking | modules/orchestration/job_scheduler.py |
 | Persona schema/tool maps | Tool manifest updates may not fully reflect schema enforcement paths. | @persona-maintainers | 2026-03-05 | Tracking | modules/Personas/schema.json |
 | Conversation retention hooks | Repository retention callbacks may not align with configured TTLs and vector pipelines. | @data-eng | 2026-03-08 | Tracking | modules/conversation_store/repository.py |

@@ -34,13 +34,28 @@ modules/storage/
 │   ├── postgresql.py     # PostgreSQL-specific operations
 │   ├── sqlite.py         # SQLite-specific operations
 │   └── mongodb.py        # MongoDB-specific operations
-└── vectors/
-    ├── __init__.py       # Vector provider exports
-    ├── base.py           # VectorProvider abstract base
-    ├── adapter.py        # Bridge to VectorStoreAdapter protocol
-    ├── pgvector.py       # PostgreSQL pgvector provider
-    ├── pinecone.py       # Pinecone cloud provider
-    └── chroma.py         # ChromaDB provider
+├── vectors/
+│   ├── __init__.py       # Vector provider exports
+│   ├── base.py           # VectorProvider abstract base
+│   ├── adapter.py        # Bridge to VectorStoreAdapter protocol
+│   ├── pgvector.py       # PostgreSQL pgvector provider
+│   ├── pinecone.py       # Pinecone cloud provider
+│   └── chroma.py         # ChromaDB provider
+├── retrieval/            # SOTA hybrid retrieval
+│   ├── hybrid.py         # HybridRetriever with RRF fusion
+│   ├── bm25.py           # BM25 lexical search index
+│   ├── router.py         # QueryRouter for strategy selection
+│   └── evidence_gate.py  # Faithfulness scoring and filtering
+├── chunking/             # Advanced chunking strategies
+│   └── hierarchical.py   # Parent-child chunk relationships
+├── ingestion/            # Document processing pipeline
+│   └── compression.py    # LLMLingua/extractive compression
+├── evaluation/           # RAG quality evaluation
+│   ├── evaluator.py      # RAGEvaluator with RAGAS metrics
+│   └── dataset.py        # Evaluation dataset loader
+└── observability/        # Monitoring and tracing
+    ├── tracing.py        # OpenTelemetry instrumentation
+    └── metrics.py        # Prometheus metrics collection
 ```
 
 ## Key Design Principles
@@ -76,6 +91,16 @@ backend (pgvector, Pinecone, Chroma). New providers can be added by:
 
 `get_storage_manager()` provides async singleton access.
 `reset_storage_manager()` is for testing only.
+
+### 6. RAG Pipeline Components
+
+The SOTA RAG subsystems follow these patterns:
+
+- **Retrieval** (`retrieval/`): Hybrid search combines BM25 lexical and pgvector semantic results via RRF fusion. Query router classifies queries to select optimal strategies.
+- **Chunking** (`chunking/`): Hierarchical chunking maintains parent-child relationships for context expansion during retrieval.
+- **Compression** (`ingestion/`): Context compression reduces token usage via extractive selection or LLMLingua perplexity-based filtering.
+- **Evaluation** (`evaluation/`): RAGAS-style metrics assess retrieval quality. Optional dependencies (`sentence-transformers`, `transformers`) gracefully degrade.
+- **Observability** (`observability/`): OpenTelemetry tracing and Prometheus metrics. In-memory backends for testing; OTLP exporters for production.
 
 ## Coding Standards
 

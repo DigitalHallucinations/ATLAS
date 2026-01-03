@@ -20,3 +20,8 @@ Runbooks:
 - [Background worker health](background-workers.md) – Size worker pools, monitor scheduler health, and tune queue depth for Redis or in-memory backends.
 - [Manual QA preflight](manual-qa-preflight.md) – Validate GTK dependencies, Redis/PostgreSQL services, and wizard remediation flows before manual testing.
 - [Legacy speech services](speech-services-legacy.md) – Historical reference for the deprecated speech stack; consult current audio docs for active development.
+
+Observability:
+
+- [Grafana RAG Dashboard](grafana-rag-dashboard.json) – Pre-built Grafana dashboard for monitoring RAG pipeline metrics including latency, cache hit rates, and quality scores.
+- [Prometheus RAG Configuration](prometheus-rag.yml) – Prometheus scrape configuration with recording rules and alerts for RAG observability.

@@ -97,6 +97,18 @@ faiss-cpu
 pinecone-client
 
 # =====================================
+# RAG enhancements
+# =====================================
+
+# Hybrid search (BM25 lexical retrieval)
+rank-bm25
+
+# Observability (optional - install for production monitoring)
+# opentelemetry-sdk
+# opentelemetry-exporter-otlp
+# opentelemetry-instrumentation-aiohttp
+
+# =====================================
 # Optional accelerator/fine-tuning dependencies
 # =====================================
 # See requirements-accelerators.txt for Torch, local Whisper STT, and Hugging Face fine-tuning extras.

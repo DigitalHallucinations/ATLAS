@@ -49,7 +49,7 @@ def get_connection_string() -> str:
     import os
 
     # Try environment variable first
-    conn_str = os.getenv("ATLAS_DATABASE_URL")
+    conn_str = os.getenv("ATLAS_DATABASE_URL") or os.getenv("DATABASE_URL")
     if conn_str:
         return conn_str
 
@@ -57,7 +57,12 @@ def get_connection_string() -> str:
     try:
         from ATLAS.config import ConfigManager
         config = ConfigManager()
-        return config.get_database_url()
+        # Try the conversation store URL method if available
+        getter = getattr(config, "get_conversation_store_database_url", None)
+        if getter:
+            result = getter()
+            if result:
+                return str(result)
     except Exception:
         pass
 
@@ -88,7 +93,7 @@ def check_column_exists(engine: Engine, schema: str, table: str, column: str) ->
             "table": table,
             "column": column,
         })
-        return result.scalar()
+        return bool(result.scalar())
 
 
 def check_index_exists(engine: Engine, schema: str, index_name: str) -> bool:
@@ -106,7 +111,7 @@ def check_index_exists(engine: Engine, schema: str, index_name: str) -> bool:
             "schema": schema,
             "index_name": index_name,
         })
-        return result.scalar()
+        return bool(result.scalar())
 
 
 def run_migration(

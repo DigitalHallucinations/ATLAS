@@ -1,7 +1,7 @@
 ---
 audience: Documentation maintainers and contributors
 status: draft
-last_verified: 2026-01-01
+last_verified: 2026-01-03
 source_of_truth: docs/_audit/style-guide.md
 ---
 
@@ -10,6 +10,21 @@ source_of_truth: docs/_audit/style-guide.md
 > Navigation: See the [audit workspace README](./README.md) for cadence, quick-start steps, and recording guidance.
 
 This report compares key architectural claims in the documentation against the current implementation. Each section lists notable claims, whether they match code behavior, and recommended follow-ups.
+
+## SOTA RAG Upgrade (2026-01-03)
+
+Comprehensive RAG pipeline enhancement implementing state-of-the-art retrieval techniques:
+
+- ✅ **Hybrid retrieval** – BM25 lexical search combined with pgvector semantic search via Reciprocal Rank Fusion (RRF). Implementation in `modules/storage/retrieval/`.
+- ✅ **Query routing** – Zero-shot classification routes queries to optimal retrieval strategies. Uses HuggingFace transformers (`facebook/bart-large-mnli`).
+- ✅ **Evidence gating** – Faithfulness scoring validates retrieved chunks against NLI entailment. Filters low-quality context before LLM prompting.
+- ✅ **Hierarchical chunking** – Parent-child chunk relationships enable context expansion. Parent chunks (2048 tokens) contain child chunks (512 tokens).
+- ✅ **Context compression** – LLMLingua-style perplexity-based compression and extractive sentence selection reduce token usage while preserving relevance.
+- ✅ **Caching layers** – Embedding cache (LRU, 10k entries) and query result cache (semantic matching, 95% similarity threshold) improve latency.
+- ✅ **Evaluation harness** – RAGAS-style metrics (faithfulness, relevancy, context precision/recall, answer correctness/similarity) with CLI at `scripts/evaluate_rag.py`.
+- ✅ **Observability** – OpenTelemetry distributed tracing and Prometheus metrics. Grafana dashboard at `docs/ops/grafana-rag-dashboard.json`.
+- ✅ **Configuration** – New `rag.hybrid`, `rag.routing`, `rag.compression`, `rag.caching`, `rag.observability`, and `rag.evaluation` sections in `docs/configuration.md`.
+- ✅ **Dependencies** – Added `rank-bm25` to requirements.txt; `sentence-transformers` to requirements-accelerators.txt for evaluation.
 
 ## StorageManager refactor
 

@@ -279,6 +279,77 @@ Local account policies rely on environment variables (for example `ACCOUNT_PASSW
 | `min_score_threshold` | Float; defaults to `0.0`. Minimum similarity score filter. | None. | Search result filtering. |
 | `max_context_tokens` | Integer; defaults to `4000`. Maximum tokens in RAG context. | None. | Context formatting for LLM prompts. |
 
+### `rag.hybrid`
+
+Hybrid search combines semantic vector search with lexical BM25 matching using Reciprocal Rank Fusion (RRF).
+
+| Key | Type & default | Environment overrides | Consumed by |
+| --- | --- | --- | --- |
+| `enabled` | Boolean; defaults to `false`. Enable hybrid search. | None. | `HybridRetriever` initialization. |
+| `weight` | Float; defaults to `0.5`. Balance between vector (1.0) and lexical (0.0). | None. | RRF score combination. |
+| `bm25_k1` | Float; defaults to `1.5`. BM25 term frequency saturation. | None. | BM25 index tuning. |
+| `bm25_b` | Float; defaults to `0.75`. BM25 document length normalization. | None. | BM25 index tuning. |
+| `rrf_k` | Integer; defaults to `60`. RRF ranking constant. | None. | Reciprocal Rank Fusion. |
+
+### `rag.routing`
+
+Query routing classifies incoming queries to determine optimal retrieval strategy.
+
+| Key | Type & default | Environment overrides | Consumed by |
+| --- | --- | --- | --- |
+| `enabled` | Boolean; defaults to `false`. Enable query routing. | None. | `QueryRouter` initialization. |
+| `model` | String; defaults to `facebook/bart-large-mnli`. Zero-shot classifier model. | None. | HuggingFace pipeline. |
+| `default_strategy` | String; defaults to `hybrid`. Fallback strategy. | None. | Route resolution. |
+| `confidence_threshold` | Float; defaults to `0.6`. Minimum confidence for routing decisions. | None. | Strategy selection. |
+
+### `rag.compression`
+
+Context compression reduces token usage while preserving relevant information.
+
+| Key | Type & default | Environment overrides | Consumed by |
+| --- | --- | --- | --- |
+| `enabled` | Boolean; defaults to `false`. Enable context compression. | None. | `ContextCompressor` initialization. |
+| `strategy` | String; defaults to `extractive`. Options: `none`, `extractive`, `llmlingua`, `hybrid`. | None. | Compression pipeline selection. |
+| `target_ratio` | Float; defaults to `0.5`. Target compression ratio (0.0-1.0). | None. | Compression intensity. |
+| `min_context_length` | Integer; defaults to `1000`. Only compress contexts longer than this. | None. | Compression trigger threshold. |
+| `llmlingua_model` | String; defaults to `gpt2`. Model for perplexity scoring. | None. | LLMLingua compressor. |
+
+### `rag.caching`
+
+Caching improves performance by storing embeddings and query results.
+
+| Key | Type & default | Environment overrides | Consumed by |
+| --- | --- | --- | --- |
+| `embedding_cache_enabled` | Boolean; defaults to `true`. Enable embedding caching. | None. | `EmbeddingCache` initialization. |
+| `embedding_cache_max_size` | Integer; defaults to `10000`. Maximum cached embeddings. | None. | LRU cache sizing. |
+| `embedding_cache_ttl_seconds` | Integer; defaults to `3600`. Cache entry TTL. | None. | Cache eviction. |
+| `query_cache_enabled` | Boolean; defaults to `true`. Enable query result caching. | None. | `QueryCache` initialization. |
+| `query_cache_max_size` | Integer; defaults to `1000`. Maximum cached queries. | None. | LRU cache sizing. |
+| `query_cache_ttl_seconds` | Integer; defaults to `300`. Query cache TTL. | None. | Cache eviction. |
+| `query_cache_semantic_matching` | Boolean; defaults to `true`. Match semantically similar queries. | None. | Cache key generation. |
+| `query_cache_similarity_threshold` | Float; defaults to `0.95`. Similarity threshold for cache hits. | None. | Semantic cache matching. |
+
+### `rag.observability`
+
+Observability features for monitoring RAG pipeline performance.
+
+| Key | Type & default | Environment overrides | Consumed by |
+| --- | --- | --- | --- |
+| `tracing_enabled` | Boolean; defaults to `false`. Enable OpenTelemetry tracing. | `ATLAS_RAG_TRACING`. | `RAGTracer` initialization. |
+| `tracing_endpoint` | String; optional. OTLP endpoint for traces. | `OTEL_EXPORTER_OTLP_ENDPOINT`. | OpenTelemetry exporter. |
+| `metrics_enabled` | Boolean; defaults to `true`. Enable Prometheus metrics. | None. | `RAGMetrics` initialization. |
+| `metrics_port` | Integer; defaults to `9090`. Prometheus metrics port. | None. | Metrics HTTP server. |
+
+### `rag.evaluation`
+
+Configuration for RAG quality evaluation harness.
+
+| Key | Type & default | Environment overrides | Consumed by |
+| --- | --- | --- | --- |
+| `enabled` | Boolean; defaults to `false`. Enable evaluation metrics collection. | None. | `RAGEvaluator` initialization. |
+| `metrics` | List of strings; defaults to all metrics. Which metrics to compute. | None. | Evaluator metric selection. |
+| `output_dir` | String; defaults to `data/rag_eval`. Directory for evaluation results. | None. | Result persistence. |
+
 ### `rag.ingestion`
 
 | Key | Type & default | Environment overrides | Consumed by |

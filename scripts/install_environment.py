@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Prepare the Python environment required by ATLAS."""
 
 from __future__ import annotations
