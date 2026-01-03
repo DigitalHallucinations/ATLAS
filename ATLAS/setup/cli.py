@@ -817,8 +817,10 @@ class SetupUtility:
         while True:
             if state.backend == "sqlite":
                 database_prompt = "SQLite database path"
-                database_default = state.database or "atlas.sqlite3"
+                database_default = state.database or str(Path.home() / "atlas.sqlite3")
                 database = self._ask(database_prompt, database_default) or database_default
+                # Ensure the path is absolute
+                database = str(Path(database).expanduser().resolve())
                 new_state = dataclasses.replace(
                     state,
                     database=database,

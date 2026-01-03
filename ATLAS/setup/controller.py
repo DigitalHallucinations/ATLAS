@@ -328,9 +328,12 @@ def _parse_default_dsn(dsn: str, *, backend: Optional[str] = None) -> DatabaseSt
     normalized_backend = (inferred_backend or "postgresql").strip().lower() or "postgresql"
 
     if normalized_backend == "sqlite":
-        database = parsed.path.lstrip("/") or parsed.netloc or "atlas.sqlite3"
+        database = parsed.path.lstrip("/") or parsed.netloc
         if not database:
-            database = "atlas.sqlite3"
+            database = str(Path.home() / "atlas.sqlite3")
+        else:
+            # Ensure the path is absolute
+            database = str(Path(database).expanduser().resolve())
         return DatabaseState(
             backend="sqlite",
             host="",
@@ -380,14 +383,15 @@ def _parse_default_dsn(dsn: str, *, backend: Optional[str] = None) -> DatabaseSt
 def _compose_dsn(state: DatabaseState) -> str:
     backend = (state.backend or "postgresql").strip().lower()
     if backend == "sqlite":
-        database = (state.database or state.dsn or "atlas.sqlite3")
+        database = (state.database or state.dsn or str(Path.home() / "atlas.sqlite3"))
         if isinstance(database, str):
             candidate = database.strip()
         else:
             candidate = str(database)
         if candidate.startswith("sqlite:"):
             return candidate
-        path = Path(candidate)
+        # Ensure the path is absolute to avoid incorrect relative path concatenation
+        path = Path(candidate).expanduser().resolve()
         path_text = path.as_posix()
         return f"sqlite:///{path_text}"
 
@@ -931,12 +935,13 @@ class SetupWizardController:
             )
 
             if local_flag:
-                sqlite_dsn = "sqlite:///atlas.sqlite3"
+                default_sqlite_path = str(Path.home() / "atlas.sqlite3")
+                sqlite_dsn = f"sqlite:///{default_sqlite_path}"
                 self.state.database = DatabaseState(
                     backend="sqlite",
                     host="",
                     port=0,
-                    database="atlas.sqlite3",
+                    database=default_sqlite_path,
                     user="",
                     password="",
                     dsn=sqlite_dsn,
@@ -981,12 +986,13 @@ class SetupWizardController:
             )
 
             if local_flag:
-                sqlite_dsn = "sqlite:///atlas.sqlite3"
+                default_sqlite_path = str(Path.home() / "atlas.sqlite3")
+                sqlite_dsn = f"sqlite:///{default_sqlite_path}"
                 self.state.database = DatabaseState(
                     backend="sqlite",
                     host="",
                     port=0,
-                    database="atlas.sqlite3",
+                    database=default_sqlite_path,
                     user="",
                     password="",
                     dsn=sqlite_dsn,

@@ -3245,13 +3245,25 @@ class SetupWizardWindow(AtlasWindow):
             pg_frame.add(pg_box)
 
         sqlite_grid = Gtk.Grid(column_spacing=12, row_spacing=6)
-        self._database_entries["sqlite.path"] = self._create_labeled_entry(
-            sqlite_grid,
-            0,
-            "Database file",
-            "",
-            placeholder="atlas.sqlite3 or an absolute path",
-        )
+
+        # SQLite path selector: label + entry + browse button
+        sqlite_label = Gtk.Label(label="Database file")
+        sqlite_label.set_xalign(0.0)
+        sqlite_grid.attach(sqlite_label, 0, 0, 1, 1)
+
+        sqlite_path_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        sqlite_entry = Gtk.Entry()
+        sqlite_entry.set_hexpand(True)
+        sqlite_entry.set_width_chars(30)
+        sqlite_entry.set_placeholder_text("Select a location for atlas.sqlite3")
+        sqlite_path_box.append(sqlite_entry)
+
+        sqlite_browse_button = Gtk.Button(label="Browse…")
+        sqlite_browse_button.connect("clicked", self._on_sqlite_browse_clicked, sqlite_entry)
+        sqlite_path_box.append(sqlite_browse_button)
+
+        sqlite_grid.attach(sqlite_path_box, 1, 0, 1, 1)
+        self._database_entries["sqlite.path"] = sqlite_entry
 
         sqlite_frame = Gtk.Frame()
         sqlite_frame.set_hexpand(True)
@@ -3331,7 +3343,9 @@ class SetupWizardWindow(AtlasWindow):
         self._set_database_entry_text("postgresql.user", "atlas")
         self._set_database_entry_text("postgresql.password", "")
 
-        self._set_database_entry_text("sqlite.path", "atlas.sqlite3")
+        # Default SQLite path to the user's home directory
+        default_sqlite_path = str(Path.home() / "atlas.sqlite3")
+        self._set_database_entry_text("sqlite.path", default_sqlite_path)
 
         self._set_database_entry_text("mongodb.uri", "")
         self._set_database_entry_text("mongodb.host", "localhost")
@@ -3391,7 +3405,10 @@ class SetupWizardWindow(AtlasWindow):
             self._set_database_entry_text("postgresql.user", state.user or "atlas")
             self._set_database_entry_text("postgresql.password", state.password or "")
         elif backend == "sqlite":
-            database = state.database or state.dsn or "atlas.sqlite3"
+            database = state.database or state.dsn or str(Path.home() / "atlas.sqlite3")
+            # Ensure the path is absolute
+            if database and not database.startswith("sqlite:"):
+                database = str(Path(database).expanduser().resolve())
             self._set_database_entry_text("sqlite.path", database)
         elif backend == "mongodb":
             self._set_database_entry_text("mongodb.uri", state.dsn or "")
@@ -3435,6 +3452,99 @@ class SetupWizardWindow(AtlasWindow):
         except Exception:
             pass
 
+    def _on_sqlite_browse_clicked(
+        self, _button: Gtk.Button, entry: Gtk.Entry
+    ) -> None:
+        """Open a file chooser dialog for selecting the SQLite database location."""
+        chooser_cls = getattr(Gtk, "FileChooserNative", None)
+        action_enum = getattr(Gtk.FileChooserAction, "SAVE", None) if hasattr(Gtk, "FileChooserAction") else None
+        if chooser_cls is None or action_enum is None:
+            return
+
+        dialog = chooser_cls(
+            title="Select SQLite database location",
+            transient_for=self,
+            action=action_enum,
+        )
+        dialog.set_modal(True)
+
+        # Suggest the default filename
+        if hasattr(dialog, "set_current_name"):
+            try:
+                dialog.set_current_name("atlas.sqlite3")
+            except Exception:
+                pass
+
+        # Start in the user's home directory or current entry value's directory
+        current_path = entry.get_text().strip()
+        if current_path:
+            current_file = Path(current_path).expanduser()
+            if current_file.parent.is_dir():
+                try:
+                    if hasattr(dialog, "set_current_folder"):
+                        dialog.set_current_folder(str(current_file.parent))
+                except Exception:
+                    pass
+        else:
+            # Default to user's home directory
+            try:
+                if hasattr(dialog, "set_current_folder"):
+                    dialog.set_current_folder(str(Path.home()))
+            except Exception:
+                pass
+
+        # Add a filter for SQLite files
+        file_filter_cls = getattr(Gtk, "FileFilter", None)
+        if callable(file_filter_cls):
+            try:
+                sqlite_filter = file_filter_cls()
+                if hasattr(sqlite_filter, "set_name"):
+                    sqlite_filter.set_name("SQLite databases")
+                if hasattr(sqlite_filter, "add_pattern"):
+                    sqlite_filter.add_pattern("*.sqlite3")
+                    sqlite_filter.add_pattern("*.sqlite")
+                    sqlite_filter.add_pattern("*.db")
+                adder = getattr(dialog, "add_filter", None)
+                if callable(adder):
+                    adder(sqlite_filter)
+            except Exception:
+                pass
+
+        response = None
+        if hasattr(dialog, "run"):
+            try:
+                response = dialog.run()
+            except Exception:
+                response = None
+
+        accepted = {
+            getattr(Gtk.ResponseType, "ACCEPT", None),
+            getattr(Gtk.ResponseType, "OK", None),
+            getattr(Gtk.ResponseType, "YES", None),
+        }
+
+        filename: str | None = None
+        if response in accepted:
+            file_obj = getattr(dialog, "get_file", None)
+            file_handle = file_obj() if callable(file_obj) else None
+            if file_handle is not None and hasattr(file_handle, "get_path"):
+                filename = file_handle.get_path()
+            else:
+                getter = getattr(dialog, "get_filename", None)
+                if callable(getter):
+                    filename = getter()
+
+        if hasattr(dialog, "destroy"):
+            try:
+                dialog.destroy()
+            except Exception:
+                pass
+
+        if filename:
+            # Ensure the path is absolute and normalized
+            resolved_path = Path(filename).expanduser().resolve()
+            entry.set_text(str(resolved_path))
+
     def _collect_database_state(self, *, strict: bool = False) -> DatabaseState:
         current = self.controller.state.database
         backend = current.backend or "postgresql"
@@ -3450,12 +3560,15 @@ class SetupWizardWindow(AtlasWindow):
                 if current.backend == "sqlite" and current.database:
                     path_text = current.database
                 else:
-                    path_text = "atlas.sqlite3"
+                    # Default to user's home directory
+                    path_text = str(Path.home() / "atlas.sqlite3")
+            # Ensure the path is absolute to avoid incorrect relative path creation
+            resolved_path = Path(path_text).expanduser().resolve()
             return DatabaseState(
                 backend="sqlite",
                 host="",
                 port=0,
-                database=path_text,
+                database=str(resolved_path),
                 user="",
                 password="",
                 dsn="",
