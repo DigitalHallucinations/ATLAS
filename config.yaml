@@ -10,3 +10,62 @@ tools:
     max_output_bytes: 65536
     max_file_bytes: 131072
     max_files: 32
+
+# RAG (Retrieval-Augmented Generation) configuration
+rag:
+  embeddings:
+    # Default embedding provider: openai, cohere, or huggingface
+    default_provider: huggingface
+
+    openai:
+      # API key loaded from OPENAI_API_KEY env var if not set here
+      model: text-embedding-3-small
+      dimensions: null  # null uses model default; set to reduce dimensions
+      batch_size: 100
+      max_retries: 3
+      timeout: 60.0
+
+    cohere:
+      # API key loaded from COHERE_API_KEY or CO_API_KEY env var
+      model: embed-english-v3.0
+      batch_size: 96
+      max_retries: 3
+      timeout: 60.0
+      truncate: END
+
+    huggingface:
+      model: all-MiniLM-L6-v2
+      device: null  # null = auto-detect (cuda/mps/cpu)
+      normalize_embeddings: true
+      batch_size: 32
+      trust_remote_code: false
+
+  chunking:
+    default_splitter: recursive  # recursive, sentence, or semantic
+    chunk_size: 512
+    chunk_overlap: 50
+    preserve_metadata: true
+    recursive_separators:
+      - "\n\n"
+      - "\n"
+      - ". "
+      - " "
+      - ""
+    sentence_min_length: 20
+
+  retrieval:
+    enabled: true
+    top_k: 10
+    similarity_threshold: 0.7
+    max_context_chunks: 5
+    include_metadata: true
+    default_knowledge_base_ids: []
+
+  reranking:
+    enabled: false
+    provider: cross_encoder  # cross_encoder or cohere
+    top_n_rerank: 20
+    model: cross-encoder/ms-marco-MiniLM-L-6-v2
+    cohere_model: rerank-english-v3.0
+    hybrid_search_enabled: false
+    hybrid_search_weight: 0.5  # 0 = all keyword, 1 = all vector

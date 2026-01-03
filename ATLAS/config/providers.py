@@ -2737,6 +2737,15 @@ class ProviderConfigMixin:
         """
         return self.get_config('GROK_API_KEY')
 
+    def get_cohere_api_key(self) -> str:
+        """
+        Retrieves the Cohere API key from the configuration.
+
+        Returns:
+            str: The Cohere API key.
+        """
+        return self.get_config('COHERE_API_KEY')
+
     def update_api_key(self, provider_name: str, new_api_key: str):
         """
         Updates the API key for a specified provider in the .env file and reloads

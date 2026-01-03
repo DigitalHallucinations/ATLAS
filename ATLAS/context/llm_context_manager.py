@@ -2,8 +2,8 @@
 
 This module provides the LLMContextManager which orchestrates the assembly
 of everything an LLM needs to generate a response: system prompts, conversation
-history, tool definitions (native + MCP), blackboard state, task context,
-and intelligent token budgeting.
+history, tool definitions (native + MCP), blackboard state, RAG context,
+task context, and intelligent token budgeting.
 """
 
 from __future__ import annotations
@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from ATLAS.config import ConfigManager
     from ATLAS.persona_manager import PersonaManager
     from modules.orchestration.blackboard import BlackboardStore
+    from modules.storage.retrieval import RAGRetriever
 
 logger = setup_logger(__name__)
 
@@ -170,6 +171,7 @@ class LLMContextManager:
         persona_manager: Optional[PersonaManager] = None,
         config_manager: Optional[ConfigManager] = None,
         blackboard: Optional[BlackboardStore] = None,
+        rag_retriever: Optional[RAGRetriever] = None,
         tool_resolver: Optional[Callable[[], List[Dict[str, Any]]]] = None,
         mcp_tool_resolver: Optional[Callable[[], List[Dict[str, Any]]]] = None,
     ):
@@ -179,12 +181,14 @@ class LLMContextManager:
             persona_manager: PersonaManager for system prompt generation.
             config_manager: ConfigManager for settings access.
             blackboard: BlackboardStore for shared context injection.
+            rag_retriever: Optional RAGRetriever for knowledge base context.
             tool_resolver: Optional callable that returns native tool definitions.
             mcp_tool_resolver: Optional callable that returns MCP tool definitions.
         """
         self._persona_manager = persona_manager
         self._config_manager = config_manager
         self._blackboard = blackboard
+        self._rag_retriever = rag_retriever
         self._tool_resolver = tool_resolver
         self._mcp_tool_resolver = mcp_tool_resolver
         self._logger = logger
@@ -198,6 +202,7 @@ class LLMContextManager:
         provider: Optional[str] = None,
         include_tools: bool = True,
         include_blackboard: bool = True,
+        include_rag: bool = True,
         include_task_context: bool = True,
         task_context: Optional[Dict[str, Any]] = None,
         max_history_tokens: Optional[int] = None,
@@ -214,6 +219,7 @@ class LLMContextManager:
             provider: Target provider name.
             include_tools: Whether to include tool definitions.
             include_blackboard: Whether to inject blackboard summary.
+            include_rag: Whether to retrieve and inject RAG context.
             include_task_context: Whether to inject active task state.
             task_context: Explicit task context to inject.
             max_history_tokens: Maximum tokens for conversation history.
@@ -242,22 +248,29 @@ class LLMContextManager:
                 injected_context["blackboard"] = blackboard_content
                 system_prompt = f"{system_prompt}\n\n## Shared Context\n{blackboard_content}"
         
-        # 3. Inject task context if provided
+        # 3. Inject RAG context if enabled
+        if include_rag:
+            rag_context = await self._get_rag_context(messages)
+            if rag_context:
+                injected_context["rag"] = rag_context
+                system_prompt = f"{system_prompt}\n\n## Retrieved Knowledge\n{rag_context}"
+        
+        # 4. Inject task context if provided
         if include_task_context and task_context:
             task_content = self._format_task_context(task_context)
             if task_content:
                 injected_context["task"] = task_content
                 system_prompt = f"{system_prompt}\n\n## Current Task\n{task_content}"
         
-        # 4. Resolve tools
+        # 5. Resolve tools
         tools: List[ToolDefinition] = []
         if include_tools:
             tools = await self._resolve_tools()
         
-        # 5. Convert messages to MessageEntry objects
+        # 6. Convert messages to MessageEntry objects
         message_entries = self._convert_messages(messages)
         
-        # 6. Calculate token budget and potentially truncate history
+        # 7. Calculate token budget and potentially truncate history
         token_budget, message_entries = self._apply_token_budget(
             system_prompt=system_prompt,
             messages=message_entries,
@@ -267,7 +280,7 @@ class LLMContextManager:
             max_history_tokens=max_history_tokens,
         )
         
-        # 7. Get persona name
+        # 8. Get persona name
         persona_name = None
         if self._persona_manager:
             current = getattr(self._persona_manager, "current_persona", None)
@@ -336,6 +349,127 @@ class LLMContextManager:
             parts.append(f"**{category.title()}: {title}**\n{content}")
         
         return "\n\n".join(parts)
+    
+    async def _get_rag_context(
+        self,
+        messages: List[Dict[str, Any]],
+    ) -> Optional[str]:
+        """Retrieve and format RAG context from knowledge bases.
+        
+        Uses the last user message as the query and respects RAG settings
+        from ConfigManager.
+        
+        Args:
+            messages: Conversation messages to extract query from.
+            
+        Returns:
+            Formatted RAG context string or None if disabled/empty.
+        """
+        # Check if RAG is enabled via config
+        if self._config_manager:
+            try:
+                if not self._config_manager.is_rag_enabled():
+                    return None
+                rag_settings = self._config_manager.get_rag_settings()
+                if not rag_settings.auto_retrieve:
+                    return None
+            except Exception as exc:
+                self._logger.debug("Could not check RAG settings: %s", exc)
+                return None
+        
+        # Need a retriever
+        if not self._rag_retriever:
+            return None
+        
+        # Extract query from last user message
+        query = self._extract_query_from_messages(messages)
+        if not query:
+            return None
+        
+        try:
+            # Get max context tokens from settings
+            max_tokens = 4000
+            if self._config_manager:
+                try:
+                    rag_settings = self._config_manager.get_rag_settings()
+                    max_tokens = rag_settings.max_context_tokens
+                except Exception:
+                    pass
+            
+            # Retrieve using the RAGRetriever
+            result = await self._rag_retriever.retrieve(query=query)
+            
+            if not result or not result.chunks:
+                return None
+            
+            # Assemble context from results
+            assembled = self._rag_retriever.assemble_context(
+                result,
+                max_tokens=max_tokens,
+                include_sources=True,
+            )
+            
+            if not assembled or not assembled.text:
+                return None
+            
+            self._logger.debug(
+                "RAG retrieved %d chunks, assembled tokens=%d",
+                len(result.chunks),
+                assembled.token_count,
+            )
+            
+            return assembled.text
+            
+        except Exception as exc:
+            self._logger.warning("Failed to retrieve RAG context: %s", exc)
+            return None
+    
+    def _extract_query_from_messages(
+        self,
+        messages: List[Dict[str, Any]],
+    ) -> Optional[str]:
+        """Extract a query string from conversation messages.
+        
+        Uses the last user message as the query. Falls back to combining
+        recent user messages if the last one is very short.
+        """
+        if not messages:
+            return None
+        
+        # Find user messages
+        user_messages = [
+            m for m in messages
+            if m.get("role") == "user" and m.get("content")
+        ]
+        
+        if not user_messages:
+            return None
+        
+        last_msg = user_messages[-1]
+        content = last_msg.get("content", "")
+        
+        # Handle structured content
+        if isinstance(content, list):
+            text_parts = []
+            for part in content:
+                if isinstance(part, dict) and part.get("type") == "text":
+                    text_parts.append(part.get("text", ""))
+                elif isinstance(part, str):
+                    text_parts.append(part)
+            content = " ".join(text_parts)
+        
+        if not isinstance(content, str):
+            return None
+        
+        content = content.strip()
+        
+        # If last message is very short, combine with previous
+        if len(content) < 20 and len(user_messages) > 1:
+            prev_content = user_messages[-2].get("content", "")
+            if isinstance(prev_content, str):
+                content = f"{prev_content.strip()} {content}"
+        
+        return content if content else None
     
     def _format_task_context(self, task_context: Dict[str, Any]) -> Optional[str]:
         """Format task context for injection into system prompt."""

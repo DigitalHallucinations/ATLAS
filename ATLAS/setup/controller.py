@@ -27,6 +27,8 @@ from modules.job_store import ensure_job_schema
 from modules.user_accounts.user_account_service import UserAccountService
 from modules.orchestration.policy import MessagePolicy
 
+from ATLAS.setup.rag_capabilities import RAGCapabilities, RAGCapabilitiesDetector
+
 
 logger = logging.getLogger(__name__)
 
@@ -41,9 +43,11 @@ __all__ = [
     "VectorStoreState",
     "OptionalState",
     "HardwareProfile",
+    "RAGCapabilities",
     "StorageArchitecture",
     "PrivilegedCredentialState",
     "ProviderState",
+    "RAGState",
     "RetryPolicyState",
     "SetupTypeState",
     "SetupUserEntry",
@@ -257,6 +261,43 @@ class HardwareProfile:
 
 
 @dataclass
+class RAGState:
+    """RAG configuration state for setup wizard."""
+    
+    enabled: bool = False
+    auto_retrieve: bool = True
+    
+    # Embedding configuration
+    embedding_provider: str = "huggingface"
+    embedding_model: str = "all-MiniLM-L6-v2"
+    embedding_dimensions: int = 384
+    
+    # Chunking configuration
+    chunking_enabled: bool = True
+    chunk_size: int = 512
+    chunk_overlap: int = 50
+    
+    # Retrieval configuration
+    retrieval_enabled: bool = True
+    top_k: int = 10
+    similarity_threshold: float = 0.7
+    max_context_chunks: int = 5
+    
+    # Reranking configuration
+    reranking_enabled: bool = False
+    reranker_provider: str = "cross_encoder"
+    reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    
+    # Knowledge store
+    knowledge_store_enabled: bool = True
+    index_type: str = "hnsw"
+    
+    # Ingestion
+    ingestion_enabled: bool = True
+    max_file_size_mb: float = 50.0
+
+
+@dataclass
 class WizardState:
     database: DatabaseState = field(default_factory=DatabaseState)
     job_scheduling: JobSchedulingState = field(default_factory=JobSchedulingState)
@@ -273,6 +314,8 @@ class WizardState:
     optional: OptionalState = field(default_factory=OptionalState)
     setup_type: SetupTypeState = field(default_factory=SetupTypeState)
     hardware_profile: HardwareProfile = field(default_factory=HardwareProfile)
+    rag: RAGState = field(default_factory=RAGState)
+    rag_capabilities: Any = None  # RAGCapabilities from rag_capabilities module
     setup_recommended_mode: str | None = None
 
 
@@ -787,6 +830,50 @@ class SetupWizardController:
         self.state.hardware_profile = profile
         self.state.setup_recommended_mode = recommended_mode
         return profile
+
+    def detect_rag_capabilities(
+        self,
+        *,
+        database_dsn: Optional[str] = None,
+    ) -> RAGCapabilities:
+        """Detect RAG capabilities based on available hardware and database.
+        
+        Args:
+            database_dsn: Optional database connection string for pgvector detection.
+                         If not provided, uses the database state's dsn if available.
+        
+        Returns:
+            RAGCapabilities object with detection results and recommendations.
+        """
+        dsn = database_dsn
+        if dsn is None and hasattr(self.state, "database") and self.state.database:
+            dsn = getattr(self.state.database, "dsn", None)
+        
+        detector = RAGCapabilitiesDetector(database_dsn=dsn)
+        capabilities = detector.detect()
+        
+        # Store in state for use by wizard pages
+        self.state.rag_capabilities = capabilities
+        
+        # Pre-fill RAG defaults based on recommendations
+        if capabilities.recommended_model:
+            rec = capabilities.recommended_model
+            self.state.rag.embedding_provider = rec.provider
+            self.state.rag.embedding_model = rec.model_id
+            self.state.rag.embedding_dimensions = rec.dimensions
+        
+        if capabilities.pgvector:
+            self.state.rag.knowledge_store_enabled = capabilities.pgvector.available
+        
+        logger.info(
+            "RAG capabilities detected: tier=%s, provider=%s, model=%s, pgvector=%s",
+            capabilities.embedding_tier.value if capabilities.embedding_tier else "unknown",
+            self.state.rag.embedding_provider,
+            self.state.rag.embedding_model,
+            capabilities.pgvector.available if capabilities.pgvector else False,
+        )
+        
+        return capabilities
 
     # -- presets ------------------------------------------------------------
 

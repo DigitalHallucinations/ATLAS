@@ -12,6 +12,7 @@ from .controller import (
     OptionalState,
     PrivilegedCredentialState,
     ProviderState,
+    RAGState,
     RetryPolicyState,
     SetupTypeState,
     SetupUserEntry,
@@ -20,6 +21,16 @@ from .controller import (
     SpeechState,
     UserState,
     VectorStoreState,
+)
+from .rag_capabilities import (
+    EmbeddingTier,
+    GPUInfo,
+    PgVectorInfo,
+    EmbeddingModelRecommendation,
+    RAGCapabilities,
+    RAGCapabilitiesDetector,
+    detect_rag_capabilities,
+    EMBEDDING_MODEL_CATALOG,
 )
 
 __all__ = [
@@ -34,6 +45,7 @@ __all__ = [
     "OptionalState",
     "PrivilegedCredentialState",
     "ProviderState",
+    "RAGState",
     "RetryPolicyState",
     "SetupTypeState",
     "SetupUserEntry",
@@ -42,4 +54,13 @@ __all__ = [
     "SpeechState",
     "UserState",
     "VectorStoreState",
+    # RAG capabilities
+    "EmbeddingTier",
+    "GPUInfo",
+    "PgVectorInfo",
+    "EmbeddingModelRecommendation",
+    "RAGCapabilities",
+    "RAGCapabilitiesDetector",
+    "detect_rag_capabilities",
+    "EMBEDDING_MODEL_CATALOG",
 ]

@@ -12,23 +12,27 @@ ATLAS centralises runtime configuration in `ConfigManager`, which merges `.env` 
 ## Tool execution defaults
 
 ### `tool_defaults`
+
 | Key | Type & default | Environment overrides | Consumed by |
 | --- | --- | --- | --- |
 | `timeout_seconds` | Number of seconds; defaults to `30` when unset.【F:ATLAS/config/tooling.py†L31-L39】 | None (YAML-only). | Tool timeout resolution in `ToolManager` when dispatching tools.【F:ATLAS/ToolManager.py†L1334-L1350】 |
 | `max_cost_per_session` | Floating-point currency budget; defaults to `null` to disable budget enforcement.【F:ATLAS/config/tooling.py†L31-L39】 | None (YAML-only). | Session budget enforcement in `AgentRouter`.【F:ATLAS/AgentRouter.py†L253-L276】 |
 
 ### `conversation`
+
 | Key | Type & default | Environment overrides | Consumed by |
 | --- | --- | --- | --- |
 | `max_tool_duration_ms` | Number of milliseconds tools may run within a conversation; defaults to `120000` ms.【F:ATLAS/config/tooling.py†L41-L48】 | None (YAML-only). | Conversation runtime budgeting utilities used by the orchestration layer.【F:modules/orchestration/budget_tracker.py†L26-L50】 |
 
 ### `tool_logging`
+
 | Key | Type & default | Environment overrides | Consumed by |
 | --- | --- | --- | --- |
 | `log_full_payloads` | Boolean; defaults to `false` to avoid storing full request/response bodies.【F:ATLAS/config/tooling.py†L50-L58】 | None. | Public tool log projections in `ToolManager` honour this flag when redacting payloads.【F:ATLAS/ToolManager.py†L1706-L1772】 |
 | `payload_summary_length` | Integer; defaults to `256` characters for redacted payload summaries.【F:ATLAS/config/tooling.py†L50-L58】 | None. | Public tool log projections in `ToolManager`.【F:ATLAS/ToolManager.py†L1706-L1772】 |
 
 ### `tool_safety`
+
 | Key | Type & default | Environment overrides | Consumed by |
 | --- | --- | --- | --- |
 | `network_allowlist` | Sequence of hostnames; normalised to a lowercase list or `null` to disable outbound HTTP(s).【F:ATLAS/config/tooling.py†L94-L105】 | None. | Browser-lite and webpage fetcher tools enforce this allowlist when issuing requests.【F:modules/Tools/Base_Tools/browser_lite.py†L279-L296】【F:modules/Tools/Base_Tools/webpage_fetch.py†L144-L198】 |
@@ -36,6 +40,7 @@ ATLAS centralises runtime configuration in `ConfigManager`, which merges `.env` 
 ## Tool adapters (`tools.*`)
 
 ### `tools.javascript_executor`
+
 | Key | Type & default | Environment overrides | Consumed by |
 | --- | --- | --- | --- |
 | `executable` | Path to the JavaScript runtime; optional. Picks up `.env` `JAVASCRIPT_EXECUTOR_BIN` when unset in YAML.【F:ATLAS/config/tooling.py†L73-L75】【F:ATLAS/config/core.py†L55-L70】 | `JAVASCRIPT_EXECUTOR_BIN`. | JavaScript executor factory used by tool maps.【F:modules/Tools/tool_maps/maps.py†L84-L86】 |
@@ -48,6 +53,7 @@ ATLAS centralises runtime configuration in `ConfigManager`, which merges `.env` 
 | `max_files` | Integer count; defaults to `32`.【F:ATLAS/config/tooling.py†L84-L89】 | None. | JavaScript executor sandboxing.【F:modules/Tools/tool_maps/maps.py†L84-L86】 |
 
 ### `tools.mcp`
+
 | Key | Type & default | Environment overrides | Consumed by |
 | --- | --- | --- | --- |
 | `enabled` | Boolean; defaults to `false` to keep MCP tooling opt-in.【F:ATLAS/config/tooling.py†L150-L183】 | `ATLAS_MCP_ENABLED`.【F:ATLAS/config/core.py†L167-L177】 | Downstream tool routing can use this flag to decide whether to register MCP tool providers. |
@@ -92,6 +98,7 @@ backoff are skipped, and the router will fail over to the next healthy provider
 before invoking any defined fallback callable.
 
 ### `tools.kv_store`
+
 | Key | Type & default | Environment overrides | Consumed by |
 | --- | --- | --- | --- |
 | `default_adapter` | String adapter name; defaults to `postgres`.【F:ATLAS/config/persistence.py†L614-L619】 | None. | Key-value service builder picks the adapter by name.【F:modules/Tools/Base_Tools/kv_store.py†L286-L314】 |
@@ -108,6 +115,7 @@ before invoking any defined fallback callable.
 | `adapters.sqlite.reuse_conversation_store` | Boolean; defaults to `false`.【F:ATLAS/config/persistence.py†L781-L788】 | None. | Controls whether the SQLite adapter reuses the conversation engine when available.【F:modules/Tools/Base_Tools/kv_store.py†L700-L739】 |
 
 ### `tools.vector_store`
+
 | Key | Type & default | Environment overrides | Consumed by |
 | --- | --- | --- | --- |
 | `default_adapter` | String adapter name; defaults to `in_memory` and normalised to lowercase.【F:ATLAS/config/tooling.py†L78-L105】【F:ATLAS/config/config_manager.py†L210-L246】 | `ATLAS_VECTOR_STORE_ADAPTER`. | `build_vector_store_service` resolves this adapter when constructing the service.【F:modules/Tools/Base_Tools/vector_store.py†L269-L311】 |
@@ -116,6 +124,7 @@ before invoking any defined fallback callable.
 ## Data services
 
 ### `conversation_database`
+
 | Key | Type & default | Environment overrides | Consumed by |
 | --- | --- | --- | --- |
 | `backend` | String backend identifier; defaults to `postgresql` and includes additional options such as `sqlite`.【F:ATLAS/config/persistence.py†L1017-L1043】【F:ATLAS/config/persistence.py†L1147-L1200】 | `CONVERSATION_DATABASE_BACKEND`. | Persistence helpers and the setup controller select the appropriate SQLAlchemy dialect when verifying the store.【F:ATLAS/config/persistence.py†L1092-L1144】【F:ATLAS/setup/controller.py†L185-L214】 |
@@ -129,6 +138,7 @@ before invoking any defined fallback callable.
 Review the [conversation store data model](conversation-store.md) for table-level context and repository helpers that consume these settings.【F:docs/conversation-store.md†L1-L88】
 
 ### `messaging`
+
 | Key | Type & default | Environment overrides | Consumed by |
 | --- | --- | --- | --- |
 | `backend` | String; defaults to `ncb` (Neural Cognitive Bus with in-process async queues).【F:ATLAS/config/messaging.py†L23-L34】 | None. | `configure_agent_bus()` instantiates the AgentBus/NCB.【F:ATLAS/messaging/agent_bus.py†L1-L100】 |
@@ -137,6 +147,7 @@ Review the [conversation store data model](conversation-store.md) for table-leve
 | `kafka.bootstrap_servers` | Kafka cluster connection string.【F:ATLAS/config/messaging.py†L27-L34】 | None. | Kafka producer configuration.【F:ATLAS/messaging/NCB.py†L1-L200】 |
 
 ### `conversation_summary`
+
 | Key | Type & default | Environment overrides | Consumed by |
 | --- | --- | --- | --- |
 | `enabled` | Boolean; defaults to `false` so episodic summaries are opt-in.【F:ATLAS/config/conversation_summary.py†L9-L46】 | None. | Enables the background worker when true.【F:modules/background_tasks/conversation_summary.py†L61-L93】 |
@@ -149,6 +160,7 @@ Review the [conversation store data model](conversation-store.md) for table-leve
 | `tenants.*` | Mapping of tenant-specific overrides for cadence, window, batch size, persona/tool, and retention days.【F:ATLAS/config/conversation_summary.py†L68-L96】 | None. | Overrides resolved per tenant during batch evaluation and TTL calculation.【F:modules/background_tasks/conversation_summary.py†L238-L314】 |
 
 ### `task_queue`
+
 | Key | Type & default | Environment overrides | Consumed by |
 | --- | --- | --- | --- |
 | `jobstore_url` | PostgreSQL or MongoDB DSN validated on load; defaults to the derived job store URL resolved from `job_scheduling.job_store_url`, `task_queue.jobstore_url`, `TASK_QUEUE_JOBSTORE_URL`, `conversation_database.url`, or `_DEFAULT_CONVERSATION_STORE_DSN_BY_BACKEND` when unset.【F:ATLAS/config/config_manager.py†L202-L229】【F:ATLAS/config/persistence.py†L461-L532】【F:ATLAS/config/persistence.py†L633-L695】 | `TASK_QUEUE_JOBSTORE_URL`. | APScheduler job store connection used by the task queue service and normalised by the config helpers before the service enforces PostgreSQL/SQLite compatibility.【F:ATLAS/config/persistence.py†L633-L695】【F:modules/Tools/Base_Tools/task_queue.py†L397-L435】 |
@@ -160,6 +172,7 @@ Review the [conversation store data model](conversation-store.md) for table-leve
 `ConfigManager` normalises the `task_queue` block during startup, automatically filling `jobstore_url` from the job scheduling settings, environment override, conversation database URL, or the built-in default DSN map when a value is missing.【F:ATLAS/config/config_manager.py†L202-L229】【F:ATLAS/config/persistence.py†L461-L532】【F:ATLAS/config/persistence.py†L633-L695】 At runtime the task queue service re-applies `TASK_QUEUE_JOBSTORE_URL`/`TASK_QUEUE_MAX_WORKERS` overrides and validates the effective job store URL before constructing the APScheduler-backed service in `modules/Tools/Base_Tools/task_queue.py`.【F:modules/Tools/Base_Tools/task_queue.py†L315-L435】
 
 ### `job_scheduling`
+
 | Key | Type & default | Environment overrides | Consumed by |
 | --- | --- | --- | --- |
 | `enabled` | Boolean; coerced to `false` by default.【F:ATLAS/config/persistence.py†L348-L389】 | None. | Determines whether background job scheduling is initialised during startup.【F:ATLAS/config/persistence.py†L277-L305】 |
@@ -172,22 +185,25 @@ Review the [conversation store data model](conversation-store.md) for table-leve
 ## Provider credentials and defaults
 
 ### API key environment variables
+
 `ConfigManager` maps provider names to environment variables so onboarding flows can surface missing credentials.【F:ATLAS/config/providers.py†L25-L37】【F:ATLAS/config/providers.py†L80-L91】 The setup controller preloads these keys when seeding wizard state.【F:ATLAS/setup/controller.py†L192-L209】
 
 | Provider | Environment variable | Notes |
 | --- | --- | --- |
 | OpenAI | `OPENAI_API_KEY` | Required by `OpenAIGenerator` during client instantiation.【F:modules/Providers/OpenAI/OA_gen_response.py†L24-L50】 |
 | Mistral | `MISTRAL_API_KEY` | Required by the Mistral generator client. |
-| Google | `GOOGLE_API_KEY` and optional `GOOGLE_APPLICATION_CREDENTIALS` (persisted via helpers).【F:ATLAS/config/providers.py†L698-L765】 |
+| Google | `GOOGLE_API_KEY` and optional `GOOGLE_APPLICATION_CREDENTIALS` | Persisted via helpers.【F:ATLAS/config/providers.py†L698-L765】 |
 | Anthropic | `ANTHROPIC_API_KEY` | Required by the Anthropic generator.【F:modules/Providers/Anthropic/Anthropic_gen_response.py†L246-L280】 |
 | Grok | `GROK_API_KEY` | Used for Grok provider integrations.【F:ATLAS/config/providers.py†L25-L37】【F:ATLAS/config/providers.py†L2731-L2738】 |
 | Hugging Face | `HUGGINGFACE_API_KEY` | Required for hosted inference APIs and cached downloads.【F:ATLAS/config/providers.py†L25-L37】【F:ATLAS/config/providers.py†L2075-L2140】 |
 | ElevenLabs | `XI_API_KEY` | Speech synthesis key surfaced in setup flows.【F:ATLAS/config/providers.py†L25-L37】【F:ATLAS/setup/controller.py†L211-L220】 |
 
 ### `DEFAULT_PROVIDER` and `DEFAULT_MODEL`
+
 The default chat provider and model fall back to `OpenAI` / `gpt-4o` unless overridden via `.env`. Missing API keys trigger startup warnings so operators know which credentials still need to be supplied.【F:ATLAS/config/core.py†L55-L70】【F:ATLAS/config/providers.py†L80-L103】【F:ATLAS/config/providers.py†L1967-L2021】 The setup wizard reads these values to seed provider state.【F:ATLAS/setup/controller.py†L192-L209】
 
 ### OpenAI defaults (`OPENAI_LLM`)
+
 | Key | Type & default | Environment overrides | Consumed by |
 | --- | --- | --- | --- |
 | `model` | String; defaults to the configured `DEFAULT_MODEL` (defaulting to `gpt-4o`).【F:ATLAS/config/providers.py†L316-L333】 | `DEFAULT_MODEL`. | `OpenAIGenerator` keeps its model manager in sync with this value.【F:modules/Providers/OpenAI/OA_gen_response.py†L24-L118】 |
@@ -207,21 +223,128 @@ The default chat provider and model fall back to `OpenAI` / `gpt-4o` unless over
 | `audio_enabled`, `audio_voice`, `audio_format` | Audio synthesis settings with defaults `false`, `'alloy'`, `'wav'`.【F:ATLAS/config/providers.py†L336-L340】 | None. | Shared with speech configuration UIs.【F:modules/Providers/OpenAI/OA_gen_response.py†L78-L120】 |
 
 ### Mistral defaults (`MISTRAL_LLM`)
+
 The Mistral block accepts extensive sampling, retry, and prompting controls. Defaults include `model='mistral-large-latest'`, `temperature=0.0`, `top_p=1.0`, `max_tokens=null`, `safe_prompt=false`, `stream=true`, retry limits, JSON mode flags, and optional prompt mode validation.【F:ATLAS/config/providers.py†L1243-L1675】 Environment overrides include `.env` `MISTRAL_BASE_URL`, which seeds the base URL before YAML overrides.【F:ATLAS/config/core.py†L55-L70】【F:ATLAS/config/providers.py†L1243-L1675】 The Mistral generator reads this block on every request to configure retries, streaming, and tool behaviour.【F:modules/Providers/Mistral/Mistral_gen_response.py†L96-L155】
 
 ### Google defaults (`GOOGLE_LLM`)
+
 Google-specific defaults cover streaming, function calling, response schemas, seeds, and allowed function lists, with validation handled via `GoogleSettingsResolver` and YAML persistence.【F:ATLAS/config/providers.py†L770-L1179】 These settings drive Gemini request construction and function tool declarations in the Google provider.【F:modules/Providers/Google/GG_gen_response.py†L64-L140】 Additional speech credentials can be persisted through helper methods for `GOOGLE_APPLICATION_CREDENTIALS` as needed.【F:ATLAS/config/providers.py†L698-L765】
 
 ### Anthropic defaults (`ANTHROPIC_LLM`)
+
 Anthropic defaults include `model='claude-3-opus-20240229'`, streaming and function-calling flags, temperature/top-p controls, retry budgets, metadata, and optional Claude “thinking” fields.【F:ATLAS/config/providers.py†L2199-L2300】 The Anthropic generator hydrates its runtime settings from this block when initialising, ensuring safe coercion and bounds checking.【F:modules/Providers/Anthropic/Anthropic_gen_response.py†L246-L320】
 
 ### Hugging Face generation defaults (`HUGGINGFACE.generation_settings`)
+
 Hugging Face generation defaults mirror `_DEFAULT_HUGGINGFACE_GENERATION_SETTINGS`, covering sampling controls such as `temperature`, `top_p`, `top_k`, `max_tokens`, repetition penalties, and booleans for `early_stopping`/`do_sample`. Values are validated before persistence.【F:ATLAS/config/providers.py†L1774-L1785】【F:ATLAS/config/providers.py†L2075-L2140】 These settings are consumed by Hugging Face provider helpers when issuing hosted inference requests.【F:ATLAS/config/providers.py†L2075-L2140】
 
 ## Account management configuration
 
 Local account policies rely on environment variables (for example `ACCOUNT_PASSWORD_MIN_LENGTH`, `ACCOUNT_PASSWORD_REQUIRE_SYMBOL`, and related boolean flags) that `UserAccountService` reads through `ConfigManager`. Overrides are validated before updating the effective password requirements displayed in the UI.【F:modules/user_accounts/user_account_service.py†L457-L515】 Consult the [password policy guide](password-policy.md) for behavioural expectations and operator guidance.【F:docs/password-policy.md†L3-L23】
 
+## RAG (Retrieval-Augmented Generation)
+
+### `rag`
+
+| Key | Type & default | Environment overrides | Consumed by |
+| --- | --- | --- | --- |
+| `enabled` | Boolean; defaults to `true` when a knowledge store is configured. | `ATLAS_RAG_ENABLED`. | RAGService initialization and chat integration. |
+| `default_store` | String; defaults to `postgres`. Selects the knowledge store backend. | `ATLAS_RAG_STORE`. | `build_knowledge_store()` factory. |
+
+### `rag.embedding`
+
+| Key | Type & default | Environment overrides | Consumed by |
+| --- | --- | --- | --- |
+| `default_provider` | String; defaults to `openai`. Embedding provider name. | `ATLAS_EMBEDDING_PROVIDER`. | EmbedManager provider selection. |
+| `default_model` | String; defaults to `text-embedding-3-small`. Model identifier. | `ATLAS_EMBEDDING_MODEL`. | EmbedManager model configuration. |
+| `batch_size` | Integer; defaults to `32`. Batch size for embedding operations. | None. | Batch embedding calls in DocumentIngester. |
+| `cache_enabled` | Boolean; defaults to `true`. Enables embedding result caching. | None. | EmbedManager caching layer. |
+| `cache_ttl_seconds` | Integer; defaults to `3600`. Cache entry time-to-live. | None. | EmbedManager cache eviction. |
+
+### `rag.chunking`
+
+| Key | Type & default | Environment overrides | Consumed by |
+| --- | --- | --- | --- |
+| `default_size` | Integer; defaults to `512`. Default chunk size in tokens. | None. | DocumentIngester chunking strategy. |
+| `default_overlap` | Integer; defaults to `50`. Token overlap between chunks. | None. | DocumentIngester chunking strategy. |
+| `max_size` | Integer; defaults to `2000`. Maximum allowed chunk size. | None. | Per-KB configuration validation. |
+| `min_size` | Integer; defaults to `100`. Minimum allowed chunk size. | None. | Per-KB configuration validation. |
+
+### `rag.search`
+
+| Key | Type & default | Environment overrides | Consumed by |
+| --- | --- | --- | --- |
+| `default_top_k` | Integer; defaults to `5`. Default number of results. | None. | RAGService search defaults. |
+| `max_top_k` | Integer; defaults to `20`. Maximum allowed results. | None. | Query validation in RAGService. |
+| `min_score_threshold` | Float; defaults to `0.0`. Minimum similarity score filter. | None. | Search result filtering. |
+| `max_context_tokens` | Integer; defaults to `4000`. Maximum tokens in RAG context. | None. | Context formatting for LLM prompts. |
+
+### `rag.ingestion`
+
+| Key | Type & default | Environment overrides | Consumed by |
+| --- | --- | --- | --- |
+| `max_file_size_mb` | Integer; defaults to `50`. Maximum file size for upload. | None. | Document upload validation. |
+| `allowed_extensions` | List of strings; defaults to common document types. | None. | File type validation in upload dialog. |
+| `url_timeout_seconds` | Integer; defaults to `30`. Timeout for URL ingestion. | None. | URL fetcher in DocumentIngester. |
+| `duplicate_detection` | Boolean; defaults to `true`. Enable duplicate checking. | None. | Pre-ingestion duplicate check. |
+
+### `rag.postgres`
+
+| Key | Type & default | Environment overrides | Consumed by |
+| --- | --- | --- | --- |
+| `schema` | String; defaults to `atlas_rag`. PostgreSQL schema name. | `ATLAS_RAG_SCHEMA`. | PostgresKnowledgeStore table creation. |
+| `vector_index_type` | String; defaults to `ivfflat`. Options: `ivfflat`, `hnsw`. | None. | pgvector index creation. |
+| `index_lists` | Integer; defaults to `100`. IVFFlat lists parameter. | None. | Vector index tuning. |
+| `hnsw_m` | Integer; defaults to `16`. HNSW M parameter. | None. | HNSW index tuning. |
+| `hnsw_ef_construction` | Integer; defaults to `64`. HNSW build parameter. | None. | HNSW index tuning. |
+
+Example RAG configuration:
+
+```yaml
+rag:
+  enabled: true
+  default_store: postgres
+  
+  embedding:
+    default_provider: openai
+    default_model: text-embedding-3-small
+    batch_size: 32
+    cache_enabled: true
+    cache_ttl_seconds: 3600
+    
+  chunking:
+    default_size: 512
+    default_overlap: 50
+    max_size: 2000
+    min_size: 100
+    
+  search:
+    default_top_k: 5
+    max_top_k: 20
+    min_score_threshold: 0.0
+    max_context_tokens: 4000
+    
+  ingestion:
+    max_file_size_mb: 50
+    allowed_extensions:
+      - .txt
+      - .md
+      - .pdf
+      - .docx
+      - .html
+    url_timeout_seconds: 30
+    duplicate_detection: true
+    
+  postgres:
+    schema: atlas_rag
+    vector_index_type: hnsw
+    hnsw_m: 16
+    hnsw_ef_construction: 64
+```
+
+For developer integration details, see the [RAG Integration Guide](developer/rag-integration.md). For end-user documentation, see the [RAG User Guide](user/rag-guide.md).
+
 ## Additional notes
+
 - Messaging, conversation backend selection, vector store defaults, conversation retention, KV store, and task queue configuration all surface inside the setup wizard so operators can verify connectivity before completing onboarding.【F:ATLAS/setup/controller.py†L168-L246】【F:ATLAS/setup/cli.py†L520-L648】
 - The Redis-backed message bus and retention policies have dedicated operational runbooks—see [messaging bus operations](ops/messaging.md) and [conversation retention](conversation_retention.md) for deployment guidance.【F:docs/ops/messaging.md†L3-L41】【F:docs/conversation_retention.md†L1-L34】

@@ -49,6 +49,11 @@ from GTKUI.Setup.wizard.validators import (
 from GTKUI.Setup.wizard.pages.docs_browser import build_docs_browser_page
 from GTKUI.Setup.wizard.pages.overview import build_overview_page
 from GTKUI.Setup.wizard.pages.preflight import build_preflight_page
+from GTKUI.Setup.wizard.pages.rag import (
+    apply_rag_page,
+    build_rag_intro_page,
+    build_rag_page,
+)
 from GTKUI.Setup.wizard.pages.setup_type import build_setup_type_page
 from modules.logging.audit_templates import get_audit_template, get_audit_templates
 from modules.Tools.Base_Tools.vector_store import available_vector_store_adapters
@@ -981,6 +986,8 @@ class SetupWizardWindow(AtlasWindow):
         kv_form = self._build_kv_store_page()
         speech_intro = self._build_speech_intro_page()
         speech_form = self._build_speech_page()
+        rag_intro = build_rag_intro_page(self)
+        rag_form = build_rag_page(self)
         optional_intro = self._build_optional_intro_page()
         company_form = self._build_company_page()
         policy_pages = self._build_policies_pages(optional_intro)
@@ -1102,6 +1109,12 @@ class SetupWizardWindow(AtlasWindow):
                     widget=speech_intro,
                     subpages=[speech_intro, speech_form],
                     apply=self._apply_speech,
+                ),
+                WizardStep(
+                    name="RAG / Knowledge Base",
+                    widget=rag_intro,
+                    subpages=[rag_intro, rag_form],
+                    apply=self._apply_rag,
                 ),
             ]
         )
@@ -5354,6 +5367,15 @@ class SetupWizardWindow(AtlasWindow):
         intro_message = self._apply_database_intro()
         architecture_message = self._apply_storage_architecture()
         database_message = self._apply_database()
+        
+        # Detect RAG capabilities now that database is configured
+        try:
+            db_state = self.controller.state.database
+            dsn = getattr(db_state, "dsn", None) if db_state else None
+            self.controller.detect_rag_capabilities(database_dsn=dsn)
+        except Exception as e:
+            logger.warning("Failed to detect RAG capabilities: %s", e)
+        
         messages = [message for message in (intro_message, architecture_message, database_message) if message]
         if messages:
             return " ".join(messages)
@@ -5708,6 +5730,16 @@ class SetupWizardWindow(AtlasWindow):
 
         self.controller.apply_speech_settings(state)
         return "Speech settings saved."
+
+    def _apply_rag(self) -> str:
+        """Apply RAG / Knowledge Base settings from wizard pages."""
+        apply_rag_page(self)
+        rag_state = self.controller.state.rag
+        if rag_state.enabled:
+            provider = rag_state.embedding_provider
+            model = rag_state.embedding_model
+            return f"RAG enabled with {provider} provider ({model})."
+        return "RAG disabled."
 
     def _apply_company(self) -> str:
         company_name_entry = self._optional_widgets.get("company_name")

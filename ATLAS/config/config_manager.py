@@ -57,6 +57,7 @@ from .persistence import KV_STORE_UNSET, PersistenceConfigSection
 from .persistence import PersistenceConfigMixin
 from .providers import ProviderConfigSections
 from .providers import ProviderConfigMixin
+from .rag import RAGSettings
 from .tooling import ToolingConfigSection
 from .storage import StorageArchitecture
 from .ui_config import UIConfig
@@ -299,6 +300,9 @@ class ConfigManager(ProviderConfigMixin, PersistenceConfigMixin, ConfigCore):
         self._job_manager: "JobManager" | None = None
         self._job_scheduler: "JobScheduler" | None = None
         self._job_mongo_client: Any | None = None
+
+        # --- RAG configuration ----------------------------------------
+        self._rag_settings = self._initialise_rag_settings()
 
 
 
@@ -606,22 +610,72 @@ class ConfigManager(ProviderConfigMixin, PersistenceConfigMixin, ConfigCore):
         self.storage_architecture = normalized
         return self._persist_storage_architecture(normalized)
 
+    # --- RAG configuration helpers ------------------------------------
 
+    def _initialise_rag_settings(self) -> RAGSettings:
+        """Load RAG settings from config and persist defaults if missing."""
+        rag_block = self.yaml_config.get("rag")
+        if not isinstance(rag_block, Mapping):
+            rag_block = self.config.get("rag")
 
+        settings = RAGSettings.from_mapping(rag_block if isinstance(rag_block, Mapping) else None)
+        self._persist_rag_settings(settings, write=False)
+        return settings
 
+    def _persist_rag_settings(
+        self, settings: RAGSettings, *, write: bool = True
+    ) -> Dict[str, Any]:
+        """Write RAG settings to runtime and YAML config."""
+        block = settings.to_dict()
 
+        self.yaml_config["rag"] = dict(block)
+        self.config["rag"] = dict(block)
 
+        if write:
+            self._write_yaml_config()
 
+        return dict(block)
 
+    @property
+    def rag_settings(self) -> RAGSettings:
+        """Return the current RAG settings."""
+        return self._rag_settings
 
+    def get_rag_settings(self) -> RAGSettings:
+        """Return the current RAG settings."""
+        return self._rag_settings
 
+    def get_rag_settings_dict(self) -> Dict[str, Any]:
+        """Return RAG settings as a dictionary."""
+        return self._rag_settings.to_dict()
 
+    def set_rag_settings(
+        self, settings: RAGSettings | Mapping[str, Any]
+    ) -> Dict[str, Any]:
+        """Persist RAG settings and refresh cached state."""
+        if isinstance(settings, RAGSettings):
+            normalized = settings
+        elif isinstance(settings, Mapping):
+            normalized = RAGSettings.from_mapping(settings)
+        else:
+            raise TypeError("RAG settings must be RAGSettings or mapping")
 
+        self._rag_settings = normalized
+        return self._persist_rag_settings(normalized)
 
+    def set_rag_enabled(self, enabled: bool) -> None:
+        """Toggle the master RAG enabled flag."""
+        from dataclasses import replace
+        self._rag_settings = replace(self._rag_settings, enabled=enabled)
+        self._persist_rag_settings(self._rag_settings)
 
+    def is_rag_enabled(self) -> bool:
+        """Check if RAG is enabled."""
+        return self._rag_settings.enabled
 
-
-
+    def is_rag_fully_enabled(self) -> bool:
+        """Check if RAG pipeline is fully operational."""
+        return self._rag_settings.is_fully_enabled
 
     def get_config(self, key: str, default: Any = None) -> Any:
         """Retrieve a configuration value by key with an optional default."""

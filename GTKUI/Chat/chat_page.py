@@ -18,12 +18,12 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Tuple, TypedDict, cast
 from concurrent.futures import Future
 from datetime import datetime
 import gi
 gi.require_version('Gtk', '4.0')
-from gi.repository import Gtk, Gdk, GLib
+from gi.repository import Gtk, Gdk, GLib  # type: ignore[import-untyped]
 import logging
 from logging.handlers import RotatingFileHandler
 
@@ -31,6 +31,15 @@ from GTKUI.Utils.logging import GTKUILogHandler, read_recent_log_lines
 
 # Configure logging for the chat page.
 logger = logging.getLogger(__name__)
+
+
+class _DebugLogConfig(TypedDict):
+    """Type definition for debug log configuration."""
+    level: int
+    max_lines: int
+    initial_lines: int
+    logger_names: List[str]
+    format: Optional[str]
 
 
 class _HandlerLevelFilter(logging.Filter):
@@ -207,6 +216,16 @@ class ChatPage(Gtk.Box):
                 page_add_controller(keyctl)
             except Exception:  # pragma: no cover - stub fallback
                 pass
+
+        # Upload button for RAG document ingestion.
+        self.upload_button = Gtk.Button()
+        self._set_button_icon(self.upload_button, "../../Icons/upload.png", "folder-documents-symbolic")
+        self.upload_button.set_tooltip_text("Upload documents to knowledge base")
+        self.upload_button.get_style_context().add_class("upload-button")
+        self.upload_button.connect("clicked", self._on_upload_button_click)
+        # Only show if RAG is enabled
+        self._update_upload_button_visibility()
+        input_box.append(self.upload_button)
 
         # Microphone button for speech-to-text.
         self.mic_button = Gtk.Button()
@@ -424,6 +443,59 @@ class ChatPage(Gtk.Box):
 
     def _set_button_icon(self, button: Gtk.Button, rel_path: str, fallback_icon_name: str):
         button.set_child(self._make_icon(rel_path, fallback_icon_name))
+
+    def _update_upload_button_visibility(self) -> None:
+        """Show or hide the upload button based on RAG availability."""
+        manager = getattr(self.ATLAS, "config_manager", None)
+        if manager is None:
+            self.upload_button.set_visible(False)
+            return
+        try:
+            rag_enabled = manager.is_rag_enabled()
+            self.upload_button.set_visible(rag_enabled)
+        except Exception:
+            self.upload_button.set_visible(False)
+
+    def _on_upload_button_click(self, button: Gtk.Button) -> None:
+        """Handle upload button click to show document upload dialog."""
+        try:
+            from GTKUI.Utils.document_upload_dialog import DocumentUploadDialog
+
+            manager = getattr(self.ATLAS, "config_manager", None)
+            if manager is None:
+                logger.warning("Config manager not available for RAG upload")
+                return
+
+            # Get RAG service and knowledge store if available
+            rag_service = getattr(self.ATLAS, "rag_service", None)
+            knowledge_store = None
+
+            # Try to get knowledge store from storage manager
+            storage_manager = getattr(self.ATLAS, "_storage_manager", None)
+            if storage_manager is not None:
+                knowledge_store = getattr(storage_manager, "knowledge_store", None)
+
+            # Get the parent window
+            parent_window = self.get_root()
+            if not isinstance(parent_window, Gtk.Window):
+                parent_window = None
+
+            def on_upload_complete(results):
+                """Handle upload completion."""
+                successful = sum(1 for r in results if r.get("success"))
+                failed = len(results) - successful
+                logger.info("Document upload complete: %d succeeded, %d failed", successful, failed)
+
+            dialog = DocumentUploadDialog(
+                rag_service=rag_service,
+                knowledge_store=knowledge_store,
+                parent=parent_window,
+                on_complete=on_upload_complete,
+            )
+            dialog.present()
+
+        except Exception as e:
+            logger.error("Failed to open upload dialog: %s", e, exc_info=True)
 
     def _text_view_with_buffer(self, buffer: Gtk.TextBuffer) -> Gtk.TextView:
         """Return a text view bound to *buffer* with GTK stub fallbacks."""
@@ -976,10 +1048,11 @@ class ChatPage(Gtk.Box):
         content_buffer = getattr(self, "blackboard_content_buffer", None)
         author_entry = getattr(self, "blackboard_author_entry", None)
         category_combo = getattr(self, "blackboard_category_combo", None)
-        if None in (title_entry, content_buffer, author_entry, category_combo):
+        if title_entry is None or content_buffer is None or author_entry is None or category_combo is None:
             return
 
-        title_text = str(title_entry.get_text() or "").strip()
+        title_getter = getattr(title_entry, "get_text", None)
+        title_text = str(title_getter() if callable(title_getter) else "").strip()
         content_text = self._get_textbuffer_content(content_buffer).strip()
         if not title_text or not content_text:
             self._show_blackboard_error("Title and content are required.")
@@ -995,12 +1068,14 @@ class ChatPage(Gtk.Box):
                     content=content_text,
                 )
             else:
-                category_label = category_combo.get_active_text()
+                active_text_getter = getattr(category_combo, "get_active_text", None)
+                category_label = active_text_getter() if callable(active_text_getter) else None
                 category_value = str(category_label or "").strip().lower()
                 if not category_value:
                     self._show_blackboard_error("A category must be selected.")
                     return
-                author_text = str(author_entry.get_text() or "").strip()
+                author_getter = getattr(author_entry, "get_text", None)
+                author_text = str(author_getter() if callable(author_getter) else "").strip()
                 self.ATLAS.create_blackboard_entry(
                     scope_id,
                     category=category_value,
@@ -1200,13 +1275,15 @@ class ChatPage(Gtk.Box):
                 end_iter = buffer.get_end_iter()
                 if start_iter is not None and end_iter is not None:
                     try:
-                        return getter(start_iter, end_iter, True)
+                        result = getter(start_iter, end_iter, True)
+                        return str(result) if result is not None else ""
                     except TypeError:
                         pass
             except Exception:
                 pass
             try:
-                return getter()
+                result = getter()
+                return str(result) if result is not None else ""
             except TypeError:
                 pass
         text_value = getattr(buffer, "_text", None)
@@ -1251,11 +1328,13 @@ class ChatPage(Gtk.Box):
             getter = getattr(session, "get_conversation_id", None)
             if callable(getter):
                 try:
-                    conversation_id = getter()
+                    result = getter()
+                    conversation_id = str(result) if result is not None else None
                 except Exception as exc:
                     logger.error("Failed to obtain conversation ID: %s", exc, exc_info=True)
             elif hasattr(session, "conversation_id"):
-                conversation_id = getattr(session, "conversation_id")
+                attr_value = getattr(session, "conversation_id", None)
+                conversation_id = str(attr_value) if attr_value is not None else None
 
         if not conversation_id:
             return None
@@ -1295,11 +1374,13 @@ class ChatPage(Gtk.Box):
 
         lines: List[str] = []
         for entry in reversed(entries):
-            metrics = entry.get("metrics") or {}
+            metrics_raw = entry.get("metrics")
+            metrics: Dict[str, Any] = metrics_raw if isinstance(metrics_raw, dict) else {}
             payload = entry.get("payload") if entry.get("payload_included") else None
-            payload_preview = entry.get("payload_preview") or {}
+            payload_preview_raw = entry.get("payload_preview")
+            payload_preview: Dict[str, Any] = payload_preview_raw if isinstance(payload_preview_raw, dict) else {}
 
-            def _payload_value(key: str):
+            def _payload_value(key: str) -> Any:
                 if isinstance(payload, dict) and key in payload:
                     return payload.get(key)
                 return payload_preview.get(key, entry.get(key))
@@ -1341,11 +1422,13 @@ class ChatPage(Gtk.Box):
     def _format_tool_log_entries(self, entries: List[Dict[str, object]]) -> List[str]:
         formatted: List[str] = []
         for entry in reversed(entries):
-            metrics = entry.get("metrics") or {}
+            metrics_raw = entry.get("metrics")
+            metrics: Dict[str, Any] = metrics_raw if isinstance(metrics_raw, dict) else {}
             payload = entry.get("payload") if entry.get("payload_included") else None
-            payload_preview = entry.get("payload_preview") or {}
+            payload_preview_raw = entry.get("payload_preview")
+            payload_preview: Dict[str, Any] = payload_preview_raw if isinstance(payload_preview_raw, dict) else {}
 
-            def _payload_value(key: str):
+            def _payload_value(key: str) -> Any:
                 if isinstance(payload, dict) and key in payload:
                     return payload.get(key)
                 return payload_preview.get(key, entry.get(key))
@@ -1415,8 +1498,8 @@ class ChatPage(Gtk.Box):
 
     # --------------------------- Debug tab helpers ---------------------------
 
-    def _resolve_debug_log_config(self) -> Dict[str, object]:
-        defaults: Dict[str, object] = {
+    def _resolve_debug_log_config(self) -> _DebugLogConfig:
+        defaults: _DebugLogConfig = {
             "level": logging.INFO,
             "max_lines": 2000,
             "initial_lines": 400,
@@ -1429,7 +1512,7 @@ class ChatPage(Gtk.Box):
         if ui_config is None and manager is None:
             return defaults
 
-        def _extract_int(value, fallback):
+        def _extract_int(value: object, fallback: int) -> int:
             if isinstance(value, int):
                 return value
             if isinstance(value, float):
@@ -1447,6 +1530,7 @@ class ChatPage(Gtk.Box):
             except Exception:
                 level_value = None
         else:
+            assert manager is not None  # Guaranteed by early return above
             try:
                 level_value = manager.get_config("UI_DEBUG_LOG_LEVEL")
             except Exception:
@@ -1480,6 +1564,7 @@ class ChatPage(Gtk.Box):
             except Exception:
                 format_value = None
         else:
+            assert manager is not None  # Guaranteed by early return above
             try:
                 max_lines_value = manager.get_config("UI_DEBUG_LOG_MAX_LINES")
             except Exception:
@@ -1838,14 +1923,14 @@ class ChatPage(Gtk.Box):
             self.debug_pause_btn.set_active(paused)
             self.debug_pause_btn.set_label("Resume" if paused else "Pause")
 
-            max_lines = int(self._debug_log_config.get("max_lines", 2000))
+            max_lines = self._debug_log_config.get("max_lines", 2000)
             if handler is not None:
                 max_lines = handler.max_lines
             self.debug_retention_spin.set_value(float(max_lines))
 
             entry = getattr(self, "debug_logger_entry", None)
-            if isinstance(entry, Gtk.Entry):
-                names_value = self._debug_log_config.get("logger_names") or []
+            if entry is not None and hasattr(entry, "set_text"):
+                names_value = self._debug_log_config.get("logger_names", [])
                 entry.set_text(", ".join(str(name) for name in names_value))
         finally:
             self._debug_controls_updating = False
@@ -1896,7 +1981,7 @@ class ChatPage(Gtk.Box):
 
     def _update_debug_log_button(self) -> None:
         button = getattr(self, "debug_open_log_btn", None)
-        if not isinstance(button, Gtk.Button):
+        if button is None or not hasattr(button, "set_sensitive"):
             return
 
         path_value = getattr(self, "_debug_log_path", None)
@@ -1921,23 +2006,23 @@ class ChatPage(Gtk.Box):
         elif hasattr(self, "debug_log_buffer"):
             self.debug_log_buffer.set_text("")
 
-    def _on_debug_pause_toggled(self, button: Gtk.ToggleButton):
+    def _on_debug_pause_toggled(self, button: Gtk.ToggleButton) -> None:
         handler = getattr(self, "_debug_log_handler", None)
         target_btn = getattr(self, "debug_pause_btn", None)
 
         if handler is None:
             if button.get_active():
                 button.set_active(False)
-            if isinstance(target_btn, Gtk.ToggleButton):
+            if target_btn is not None and hasattr(target_btn, "set_label"):
                 target_btn.set_label("Pause")
             return
 
         paused = button.get_active()
         handler.set_paused(paused)
-        if isinstance(target_btn, Gtk.ToggleButton):
+        if target_btn is not None and hasattr(target_btn, "set_label"):
             target_btn.set_label("Resume" if paused else "Pause")
 
-    def _on_debug_open_log_clicked(self, *_args):
+    def _on_debug_open_log_clicked(self, *_args) -> None:
         path_value = getattr(self, "_debug_log_path", None)
         if not path_value:
             self._update_debug_log_button()
@@ -2010,7 +2095,7 @@ class ChatPage(Gtk.Box):
 
         if platform_value.startswith("win"):
             try:
-                os.startfile(str(path))
+                os.startfile(str(path))  # type: ignore[attr-defined]  # Windows only
                 return
             except Exception:
                 logger.warning(
@@ -2152,7 +2237,8 @@ class ChatPage(Gtk.Box):
         persisted_value: Optional[int] = None
         if callable(setter):
             try:
-                persisted_value = setter(value)
+                result = setter(value)
+                persisted_value = result if isinstance(result, int) else None
             except Exception as exc:
                 logger.warning("Failed to persist debug retention limit: %s", exc)
 
@@ -2427,17 +2513,16 @@ class ChatPage(Gtk.Box):
 
             def update():
                 normalized = self._normalize_response_payload(response_payload)
-                bubble_kwargs = {
-                    "audio": normalized.get("audio"),
-                    "thinking": normalized.get("thinking"),
-                }
+                audio_value = normalized.get("audio")
+                thinking_value = normalized.get("thinking")
                 timestamp_value = normalized.get("timestamp")
-                if timestamp_value is not None:
-                    bubble_kwargs["timestamp"] = timestamp_value
                 self.add_message_bubble(
                     display_name,
                     normalized["text"],
-                    **bubble_kwargs,
+                    is_user=False,
+                    audio=audio_value,
+                    thinking=thinking_value,
+                    timestamp=timestamp_value,
                 )
                 self._on_response_complete()
                 self._refresh_terminal_tab()
@@ -2927,4 +3012,4 @@ class ChatPage(Gtk.Box):
 
 
 # Imports required by popover menu action wiring
-from gi.repository import Gio  # noqa: E402  (keep at bottom for clarity)
+from gi.repository import Gio  # type: ignore[import-untyped]  # noqa: E402

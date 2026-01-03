@@ -19,6 +19,23 @@ from .conversation_summary import ConversationSummaryConfigSection
 from .messaging import MessagingConfigSection, setup_message_bus
 from .persistence import PersistenceConfigSection, PersistenceConfigMixin, KV_STORE_UNSET
 from .providers import ProviderConfigSections, ProviderConfigMixin
+from .rag import (
+    RAGSettings,
+    EmbeddingSettings,
+    ChunkingSettings,
+    RetrievalSettings,
+    RerankingSettings,
+    IngestionSettings,
+    EmbeddingProviderType,
+    TextSplitterType,
+    RerankerType,
+    OpenAIEmbeddingSettings,
+    CohereEmbeddingSettings,
+    HuggingFaceEmbeddingSettings,
+    KnowledgeStoreSettings,
+    KnowledgeStoreType,
+    DEFAULT_RAG_SETTINGS,
+)
 from .tooling import ToolingConfigSection
 from .storage import StorageArchitecture, PerformanceMode, PERFORMANCE_PRESETS
 from .ui_config import UIConfig
@@ -50,4 +67,20 @@ __all__ = [
     "load_dotenv",
     "set_key",
     "setup_logger",
+    # RAG configuration
+    "RAGSettings",
+    "EmbeddingSettings",
+    "ChunkingSettings",
+    "RetrievalSettings",
+    "RerankingSettings",
+    "IngestionSettings",
+    "KnowledgeStoreSettings",
+    "KnowledgeStoreType",
+    "EmbeddingProviderType",
+    "TextSplitterType",
+    "RerankerType",
+    "OpenAIEmbeddingSettings",
+    "CohereEmbeddingSettings",
+    "HuggingFaceEmbeddingSettings",
+    "DEFAULT_RAG_SETTINGS",
 ]

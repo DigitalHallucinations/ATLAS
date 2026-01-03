@@ -845,9 +845,46 @@ class _NavigationSidebar(Gtk.Box):
             listener(callback)
             self._history_listener = callback
 
+        # RAG quick toggle section
+        rag_separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        rag_separator.add_css_class("sidebar-divider")
+        rag_separator.set_margin_top(10)
+        rag_separator.set_margin_bottom(4)
+        self.append(rag_separator)
+
+        rag_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        rag_box.set_margin_start(12)
+        rag_box.set_margin_end(12)
+        rag_box.set_margin_bottom(4)
+        
+        rag_label = Gtk.Label(label="RAG")
+        rag_label.set_xalign(0.0)
+        rag_label.set_hexpand(True)
+        rag_label.set_tooltip_text("Enable knowledge base context retrieval")
+        rag_box.append(rag_label)
+        
+        # KB Manager button
+        kb_manager_btn = Gtk.Button.new_from_icon_name("folder-documents-symbolic")
+        kb_manager_btn.add_css_class("flat")
+        kb_manager_btn.add_css_class("circular")
+        kb_manager_btn.set_tooltip_text("Open Knowledge Base Manager")
+        kb_manager_btn.connect("clicked", self._on_kb_manager_clicked)
+        rag_box.append(kb_manager_btn)
+        
+        self._rag_switch = Gtk.Switch()
+        self._rag_switch.set_valign(Gtk.Align.CENTER)
+        self._rag_switch.set_tooltip_text("Toggle RAG on/off")
+        self._rag_switch.connect("notify::active", self._on_rag_toggled)
+        rag_box.append(self._rag_switch)
+        
+        self.append(rag_box)
+        
+        # Load initial RAG state
+        self._load_rag_state()
+
         separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
         separator.add_css_class("sidebar-divider")
-        separator.set_margin_top(10)
+        separator.set_margin_top(6)
         separator.set_margin_bottom(10)
         self.append(separator)
 
@@ -944,6 +981,56 @@ class _NavigationSidebar(Gtk.Box):
             self._nav_items[nav_id] = row
 
         return row
+
+    def _load_rag_state(self) -> None:
+        """Load the current RAG enabled state from ConfigManager."""
+        try:
+            from ATLAS.config import ConfigManager
+            config = ConfigManager()
+            enabled = config.is_rag_enabled()
+            self._rag_switch.set_active(enabled)
+        except Exception as exc:
+            logger.debug("Failed to load RAG state: %s", exc)
+
+    def _on_rag_toggled(self, switch: Gtk.Switch, _pspec) -> None:
+        """Handle RAG toggle switch changes."""
+        enabled = switch.get_active()
+        try:
+            from ATLAS.config import ConfigManager
+            config = ConfigManager()
+            config.set_rag_enabled(enabled)
+            logger.info("RAG %s via sidebar toggle", "enabled" if enabled else "disabled")
+        except Exception as exc:
+            logger.warning("Failed to toggle RAG: %s", exc)
+            # Revert the switch on error
+            GLib.idle_add(lambda: switch.set_active(not enabled))
+
+    def _on_kb_manager_clicked(self, button: Gtk.Button) -> None:
+        """Handle Knowledge Base Manager button click."""
+        try:
+            from GTKUI.KnowledgeBase import KnowledgeBaseManager
+
+            # Get config manager from ATLAS
+            config_manager = getattr(self.ATLAS, "config_manager", None)
+            
+            # Try to get knowledge store from storage manager
+            knowledge_store = None
+            storage_manager = getattr(self.ATLAS, "_storage_manager", None)
+            if storage_manager is not None:
+                knowledge_store = getattr(storage_manager, "knowledge_store", None)
+            
+            # Try to get RAG service
+            rag_service = getattr(self.ATLAS, "rag_service", None)
+
+            manager = KnowledgeBaseManager(
+                config_manager=config_manager,
+                knowledge_store=knowledge_store,
+                rag_service=rag_service,
+                parent=self.main_window,
+            )
+            manager.present()
+        except Exception as exc:
+            logger.error("Failed to open KB Manager: %s", exc, exc_info=True)
 
     def _handle_history_event(self, _event: Mapping[str, Any]) -> bool:
         self._refresh_history_sidebar()
