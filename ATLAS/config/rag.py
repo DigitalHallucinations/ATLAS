@@ -254,6 +254,9 @@ class ChunkingSettings:
         chunk_size: Target size for each chunk in characters.
         chunk_overlap: Overlap between consecutive chunks.
         preserve_metadata: Whether to preserve document metadata in chunks.
+        hierarchical_chunking_enabled: Use parent-child hierarchical chunks.
+        parent_chunk_size: Size of parent chunks in tokens.
+        child_chunk_size: Size of child chunks in tokens.
     """
 
     enabled: bool = True
@@ -268,6 +271,11 @@ class ChunkingSettings:
     )
     sentence_min_length: int = 20
 
+    # Hierarchical chunking settings
+    hierarchical_chunking_enabled: bool = False
+    parent_chunk_size: int = 2048
+    child_chunk_size: int = 512
+
     def to_dict(self) -> Dict[str, Any]:
         """Return a serializable representation."""
         return {
@@ -278,6 +286,9 @@ class ChunkingSettings:
             "preserve_metadata": self.preserve_metadata,
             "recursive_separators": self.recursive_separators,
             "sentence_min_length": self.sentence_min_length,
+            "hierarchical_chunking_enabled": self.hierarchical_chunking_enabled,
+            "parent_chunk_size": self.parent_chunk_size,
+            "child_chunk_size": self.child_chunk_size,
         }
 
     @classmethod
@@ -300,6 +311,9 @@ class ChunkingSettings:
             preserve_metadata=bool(data.get("preserve_metadata", True)),
             recursive_separators=separators,
             sentence_min_length=int(data.get("sentence_min_length", 20)),
+            hierarchical_chunking_enabled=bool(data.get("hierarchical_chunking_enabled", False)),
+            parent_chunk_size=int(data.get("parent_chunk_size", 2048)),
+            child_chunk_size=int(data.get("child_chunk_size", 512)),
         )
 
 
@@ -358,9 +372,12 @@ class RerankingSettings:
     cohere_api_key: Optional[str] = None
     cohere_model: str = "rerank-english-v3.0"
 
-    # Hybrid search
+    # Hybrid search settings
     hybrid_search_enabled: bool = False
-    hybrid_search_weight: float = 0.5  # 0 = all keyword, 1 = all vector
+    hybrid_search_weight: float = 0.5  # 0 = all keyword, 1 = all vector (deprecated, use RRF)
+    hybrid_rrf_k: int = 60  # RRF smoothing constant (default from original paper)
+    hybrid_dense_weight: float = 1.0  # Weight multiplier for dense retrieval
+    hybrid_lexical_weight: float = 1.0  # Weight multiplier for lexical retrieval
 
     def to_dict(self) -> Dict[str, Any]:
         """Return a serializable representation."""
@@ -372,6 +389,9 @@ class RerankingSettings:
             "cohere_model": self.cohere_model,
             "hybrid_search_enabled": self.hybrid_search_enabled,
             "hybrid_search_weight": self.hybrid_search_weight,
+            "hybrid_rrf_k": self.hybrid_rrf_k,
+            "hybrid_dense_weight": self.hybrid_dense_weight,
+            "hybrid_lexical_weight": self.hybrid_lexical_weight,
         }
 
     @classmethod
@@ -391,6 +411,130 @@ class RerankingSettings:
             cohere_model=str(data.get("cohere_model", "rerank-english-v3.0")),
             hybrid_search_enabled=bool(data.get("hybrid_search_enabled", False)),
             hybrid_search_weight=float(data.get("hybrid_search_weight", 0.5)),
+            hybrid_rrf_k=int(data.get("hybrid_rrf_k", 60)),
+            hybrid_dense_weight=float(data.get("hybrid_dense_weight", 1.0)),
+            hybrid_lexical_weight=float(data.get("hybrid_lexical_weight", 1.0)),
+        )
+
+
+@dataclass
+class CachingSettings:
+    """Caching configuration for RAG performance optimization."""
+
+    # Embedding cache settings
+    embedding_cache_enabled: bool = True
+    embedding_cache_max_size: int = 10000
+    embedding_cache_ttl_seconds: Optional[float] = 3600.0  # 1 hour
+
+    # Query result cache settings
+    query_cache_enabled: bool = True
+    query_cache_max_size: int = 1000
+    query_cache_ttl_seconds: Optional[float] = 300.0  # 5 minutes
+    query_cache_semantic_matching: bool = True
+    query_cache_similarity_threshold: float = 0.95
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Return a serializable representation."""
+        return {
+            "embedding_cache_enabled": self.embedding_cache_enabled,
+            "embedding_cache_max_size": self.embedding_cache_max_size,
+            "embedding_cache_ttl_seconds": self.embedding_cache_ttl_seconds,
+            "query_cache_enabled": self.query_cache_enabled,
+            "query_cache_max_size": self.query_cache_max_size,
+            "query_cache_ttl_seconds": self.query_cache_ttl_seconds,
+            "query_cache_semantic_matching": self.query_cache_semantic_matching,
+            "query_cache_similarity_threshold": self.query_cache_similarity_threshold,
+        }
+
+    @classmethod
+    def from_mapping(cls, data: Mapping[str, Any] | None) -> "CachingSettings":
+        """Create from configuration mapping."""
+        if not isinstance(data, Mapping):
+            return cls()
+
+        ttl_embed = data.get("embedding_cache_ttl_seconds", 3600.0)
+        ttl_query = data.get("query_cache_ttl_seconds", 300.0)
+
+        return cls(
+            embedding_cache_enabled=bool(data.get("embedding_cache_enabled", True)),
+            embedding_cache_max_size=int(data.get("embedding_cache_max_size", 10000)),
+            embedding_cache_ttl_seconds=float(ttl_embed) if ttl_embed is not None else None,
+            query_cache_enabled=bool(data.get("query_cache_enabled", True)),
+            query_cache_max_size=int(data.get("query_cache_max_size", 1000)),
+            query_cache_ttl_seconds=float(ttl_query) if ttl_query is not None else None,
+            query_cache_semantic_matching=bool(data.get("query_cache_semantic_matching", True)),
+            query_cache_similarity_threshold=float(data.get("query_cache_similarity_threshold", 0.95)),
+        )
+
+
+class CompressionStrategy(str, Enum):
+    """Available context compression strategies."""
+
+    NONE = "none"
+    EXTRACTIVE = "extractive"
+    LLMLINGUA = "llmlingua"
+    HYBRID = "hybrid"
+
+    @classmethod
+    def coerce(cls, value: Any, default: "CompressionStrategy") -> "CompressionStrategy":
+        """Return the enum value matching ``value`` or ``default`` when invalid."""
+        if isinstance(value, CompressionStrategy):
+            return value
+        if isinstance(value, str):
+            lowered = value.strip().lower()
+            for candidate in cls:
+                if candidate.value == lowered:
+                    return candidate
+        return default
+
+
+@dataclass
+class CompressionSettings:
+    """Context compression configuration for reducing token usage."""
+
+    enabled: bool = False
+    strategy: CompressionStrategy = CompressionStrategy.EXTRACTIVE
+    target_ratio: float = 0.5  # Keep 50% of original context
+    min_context_length: int = 1000  # Only compress if longer than this
+
+    # LLMLingua-specific settings
+    llmlingua_model: str = "gpt2"
+    llmlingua_preserve_ratio: float = 0.3
+
+    # Extractive-specific settings
+    extractive_min_sentences: int = 1
+    extractive_position_weight: float = 0.1
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Return a serializable representation."""
+        return {
+            "enabled": self.enabled,
+            "strategy": self.strategy.value,
+            "target_ratio": self.target_ratio,
+            "min_context_length": self.min_context_length,
+            "llmlingua_model": self.llmlingua_model,
+            "llmlingua_preserve_ratio": self.llmlingua_preserve_ratio,
+            "extractive_min_sentences": self.extractive_min_sentences,
+            "extractive_position_weight": self.extractive_position_weight,
+        }
+
+    @classmethod
+    def from_mapping(cls, data: Mapping[str, Any] | None) -> "CompressionSettings":
+        """Create from configuration mapping."""
+        if not isinstance(data, Mapping):
+            return cls()
+
+        return cls(
+            enabled=bool(data.get("enabled", False)),
+            strategy=CompressionStrategy.coerce(
+                data.get("strategy"), CompressionStrategy.EXTRACTIVE
+            ),
+            target_ratio=float(data.get("target_ratio", 0.5)),
+            min_context_length=int(data.get("min_context_length", 1000)),
+            llmlingua_model=str(data.get("llmlingua_model", "gpt2")),
+            llmlingua_preserve_ratio=float(data.get("llmlingua_preserve_ratio", 0.3)),
+            extractive_min_sentences=int(data.get("extractive_min_sentences", 1)),
+            extractive_position_weight=float(data.get("extractive_position_weight", 0.1)),
         )
 
 
@@ -550,6 +694,8 @@ class RAGSettings:
         reranking: Result reranking settings.
         knowledge_store: Knowledge store settings.
         ingestion: Document ingestion settings.
+        caching: Caching settings for performance optimization.
+        compression: Context compression settings.
     """
 
     enabled: bool = False  # Disabled by default - user must opt-in
@@ -561,6 +707,8 @@ class RAGSettings:
     reranking: RerankingSettings = field(default_factory=RerankingSettings)
     knowledge_store: KnowledgeStoreSettings = field(default_factory=KnowledgeStoreSettings)
     ingestion: IngestionSettings = field(default_factory=IngestionSettings)
+    caching: CachingSettings = field(default_factory=CachingSettings)
+    compression: CompressionSettings = field(default_factory=CompressionSettings)
 
     @property
     def is_fully_enabled(self) -> bool:
@@ -584,6 +732,8 @@ class RAGSettings:
             "reranking": self.reranking.to_dict(),
             "knowledge_store": self.knowledge_store.to_dict(),
             "ingestion": self.ingestion.to_dict(),
+            "caching": self.caching.to_dict(),
+            "compression": self.compression.to_dict(),
         }
 
     @classmethod
@@ -602,6 +752,8 @@ class RAGSettings:
             reranking=RerankingSettings.from_mapping(data.get("reranking")),
             knowledge_store=KnowledgeStoreSettings.from_mapping(data.get("knowledge_store")),
             ingestion=IngestionSettings.from_mapping(data.get("ingestion")),
+            caching=CachingSettings.from_mapping(data.get("caching")),
+            compression=CompressionSettings.from_mapping(data.get("compression")),
         )
 
 
@@ -615,6 +767,7 @@ __all__ = [
     "TextSplitterType",
     "RerankerType",
     "KnowledgeStoreType",
+    "CompressionStrategy",
     # Provider settings
     "OpenAIEmbeddingSettings",
     "CohereEmbeddingSettings",
@@ -624,6 +777,8 @@ __all__ = [
     "ChunkingSettings",
     "RetrievalSettings",
     "RerankingSettings",
+    "CachingSettings",
+    "CompressionSettings",
     "KnowledgeStoreSettings",
     "IngestionSettings",
     "RAGSettings",

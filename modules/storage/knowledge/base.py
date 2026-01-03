@@ -140,6 +140,10 @@ class KnowledgeChunk:
         embedding: Vector embedding (may be None if not yet computed).
         chunk_index: Position of this chunk in the document.
         token_count: Approximate token count.
+        content_length: Character length of content (for BM25 normalization).
+        section_path: Hierarchical section path (e.g., "Doc > Heading > Sub").
+        parent_chunk_id: ID of parent chunk for hierarchical retrieval.
+        is_parent: Whether this is a parent chunk (larger context window).
         metadata: Chunk-specific metadata.
         created_at: Creation timestamp.
     """
@@ -151,6 +155,10 @@ class KnowledgeChunk:
     embedding: Optional[List[float]] = None
     chunk_index: int = 0
     token_count: int = 0
+    content_length: int = 0
+    section_path: Optional[str] = None
+    parent_chunk_id: Optional[str] = None
+    is_parent: bool = False
     metadata: ChunkMetadata = field(default_factory=ChunkMetadata)
     created_at: Optional[datetime] = None
 
@@ -159,6 +167,8 @@ class KnowledgeChunk:
             self.id = str(uuid.uuid4())
         if self.created_at is None:
             self.created_at = datetime.utcnow()
+        if self.content_length == 0 and self.content:
+            self.content_length = len(self.content)
 
 
 @dataclass(slots=True)

@@ -34,6 +34,52 @@ from modules.storage.retrieval.retriever import (
     CohereReranker,
     # Main class
     RAGRetriever,
+    # Utility functions
+    rrf_fuse,
+)
+
+from modules.storage.retrieval.query_router import (
+    # Enums
+    QueryIntent,
+    # Data classes
+    ClassificationResult,
+    # Routers
+    QueryRouter,
+    SimpleQueryRouter,
+)
+
+from modules.storage.retrieval.evidence import (
+    # Data classes
+    Citation,
+    ClaimVerification,
+    VerificationResult,
+    SupportLevel,
+    # Classes
+    CitationExtractor,
+    FaithfulnessScorer,
+    EvidenceGate,
+)
+
+from modules.storage.retrieval.cache import (
+    # Data classes
+    CacheEntry,
+    # Caches
+    EmbeddingCache,
+    QueryResultCache,
+    # Provider wrapper
+    CachedEmbeddingProvider,
+)
+
+from modules.storage.retrieval.compression import (
+    # Data classes
+    CompressionResult,
+    # Compressors
+    ContextCompressor,
+    LLMLinguaCompressor,
+    ExtractiveSummarizer,
+    HybridCompressor,
+    # Factory
+    create_compressor,
 )
 
 
@@ -54,4 +100,31 @@ __all__ = [
     "CohereReranker",
     # Main class
     "RAGRetriever",
+    # Utility functions
+    "rrf_fuse",
+    # Query routing
+    "QueryIntent",
+    "ClassificationResult",
+    "QueryRouter",
+    "SimpleQueryRouter",
+    # Evidence gating
+    "Citation",
+    "ClaimVerification",
+    "VerificationResult",
+    "SupportLevel",
+    "CitationExtractor",
+    "FaithfulnessScorer",
+    "EvidenceGate",
+    # Caching
+    "CacheEntry",
+    "EmbeddingCache",
+    "QueryResultCache",
+    "CachedEmbeddingProvider",
+    # Compression
+    "CompressionResult",
+    "ContextCompressor",
+    "LLMLinguaCompressor",
+    "ExtractiveSummarizer",
+    "HybridCompressor",
+    "create_compressor",
 ]

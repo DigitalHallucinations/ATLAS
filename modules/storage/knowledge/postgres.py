@@ -199,14 +199,19 @@ class PostgresKnowledgeStore(KnowledgeStore):
                             knowledge_base_id UUID NOT NULL REFERENCES {self._schema}.{self.TABLE_KNOWLEDGE_BASES}(id) ON DELETE CASCADE,
                             content TEXT NOT NULL,
                             embedding vector(3072),
+                            tsv tsvector,
                             chunk_index INTEGER NOT NULL,
                             token_count INTEGER DEFAULT 0,
+                            content_length INTEGER DEFAULT 0,
                             start_char INTEGER DEFAULT 0,
                             end_char INTEGER DEFAULT 0,
                             start_line INTEGER,
                             end_line INTEGER,
                             section TEXT,
+                            section_path TEXT,
                             language TEXT,
+                            parent_chunk_id UUID REFERENCES {self._schema}.{self.TABLE_CHUNKS}(id) ON DELETE SET NULL,
+                            is_parent BOOLEAN DEFAULT FALSE,
                             metadata JSONB DEFAULT '{{}}',
                             created_at TIMESTAMPTZ DEFAULT NOW()
                         )
@@ -267,6 +272,20 @@ class PostgresKnowledgeStore(KnowledgeStore):
                     text(f"""
                         CREATE INDEX IF NOT EXISTS idx_chunk_kb
                         ON {self._schema}.{self.TABLE_CHUNKS}(knowledge_base_id)
+                    """)
+                )
+                conn.execute(
+                    text(f"""
+                        CREATE INDEX IF NOT EXISTS idx_chunk_parent
+                        ON {self._schema}.{self.TABLE_CHUNKS}(parent_chunk_id)
+                        WHERE parent_chunk_id IS NOT NULL
+                    """)
+                )
+                conn.execute(
+                    text(f"""
+                        CREATE INDEX IF NOT EXISTS idx_chunk_tsv
+                        ON {self._schema}.{self.TABLE_CHUNKS}
+                        USING GIN (tsv)
                     """)
                 )
                 conn.execute(
@@ -575,8 +594,24 @@ class PostgresKnowledgeStore(KnowledgeStore):
         metadata: Optional[Dict[str, Any]] = None,
         auto_chunk: bool = True,
         auto_embed: bool = True,
+        hierarchical_chunker: Optional[Any] = None,
     ) -> KnowledgeDocument:
-        """Add a document to a knowledge base."""
+        """Add a document to a knowledge base.
+        
+        Args:
+            kb_id: Knowledge base identifier.
+            title: Document title.
+            content: Document content.
+            source_uri: Original source location.
+            document_type: Type of document.
+            metadata: Document metadata.
+            auto_chunk: Whether to automatically chunk the document.
+            auto_embed: Whether to automatically generate embeddings.
+            hierarchical_chunker: Optional hierarchical chunker for parent-child chunking.
+        
+        Returns:
+            The created document.
+        """
         # Verify knowledge base exists
         kb = await self.get_knowledge_base(kb_id)
         if not kb:
@@ -638,7 +673,11 @@ class PostgresKnowledgeStore(KnowledgeStore):
         # Process chunks if auto_chunk is enabled
         if auto_chunk:
             try:
-                await self._process_document_chunks(doc, kb, auto_embed=auto_embed)
+                await self._process_document_chunks(
+                    doc, kb,
+                    auto_embed=auto_embed,
+                    hierarchical_chunker=hierarchical_chunker,
+                )
             except Exception as exc:
                 logger.error(f"Failed to process document {doc_id}: {exc}")
                 await self._update_document_status(
@@ -657,8 +696,23 @@ class PostgresKnowledgeStore(KnowledgeStore):
         kb: KnowledgeBase,
         *,
         auto_embed: bool = True,
+        hierarchical_chunker: Optional[Any] = None,
     ) -> None:
-        """Process a document into chunks and optionally embed them."""
+        """Process a document into chunks and optionally embed them.
+        
+        Args:
+            doc: Document to process.
+            kb: Knowledge base the document belongs to.
+            auto_embed: Whether to generate embeddings.
+            hierarchical_chunker: Optional hierarchical chunker for parent-child chunks.
+        """
+        # Use hierarchical chunker if provided
+        if hierarchical_chunker is not None:
+            await self._process_hierarchical_chunks(
+                doc, kb, hierarchical_chunker, auto_embed=auto_embed
+            )
+            return
+        
         if not self._text_splitter:
             raise IngestionError("No text splitter configured")
 
@@ -715,6 +769,117 @@ class PostgresKnowledgeStore(KnowledgeStore):
             sum(c.token_count for c in chunks),
         )
 
+    async def _process_hierarchical_chunks(
+        self,
+        doc: KnowledgeDocument,
+        kb: KnowledgeBase,
+        hierarchical_chunker: Any,
+        *,
+        auto_embed: bool = True,
+    ) -> None:
+        """Process document into hierarchical parent-child chunks.
+        
+        Args:
+            doc: Document to process.
+            kb: Knowledge base the document belongs to.
+            hierarchical_chunker: HierarchicalChunker instance.
+            auto_embed: Whether to generate embeddings.
+        """
+        # Split document into hierarchical chunks
+        result = hierarchical_chunker.split_text_hierarchical(doc.content or "")
+        
+        if not result.all_chunks:
+            logger.warning(f"No hierarchical chunks generated for document: {doc.id}")
+            await self._update_document_status(doc.id, DocumentStatus.INDEXED)
+            return
+        
+        # Separate parent and child chunks
+        parent_chunks = [c for c in result.all_chunks if c.is_parent]
+        child_chunks = [c for c in result.all_chunks if not c.is_parent]
+        
+        # Map temporary parent IDs to real UUIDs
+        parent_id_map: Dict[str, str] = {}
+        for chunk in parent_chunks:
+            parent_id_map[chunk.chunk_id] = str(uuid.uuid4())
+        
+        # Generate embeddings for child chunks only (they're used for retrieval)
+        # Parent chunks serve as expanded context, not search targets
+        child_contents = [c.content for c in child_chunks]
+        embeddings: Optional[List[List[float]]] = None
+        
+        if auto_embed and self._embedding_provider and child_contents:
+            await self._embedding_provider.initialize()
+            result_embed = await self._embedding_provider.embed_batch(child_contents)
+            embeddings = result_embed.embeddings
+        
+        # Build chunk records - parents first, then children
+        chunk_records: List[Dict[str, Any]] = []
+        
+        # Add parent chunks (no embedding, is_parent=True)
+        for i, chunk in enumerate(parent_chunks):
+            real_id = parent_id_map[chunk.chunk_id]
+            chunk_records.append({
+                "id": real_id,
+                "document_id": doc.id,
+                "knowledge_base_id": doc.knowledge_base_id,
+                "content": chunk.content,
+                "embedding": None,  # Parents aren't searched directly
+                "chunk_index": i,
+                "token_count": chunk.token_count,
+                "start_char": chunk.start_char,
+                "end_char": chunk.end_char,
+                "start_line": None,
+                "end_line": None,
+                "section": None,
+                "section_path": None,
+                "language": None,
+                "parent_chunk_id": None,
+                "is_parent": True,
+                "metadata": {"children_count": len(chunk.children)},
+            })
+        
+        # Add child chunks with parent references
+        for i, chunk in enumerate(child_chunks):
+            parent_real_id = parent_id_map.get(chunk.parent_id) if chunk.parent_id else None
+            embedding = embeddings[i] if embeddings else None
+            chunk_records.append({
+                "id": str(uuid.uuid4()),
+                "document_id": doc.id,
+                "knowledge_base_id": doc.knowledge_base_id,
+                "content": chunk.content,
+                "embedding": embedding,
+                "chunk_index": len(parent_chunks) + i,
+                "token_count": chunk.token_count,
+                "start_char": chunk.start_char,
+                "end_char": chunk.end_char,
+                "start_line": None,
+                "end_line": None,
+                "section": None,
+                "section_path": None,
+                "language": None,
+                "parent_chunk_id": parent_real_id,
+                "is_parent": False,
+                "metadata": {},
+            })
+        
+        await self._insert_chunks(chunk_records)
+        
+        # Update document status and counts
+        total_tokens = sum(c.token_count for c in result.all_chunks)
+        await self._update_document_after_chunking(
+            doc.id,
+            doc.knowledge_base_id,
+            len(chunk_records),
+            total_tokens,
+        )
+        
+        logger.info(
+            "Processed hierarchical chunks for document %s: %d parents, %d children",
+            doc.id,
+            len(parent_chunks),
+            len(child_chunks),
+        )
+
     async def _insert_chunks(self, chunks: List[Dict[str, Any]]) -> None:
         """Insert chunk records into the database."""
 
@@ -726,19 +891,26 @@ class PostgresKnowledgeStore(KnowledgeStore):
                 for chunk in chunks:
                     embedding_str = (
                         f"[{','.join(str(v) for v in chunk['embedding'])}]"
-                        if chunk["embedding"]
+                        if chunk.get("embedding")
                         else None
                     )
+                    content = chunk["content"]
+                    content_length = len(content) if content else 0
                     conn.execute(
                         text(f"""
                             INSERT INTO {self._schema}.{self.TABLE_CHUNKS}
                             (id, document_id, knowledge_base_id, content, embedding,
-                             chunk_index, token_count, start_char, end_char,
-                             start_line, end_line, section, language, metadata)
+                             tsv, chunk_index, token_count, content_length,
+                             start_char, end_char, start_line, end_line,
+                             section, section_path, language,
+                             parent_chunk_id, is_parent, metadata)
                             VALUES (:id, :document_id, :knowledge_base_id, :content,
                                     {'$1::vector' if embedding_str else 'NULL'},
-                                    :chunk_index, :token_count, :start_char, :end_char,
-                                    :start_line, :end_line, :section, :language, :metadata)
+                                    to_tsvector('english', coalesce(:content, '')),
+                                    :chunk_index, :token_count, :content_length,
+                                    :start_char, :end_char, :start_line, :end_line,
+                                    :section, :section_path, :language,
+                                    :parent_chunk_id, :is_parent, :metadata)
                         """).bindparams(
                             **({"embedding": embedding_str} if embedding_str else {}),
                         ),
@@ -746,15 +918,19 @@ class PostgresKnowledgeStore(KnowledgeStore):
                             "id": chunk["id"],
                             "document_id": chunk["document_id"],
                             "knowledge_base_id": chunk["knowledge_base_id"],
-                            "content": chunk["content"],
+                            "content": content,
                             "chunk_index": chunk["chunk_index"],
                             "token_count": chunk["token_count"],
+                            "content_length": content_length,
                             "start_char": chunk["start_char"],
                             "end_char": chunk["end_char"],
                             "start_line": chunk["start_line"],
                             "end_line": chunk["end_line"],
                             "section": chunk["section"],
+                            "section_path": chunk.get("section_path"),
                             "language": chunk["language"],
+                            "parent_chunk_id": chunk.get("parent_chunk_id"),
+                            "is_parent": chunk.get("is_parent", False),
                             "metadata": json.dumps(chunk["metadata"] or {}),
                         },
                     )
@@ -1189,8 +1365,9 @@ class PostgresKnowledgeStore(KnowledgeStore):
 
             columns = """
                 id, document_id, knowledge_base_id, content, chunk_index,
-                token_count, start_char, end_char, start_line, end_line,
-                section, language, metadata, created_at
+                token_count, content_length, start_char, end_char, start_line, end_line,
+                section, section_path, language, parent_chunk_id, is_parent,
+                metadata, created_at
             """
             if include_embeddings:
                 columns += ", embedding"
@@ -1216,19 +1393,23 @@ class PostgresKnowledgeStore(KnowledgeStore):
                     "content": row[3],
                     "chunk_index": row[4],
                     "token_count": row[5],
+                    "content_length": row[6],
+                    "section_path": row[12],
+                    "parent_chunk_id": str(row[14]) if row[14] else None,
+                    "is_parent": row[15] or False,
                     "metadata": ChunkMetadata(
-                        start_char=row[6],
-                        end_char=row[7],
-                        start_line=row[8],
-                        end_line=row[9],
-                        section=row[10],
-                        language=row[11],
-                        extra=row[12] or {},
+                        start_char=row[7],
+                        end_char=row[8],
+                        start_line=row[9],
+                        end_line=row[10],
+                        section=row[11],
+                        language=row[13],
+                        extra=row[16] or {},
                     ),
-                    "created_at": row[13],
+                    "created_at": row[17],
                 }
                 if include_embeddings:
-                    chunk_data["embedding"] = list(row[14]) if row[14] else None
+                    chunk_data["embedding"] = list(row[18]) if row[18] else None
                 chunks.append(chunk_data)
 
             return chunks
@@ -1249,8 +1430,9 @@ class PostgresKnowledgeStore(KnowledgeStore):
 
             columns = """
                 id, document_id, knowledge_base_id, content, chunk_index,
-                token_count, start_char, end_char, start_line, end_line,
-                section, language, metadata, created_at
+                token_count, content_length, start_char, end_char, start_line, end_line,
+                section, section_path, language, parent_chunk_id, is_parent,
+                metadata, created_at
             """
             if include_embedding:
                 columns += ", embedding"
@@ -1275,19 +1457,23 @@ class PostgresKnowledgeStore(KnowledgeStore):
                     "content": row[3],
                     "chunk_index": row[4],
                     "token_count": row[5],
+                    "content_length": row[6],
+                    "section_path": row[12],
+                    "parent_chunk_id": str(row[14]) if row[14] else None,
+                    "is_parent": row[15] or False,
                     "metadata": ChunkMetadata(
-                        start_char=row[6],
-                        end_char=row[7],
-                        start_line=row[8],
-                        end_line=row[9],
-                        section=row[10],
-                        language=row[11],
-                        extra=row[12] or {},
+                        start_char=row[7],
+                        end_char=row[8],
+                        start_line=row[9],
+                        end_line=row[10],
+                        section=row[11],
+                        language=row[13],
+                        extra=row[16] or {},
                     ),
-                    "created_at": row[13],
+                    "created_at": row[17],
                 }
                 if include_embedding:
-                    chunk_data["embedding"] = list(row[14]) if row[14] else None
+                    chunk_data["embedding"] = list(row[18]) if row[18] else None
                 return chunk_data
 
         data = await asyncio.to_thread(_get)
@@ -1416,9 +1602,14 @@ class PostgresKnowledgeStore(KnowledgeStore):
                     c.content,
                     c.chunk_index,
                     c.token_count,
+                    c.content_length,
                     c.start_char,
                     c.end_char,
                     c.section,
+                    c.section_path,
+                    c.language,
+                    c.parent_chunk_id,
+                    c.is_parent,
                     c.metadata,
                     c.created_at,
                     1 - (c.embedding <=> :embedding::vector) AS score,
@@ -1435,7 +1626,7 @@ class PostgresKnowledgeStore(KnowledgeStore):
 
             results = []
             for row in rows:
-                score = float(row[11]) if row[11] else 0.0
+                score = float(row[19]) if row[19] else 0.0
                 if score < query.min_score:
                     continue
 
@@ -1446,24 +1637,161 @@ class PostgresKnowledgeStore(KnowledgeStore):
                     content=row[3] if query.include_content else "",
                     chunk_index=row[4],
                     token_count=row[5],
+                    content_length=row[6] or 0,
+                    section_path=row[14],
+                    parent_chunk_id=str(row[16]) if row[16] else None,
+                    is_parent=row[17] or False,
                     metadata=ChunkMetadata(
-                        start_char=row[6],
-                        end_char=row[7],
-                        section=row[8],
-                        extra=row[9] or {},
+                        start_char=row[7],
+                        end_char=row[8],
+                        section=row[13],
+                        language=row[15],
+                        extra=row[18] or {},
                     ),
-                    created_at=row[10],
+                    created_at=row[19],
                 )
 
                 results.append({
                     "chunk": chunk,
                     "score": score,
-                    "distance": float(row[12]) if row[12] else None,
+                    "distance": float(row[20]) if row[20] else None,
                 })
 
             return results
 
         search_results = await asyncio.to_thread(_search)
+
+        # Optionally fetch document info
+        final_results = []
+        for result_data in search_results:
+            doc = None
+            if query.include_document:
+                doc = await self.get_document(result_data["chunk"].document_id)
+
+            final_results.append(
+                SearchResult(
+                    chunk=result_data["chunk"],
+                    document=doc,
+                    score=result_data["score"],
+                    distance=result_data["distance"],
+                )
+            )
+
+        return final_results
+
+    async def search_lexical(
+        self,
+        query: SearchQuery,
+    ) -> List[SearchResult]:
+        """Perform full-text (lexical) search using PostgreSQL tsvector.
+
+        Uses ts_rank_cd for relevance scoring with BM25-like normalization.
+        This method is designed to work alongside dense vector search for
+        hybrid retrieval with RRF fusion.
+
+        Args:
+            query: SearchQuery containing query_text and filters.
+
+        Returns:
+            List of SearchResult ranked by lexical relevance.
+        """
+
+        def _search_lexical() -> List[Dict[str, Any]]:
+            from sqlalchemy import text
+
+            # Build WHERE clauses
+            where_clauses = []
+            params = {
+                "query_text": query.query_text,
+                "top_k": query.top_k,
+            }
+
+            # Filter by knowledge base
+            if query.knowledge_base_ids:
+                where_clauses.append(
+                    "c.knowledge_base_id = ANY(:kb_ids)"
+                )
+                params["kb_ids"] = query.knowledge_base_ids
+
+            # Filter by document
+            if query.document_ids:
+                where_clauses.append("c.document_id = ANY(:doc_ids)")
+                params["doc_ids"] = query.document_ids
+
+            # Full-text search filter - require match
+            where_clauses.append(
+                "c.tsv @@ plainto_tsquery('english', :query_text)"
+            )
+
+            where_sql = " AND ".join(where_clauses)
+
+            # Use ts_rank_cd with normalization for BM25-like scoring
+            # Normalization flag 32 divides rank by (1 + log(doc_length))
+            sql = f"""
+                SELECT
+                    c.id,
+                    c.document_id,
+                    c.knowledge_base_id,
+                    c.content,
+                    c.chunk_index,
+                    c.token_count,
+                    c.content_length,
+                    c.start_char,
+                    c.end_char,
+                    c.section,
+                    c.section_path,
+                    c.language,
+                    c.parent_chunk_id,
+                    c.is_parent,
+                    c.metadata,
+                    c.created_at,
+                    ts_rank_cd(c.tsv, plainto_tsquery('english', :query_text), 32) AS score
+                FROM {self._schema}.{self.TABLE_CHUNKS} c
+                WHERE {where_sql}
+                ORDER BY score DESC
+                LIMIT :top_k
+            """
+
+            with self._engine.connect() as conn:
+                result = conn.execute(text(sql), params)
+                rows = result.fetchall()
+
+            results = []
+            for row in rows:
+                score = float(row[16]) if row[16] else 0.0
+                if score < query.min_score:
+                    continue
+
+                chunk = KnowledgeChunk(
+                    id=str(row[0]),
+                    document_id=str(row[1]),
+                    knowledge_base_id=str(row[2]),
+                    content=row[3] if query.include_content else "",
+                    chunk_index=row[4],
+                    token_count=row[5],
+                    content_length=row[6] or 0,
+                    section_path=row[10],
+                    parent_chunk_id=str(row[12]) if row[12] else None,
+                    is_parent=row[13] or False,
+                    metadata=ChunkMetadata(
+                        start_char=row[7],
+                        end_char=row[8],
+                        section=row[9],
+                        language=row[11],
+                        extra=row[14] or {},
+                    ),
+                    created_at=row[15],
+                )
+
+                results.append({
+                    "chunk": chunk,
+                    "score": score,
+                    "distance": None,  # Not applicable for lexical search
+                })
+
+            return results
+
+        search_results = await asyncio.to_thread(_search_lexical)
 
         # Optionally fetch document info
         final_results = []

@@ -6,6 +6,7 @@ across ATLAS. Coordinates:
 - RAGRetriever for semantic search
 - DocumentIngester for knowledge base population
 - EmbeddingProvider for vector generation
+- Caching layers for performance optimization
 
 Example:
     >>> from ATLAS.services.rag import RAGService
@@ -34,7 +35,7 @@ from modules.logging.logger import setup_logger
 
 if TYPE_CHECKING:
     from ATLAS.config import ConfigManager
-    from ATLAS.config.rag import RAGSettings
+    from ATLAS.config.rag import RAGSettings, CachingSettings, CompressionSettings
     from modules.storage.embeddings import EmbeddingProvider
     from modules.storage.ingestion import DocumentIngester
     from modules.storage.knowledge import KnowledgeStore
@@ -44,6 +45,8 @@ if TYPE_CHECKING:
         AssembledContext,
         ContextFormat,
     )
+    from modules.storage.retrieval.cache import EmbeddingCache, QueryResultCache
+    from modules.storage.retrieval.compression import ContextCompressor
 
 logger = setup_logger(__name__)
 
@@ -73,6 +76,18 @@ class RAGServiceStatus:
     has_ingester: bool = False
     """Whether ingester is available."""
     
+    has_compressor: bool = False
+    """Whether context compressor is available."""
+    
+    compression_strategy: Optional[str] = None
+    """Active compression strategy (e.g., 'extractive', 'llmlingua')."""
+    
+    embedding_cache_stats: Optional[Dict[str, Any]] = None
+    """Embedding cache statistics."""
+    
+    query_cache_stats: Optional[Dict[str, Any]] = None
+    """Query result cache statistics."""
+    
     error: Optional[str] = None
     """Error message if not operational."""
 
@@ -85,6 +100,7 @@ class RAGService:
     - Context retrieval
     - Status monitoring
     - Configuration management
+    - Performance caching
     
     Use `await RAGService.create(config)` to initialize with auto-setup,
     or create directly with pre-configured components.
@@ -98,6 +114,9 @@ class RAGService:
         embedding_provider: Optional[EmbeddingProvider] = None,
         retriever: Optional[RAGRetriever] = None,
         ingester: Optional[DocumentIngester] = None,
+        embedding_cache: Optional[EmbeddingCache] = None,
+        query_cache: Optional[QueryResultCache] = None,
+        compressor: Optional[ContextCompressor] = None,
     ):
         """Initialize RAG service.
         
@@ -109,12 +128,18 @@ class RAGService:
             embedding_provider: Pre-configured embedding provider.
             retriever: Pre-configured retriever.
             ingester: Pre-configured ingester.
+            embedding_cache: Pre-configured embedding cache.
+            query_cache: Pre-configured query result cache.
+            compressor: Pre-configured context compressor.
         """
         self._config_manager = config_manager
         self._knowledge_store = knowledge_store
         self._embedding_provider = embedding_provider
         self._retriever = retriever
         self._ingester = ingester
+        self._embedding_cache: Optional[EmbeddingCache] = embedding_cache
+        self._query_cache: Optional[QueryResultCache] = query_cache
+        self._compressor: Optional[ContextCompressor] = compressor
         self._initialized = False
         self._init_lock = asyncio.Lock()
     
@@ -152,7 +177,7 @@ class RAGService:
     async def initialize(self) -> bool:
         """Initialize RAG components based on configuration.
         
-        Creates retriever and ingester if knowledge_store and
+        Creates caches, retriever, and ingester if knowledge_store and
         embedding_provider are available.
         
         Returns:
@@ -179,6 +204,9 @@ class RAGService:
                     self._initialized = True
                     return True
                 
+                # Create caches if not provided
+                self._create_caches(settings.caching)
+                
                 # Create retriever if not provided
                 if not self._retriever:
                     self._retriever = self._create_retriever(settings)
@@ -187,6 +215,10 @@ class RAGService:
                 if not self._ingester:
                     self._ingester = self._create_ingester(settings)
                 
+                # Create compressor if enabled
+                if not self._compressor and settings.compression.enabled:
+                    self._compressor = self._create_compressor(settings.compression)
+                
                 self._initialized = True
                 logger.info("RAG service initialized successfully")
                 return True
@@ -194,6 +226,41 @@ class RAGService:
             except Exception as exc:
                 logger.error("Failed to initialize RAG service: %s", exc, exc_info=True)
                 return False
+    
+    def _create_caches(self, cache_settings: CachingSettings) -> None:
+        """Create caches based on settings."""
+        try:
+            from modules.storage.retrieval.cache import EmbeddingCache, QueryResultCache
+            
+            # Create embedding cache if enabled and not provided
+            if cache_settings.embedding_cache_enabled and not self._embedding_cache:
+                self._embedding_cache = EmbeddingCache(
+                    max_size=cache_settings.embedding_cache_max_size,
+                    ttl_seconds=cache_settings.embedding_cache_ttl_seconds,
+                )
+                logger.debug(
+                    "Created embedding cache: max_size=%d, ttl=%s",
+                    cache_settings.embedding_cache_max_size,
+                    cache_settings.embedding_cache_ttl_seconds,
+                )
+            
+            # Create query result cache if enabled and not provided
+            if cache_settings.query_cache_enabled and not self._query_cache:
+                self._query_cache = QueryResultCache(
+                    max_size=cache_settings.query_cache_max_size,
+                    ttl_seconds=cache_settings.query_cache_ttl_seconds,
+                    similarity_threshold=cache_settings.query_cache_similarity_threshold,
+                    embedding_cache=self._embedding_cache,  # For semantic matching
+                )
+                logger.debug(
+                    "Created query cache: max_size=%d, ttl=%s, semantic=%s",
+                    cache_settings.query_cache_max_size,
+                    cache_settings.query_cache_ttl_seconds,
+                    cache_settings.query_cache_semantic_matching,
+                )
+                
+        except Exception as exc:
+            logger.warning("Failed to create caches: %s", exc)
     
     def _create_retriever(self, settings: RAGSettings) -> Optional[RAGRetriever]:
         """Create RAG retriever based on settings."""
@@ -224,6 +291,11 @@ class RAGService:
                 min_score=retr_settings.similarity_threshold,
                 reranker_type=reranker_type,
                 config_manager=self._config_manager,
+                # Hybrid search settings
+                hybrid_search_enabled=rerank_settings.hybrid_search_enabled,
+                hybrid_rrf_k=rerank_settings.hybrid_rrf_k,
+                hybrid_dense_weight=rerank_settings.hybrid_dense_weight,
+                hybrid_lexical_weight=rerank_settings.hybrid_lexical_weight,
             )
             return retriever
             
@@ -246,13 +318,57 @@ class RAGService:
                 embedding_provider=self._embedding_provider,
                 default_chunk_size=chunk_settings.chunk_size,
                 default_chunk_overlap=chunk_settings.chunk_overlap,
+                hierarchical_chunking_enabled=chunk_settings.hierarchical_chunking_enabled,
+                parent_chunk_size=chunk_settings.parent_chunk_size,
+                child_chunk_size=chunk_settings.child_chunk_size,
             )
             return ingester
             
         except Exception as exc:
             logger.error("Failed to create ingester: %s", exc)
             return None
-    
+
+    def _create_compressor(self, settings: CompressionSettings) -> Optional[ContextCompressor]:
+        """Create context compressor based on settings.
+        
+        Args:
+            settings: Compression settings from config.
+            
+        Returns:
+            Configured compressor or None if creation fails.
+        """
+        try:
+            from modules.storage.retrieval.compression import create_compressor
+            from ATLAS.config.rag import CompressionStrategy
+            
+            strategy = settings.strategy.value  # Convert enum to string
+            
+            compressor = create_compressor(
+                strategy=strategy,
+                target_ratio=settings.target_ratio,
+                min_length=settings.min_context_length,
+                # LLMLingua settings
+                model_name=settings.llmlingua_model,
+                force_tokens=settings.llmlingua_force_tokens,
+                force_reserve_digit=settings.llmlingua_force_reserve_digit,
+                # Extractive settings
+                preserve_first=settings.extractive_preserve_first_sentence,
+                preserve_last=settings.extractive_preserve_last_sentence,
+                min_sentences=settings.extractive_min_sentences,
+            )
+            
+            if compressor:
+                logger.info(
+                    "Created %s compressor with target_ratio=%.2f",
+                    strategy,
+                    settings.target_ratio,
+                )
+            return compressor
+            
+        except Exception as exc:
+            logger.error("Failed to create compressor: %s", exc)
+            return None
+
     # ---------------------------------------------------------------
     # Public API
     # ---------------------------------------------------------------
@@ -288,6 +404,48 @@ class RAGService:
         """Get the knowledge store instance."""
         return self._knowledge_store
     
+    @property
+    def embedding_cache(self) -> Optional[EmbeddingCache]:
+        """Get the embedding cache instance."""
+        return self._embedding_cache
+    
+    @property
+    def query_cache(self) -> Optional[QueryResultCache]:
+        """Get the query result cache instance."""
+        return self._query_cache
+    
+    @property
+    def compressor(self) -> Optional[ContextCompressor]:
+        """Get the context compressor instance."""
+        return self._compressor
+    
+    def clear_caches(self) -> Dict[str, int]:
+        """Clear all caches and return count of cleared entries.
+        
+        Returns:
+            Dict with 'embedding_cache' and 'query_cache' counts.
+        """
+        result = {"embedding_cache": 0, "query_cache": 0}
+        
+        if self._embedding_cache:
+            result["embedding_cache"] = self._embedding_cache.clear()
+        if self._query_cache:
+            result["query_cache"] = self._query_cache.clear()
+        
+        logger.info("Cleared caches: %s", result)
+        return result
+    
+    def get_cache_stats(self) -> Dict[str, Any]:
+        """Get statistics for all caches.
+        
+        Returns:
+            Dict with 'embedding_cache' and 'query_cache' stats.
+        """
+        return {
+            "embedding_cache": self._embedding_cache.stats if self._embedding_cache else None,
+            "query_cache": self._query_cache.stats if self._query_cache else None,
+        }
+    
     def get_status(self) -> RAGServiceStatus:
         """Get detailed status information."""
         settings = self._config_manager.get_rag_settings()
@@ -311,6 +469,17 @@ class RAGService:
         status.has_retriever = bool(self._retriever)
         status.has_ingester = bool(self._ingester)
         
+        # Add compressor status
+        status.has_compressor = bool(self._compressor)
+        if settings.compression.enabled:
+            status.compression_strategy = settings.compression.strategy.value
+        
+        # Add cache statistics
+        if self._embedding_cache:
+            status.embedding_cache_stats = self._embedding_cache.stats
+        if self._query_cache:
+            status.query_cache_stats = self._query_cache.stats
+        
         return status
     
     async def retrieve(
@@ -320,6 +489,7 @@ class RAGService:
         knowledge_base_ids: Optional[List[str]] = None,
         top_k: Optional[int] = None,
         rerank: bool = True,
+        use_cache: bool = True,
     ) -> Optional[RetrievalResult]:
         """Retrieve relevant chunks for a query.
         
@@ -328,6 +498,7 @@ class RAGService:
             knowledge_base_ids: Optional list of KB IDs to search.
             top_k: Override default top_k results.
             rerank: Whether to apply reranking.
+            use_cache: Whether to use query result cache.
             
         Returns:
             RetrievalResult with chunks and metadata, or None if unavailable.
@@ -342,12 +513,53 @@ class RAGService:
             return None
         
         try:
-            return await self._retriever.retrieve(
+            # Check query cache first
+            if use_cache and self._query_cache:
+                # Get query embedding for semantic matching if cache supports it
+                query_embedding: Optional[List[float]] = None
+                cache_settings = self._config_manager.get_rag_settings().caching
+                
+                if cache_settings.query_cache_semantic_matching and self._embedding_provider:
+                    try:
+                        query_embedding = await self._embedding_provider.embed(query)
+                    except Exception:
+                        pass  # Fall through to exact matching
+                
+                cached = self._query_cache.get(
+                    query=query,
+                    knowledge_base_ids=knowledge_base_ids,
+                    query_embedding=query_embedding,
+                )
+                if cached is not None:
+                    logger.debug("Query cache hit for: %s", query[:50])
+                    return cached
+            
+            # Perform retrieval
+            result = await self._retriever.retrieve(
                 query=query,
                 knowledge_base_ids=knowledge_base_ids,
                 top_k=top_k,
                 rerank=rerank,
             )
+            
+            # Cache result
+            if use_cache and self._query_cache and result:
+                query_embedding = None
+                if self._embedding_provider:
+                    try:
+                        query_embedding = await self._embedding_provider.embed(query)
+                    except Exception:
+                        pass
+                
+                self._query_cache.set(
+                    query=query,
+                    result=result,
+                    knowledge_base_ids=knowledge_base_ids,
+                    query_embedding=query_embedding,
+                )
+            
+            return result
+            
         except Exception as exc:
             logger.error("Failed to retrieve: %s", exc)
             return None
@@ -391,12 +603,54 @@ class RAGService:
             logger.error("Failed to assemble context: %s", exc)
             return None
     
+    def compress_context(
+        self,
+        context: str,
+        query: str,
+    ) -> str:
+        """Compress context text using configured compressor.
+        
+        Args:
+            context: The context text to compress.
+            query: The query for relevance-based compression.
+            
+        Returns:
+            Compressed context text, or original if compression fails/disabled.
+        """
+        if not self._compressor:
+            return context
+        
+        settings = self._config_manager.get_rag_settings().compression
+        
+        # Skip if context is too short
+        if len(context) < settings.min_context_length:
+            logger.debug(
+                "Context too short for compression: %d < %d",
+                len(context),
+                settings.min_context_length,
+            )
+            return context
+        
+        try:
+            result = self._compressor.compress(context, query)
+            logger.debug(
+                "Compressed context: ratio=%.2f, %d -> %d chars",
+                result.compression_ratio,
+                result.original_length,
+                len(result.compressed_text),
+            )
+            return result.compressed_text
+        except Exception as exc:
+            logger.warning("Context compression failed: %s", exc)
+            return context
+    
     async def retrieve_and_assemble(
         self,
         query: str,
         *,
         knowledge_base_ids: Optional[List[str]] = None,
         max_tokens: Optional[int] = None,
+        compress: Optional[bool] = None,
     ) -> Optional[str]:
         """Convenience method to retrieve and assemble context in one call.
         
@@ -404,6 +658,7 @@ class RAGService:
             query: The query string.
             knowledge_base_ids: Optional KB IDs to search.
             max_tokens: Maximum tokens for context.
+            compress: Whether to apply compression. None uses config default.
             
         Returns:
             Assembled context text or None.
@@ -413,7 +668,21 @@ class RAGService:
             return None
         
         assembled = self.assemble_context(results, max_tokens=max_tokens)
-        return assembled.text if assembled else None
+        if not assembled:
+            return None
+        
+        context_text = assembled.text
+        
+        # Apply compression if enabled
+        should_compress = compress
+        if should_compress is None:
+            settings = self._config_manager.get_rag_settings()
+            should_compress = settings.compression.enabled
+        
+        if should_compress:
+            context_text = self.compress_context(context_text, query)
+        
+        return context_text
     
     async def ingest_text(
         self,

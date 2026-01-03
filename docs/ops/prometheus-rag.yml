@@ -1,0 +1,178 @@
+# ATLAS RAG Pipeline Prometheus Configuration
+#
+# This configuration file sets up Prometheus to scrape metrics from
+# the ATLAS RAG pipeline. Place this in your prometheus.yml or include
+# it as a separate file.
+#
+# Prerequisites:
+# - OpenTelemetry Collector or Prometheus exporter running
+# - ATLAS configured with observability enabled
+#
+# Usage:
+#   Include in prometheus.yml:
+#   ```yaml
+#   scrape_configs:
+#     - job_name: 'atlas-rag'
+#       include:
+#         - 'docs/ops/prometheus-rag.yml'
+#   ```
+#
+# Or copy the configuration below into your main prometheus.yml
+
+scrape_configs:
+  - job_name: 'atlas-rag'
+    # Scrape interval - adjust based on your needs
+    scrape_interval: 15s
+    scrape_timeout: 10s
+    
+    # Metrics path - typically /metrics for Prometheus exporter
+    metrics_path: /metrics
+    
+    # Static target configuration
+    # Update host:port to match your deployment
+    static_configs:
+      - targets:
+          - 'localhost:9090'  # ATLAS metrics endpoint
+        labels:
+          environment: 'development'
+          service: 'atlas-rag'
+    
+    # Optional: Metric relabeling
+    metric_relabel_configs:
+      # Keep only RAG-related metrics
+      - source_labels: [__name__]
+        regex: 'rag_.*'
+        action: keep
+      
+      # Add prefix to distinguish from other services
+      - source_labels: [__name__]
+        regex: '(rag_.*)'
+        target_label: __name__
+        replacement: 'atlas_$1'
+
+  # OpenTelemetry Collector endpoint (if using OTLP)
+  - job_name: 'otel-collector'
+    scrape_interval: 30s
+    static_configs:
+      - targets:
+          - 'localhost:8889'  # OTLP Prometheus exporter
+        labels:
+          source: 'opentelemetry'
+
+# Recording rules for pre-computed metrics
+# Place in a separate file: prometheus-rules.yml
+recording_rules:
+  groups:
+    - name: atlas_rag_rules
+      interval: 30s
+      rules:
+        # Pre-compute P95 retrieval latency
+        - record: atlas:rag_retrieval_latency_p95
+          expr: histogram_quantile(0.95, sum(rate(rag_retrieval_duration_ms_bucket[5m])) by (le))
+        
+        # Pre-compute cache hit rate
+        - record: atlas:rag_cache_hit_rate
+          expr: |
+            sum(rate(rag_cache_hits_total[5m])) /
+            (sum(rate(rag_cache_hits_total[5m])) + sum(rate(rag_cache_misses_total[5m])))
+        
+        # Pre-compute average quality scores
+        - record: atlas:rag_quality_faithfulness_avg
+          expr: avg(rag_quality_faithfulness)
+        
+        - record: atlas:rag_quality_relevancy_avg
+          expr: avg(rag_quality_relevancy)
+        
+        # Error rate
+        - record: atlas:rag_retrieval_error_rate
+          expr: |
+            sum(rate(rag_retrieval_count_total{success="false"}[5m])) /
+            sum(rate(rag_retrieval_count_total[5m]))
+
+# Alerting rules
+# Place in a separate file: prometheus-alerts.yml  
+alerting_rules:
+  groups:
+    - name: atlas_rag_alerts
+      rules:
+        # High retrieval latency alert
+        - alert: RAGHighLatency
+          expr: atlas:rag_retrieval_latency_p95 > 2000
+          for: 5m
+          labels:
+            severity: warning
+            component: rag
+          annotations:
+            summary: "RAG retrieval latency is high"
+            description: "P95 retrieval latency is {{ $value }}ms (threshold: 2000ms)"
+        
+        # Low cache hit rate alert
+        - alert: RAGLowCacheHitRate
+          expr: atlas:rag_cache_hit_rate < 0.3
+          for: 10m
+          labels:
+            severity: info
+            component: rag
+          annotations:
+            summary: "RAG cache hit rate is low"
+            description: "Cache hit rate is {{ $value | humanizePercentage }} (threshold: 30%)"
+        
+        # Low quality score alert
+        - alert: RAGLowQuality
+          expr: atlas:rag_quality_faithfulness_avg < 0.5
+          for: 15m
+          labels:
+            severity: warning
+            component: rag
+          annotations:
+            summary: "RAG quality score is low"
+            description: "Average faithfulness score is {{ $value }} (threshold: 0.5)"
+        
+        # High error rate alert
+        - alert: RAGHighErrorRate
+          expr: atlas:rag_retrieval_error_rate > 0.1
+          for: 5m
+          labels:
+            severity: critical
+            component: rag
+          annotations:
+            summary: "RAG retrieval error rate is high"
+            description: "Error rate is {{ $value | humanizePercentage }} (threshold: 10%)"
+        
+        # Service down alert
+        - alert: RAGServiceDown
+          expr: up{job="atlas-rag"} == 0
+          for: 1m
+          labels:
+            severity: critical
+            component: rag
+          annotations:
+            summary: "ATLAS RAG service is down"
+            description: "The RAG metrics endpoint is not responding"
+
+# Metric documentation
+# -------------------
+# The following metrics are exposed by the ATLAS RAG pipeline:
+#
+# Counters:
+#   rag_retrieval_count_total{success}     - Total retrieval operations
+#   rag_embedding_count_total{model}       - Total embeddings generated
+#   rag_rerank_count_total{model}          - Total reranking operations
+#   rag_cache_hits_total{cache}            - Cache hits (embedding, query)
+#   rag_cache_misses_total{cache}          - Cache misses
+#
+# Histograms:
+#   rag_retrieval_duration_ms_bucket       - Retrieval latency distribution
+#   rag_embedding_duration_ms_bucket       - Embedding latency distribution
+#   rag_search_duration_ms_bucket          - Search latency distribution
+#   rag_rerank_duration_ms_bucket          - Rerank latency distribution
+#   rag_compression_duration_ms_bucket     - Compression latency distribution
+#   rag_generation_duration_ms_bucket      - LLM generation latency
+#
+# Gauges:
+#   rag_search_results{type}               - Number of search results
+#   rag_compression_ratio{strategy}        - Compression ratio achieved
+#   rag_quality_faithfulness               - Response faithfulness score
+#   rag_quality_relevancy                  - Context relevancy score
+#   rag_generation_tokens{type}            - Token counts (input, output)
+#   rag_cache_hit_rate{cache}              - Current cache hit rate

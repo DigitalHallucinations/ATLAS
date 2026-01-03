@@ -53,6 +53,14 @@ from .semantic import (
     cosine_similarity,
 )
 
+from .hierarchical import (
+    HierarchicalChunk,
+    HierarchicalSplitResult,
+    HierarchicalChunker,
+    expand_to_parent,
+    get_context_window,
+)
+
 
 __all__ = [
     # Core classes
@@ -79,4 +87,10 @@ __all__ = [
     # Semantic splitter
     "SemanticTextSplitter",
     "cosine_similarity",
+    # Hierarchical splitter
+    "HierarchicalChunk",
+    "HierarchicalSplitResult",
+    "HierarchicalChunker",
+    "expand_to_parent",
+    "get_context_window",
 ]

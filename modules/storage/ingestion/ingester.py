@@ -210,6 +210,9 @@ class IngestionOptions:
         metadata: Additional metadata to attach.
         deduplicate: Whether to skip duplicate content.
         language: Language hint for code files.
+        use_hierarchical_chunking: Use parent-child hierarchical chunks.
+        parent_chunk_size: Size of parent chunks (if hierarchical).
+        child_chunk_size: Size of child chunks (if hierarchical).
     """
 
     chunk_size: Optional[int] = None
@@ -218,6 +221,9 @@ class IngestionOptions:
     metadata: Dict[str, Any] = field(default_factory=dict)
     deduplicate: bool = True
     language: Optional[str] = None
+    use_hierarchical_chunking: bool = False
+    parent_chunk_size: int = 2048
+    child_chunk_size: int = 512
 
 
 @dataclass
@@ -400,6 +406,9 @@ class DocumentIngester:
         default_chunk_size: int = 512,
         default_chunk_overlap: int = 50,
         batch_size: int = 10,
+        hierarchical_chunking_enabled: bool = False,
+        parent_chunk_size: int = 2048,
+        child_chunk_size: int = 512,
     ) -> None:
         """Initialize the document ingester.
 
@@ -411,6 +420,9 @@ class DocumentIngester:
             default_chunk_size: Default chunk size if not specified.
             default_chunk_overlap: Default chunk overlap if not specified.
             batch_size: Number of documents to process in parallel.
+            hierarchical_chunking_enabled: Use hierarchical parent-child chunking.
+            parent_chunk_size: Size of parent chunks in tokens.
+            child_chunk_size: Size of child chunks in tokens.
         """
         self._knowledge_store = knowledge_store
         self._embedding_provider = embedding_provider
@@ -418,6 +430,10 @@ class DocumentIngester:
         self._default_chunk_size = default_chunk_size
         self._default_chunk_overlap = default_chunk_overlap
         self._batch_size = batch_size
+        self._hierarchical_chunking_enabled = hierarchical_chunking_enabled
+        self._parent_chunk_size = parent_chunk_size
+        self._child_chunk_size = child_chunk_size
+        self._hierarchical_chunker: Optional[Any] = None
         self._initialized = False
 
         # Set up parsers
@@ -447,6 +463,22 @@ class DocumentIngester:
         # Initialize embedding provider
         if self._embedding_provider and not self._embedding_provider.is_initialized:
             await self._embedding_provider.initialize()
+
+        # Initialize hierarchical chunker if enabled
+        if self._hierarchical_chunking_enabled and not self._hierarchical_chunker:
+            try:
+                from modules.storage.chunking.hierarchical import HierarchicalChunker
+                self._hierarchical_chunker = HierarchicalChunker(
+                    parent_chunk_size=self._parent_chunk_size,
+                    child_chunk_size=self._child_chunk_size,
+                )
+                logger.info(
+                    "Hierarchical chunker enabled: parent=%d, child=%d tokens",
+                    self._parent_chunk_size,
+                    self._child_chunk_size,
+                )
+            except ImportError as exc:
+                logger.warning(f"Failed to load hierarchical chunker: {exc}")
 
         self._initialized = True
         logger.info("DocumentIngester initialized")
@@ -543,6 +575,16 @@ class DocumentIngester:
             if options.language:
                 metadata["language"] = options.language
 
+            # Determine if using hierarchical chunking
+            use_hierarchical = (
+                options.use_hierarchical_chunking or 
+                self._hierarchical_chunking_enabled
+            )
+            hierarchical_chunker = self._hierarchical_chunker if use_hierarchical else None
+            
+            if use_hierarchical:
+                metadata["chunking_strategy"] = "hierarchical"
+
             # Add document to knowledge store
             doc = await self._knowledge_store.add_document(
                 kb_id,
@@ -553,6 +595,7 @@ class DocumentIngester:
                 metadata=metadata,
                 auto_chunk=True,
                 auto_embed=options.auto_embed,
+                hierarchical_chunker=hierarchical_chunker,
             )
 
             duration = (datetime.utcnow() - start_time).total_seconds()
@@ -654,6 +697,9 @@ class DocumentIngester:
                     metadata={**options.metadata, "language": language},
                     deduplicate=options.deduplicate,
                     language=language,
+                    use_hierarchical_chunking=options.use_hierarchical_chunking,
+                    parent_chunk_size=options.parent_chunk_size,
+                    child_chunk_size=options.child_chunk_size,
                 )
 
             # Ingest the parsed content

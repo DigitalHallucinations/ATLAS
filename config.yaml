@@ -53,6 +53,11 @@ rag:
       - ""
     sentence_min_length: 20
 
+    # Hierarchical chunking - creates parent-child chunk relationships
+    hierarchical_chunking_enabled: false
+    parent_chunk_size: 2048  # Size of parent chunks in tokens
+    child_chunk_size: 512  # Size of child chunks in tokens
+
   retrieval:
     enabled: true
     top_k: 10
@@ -69,3 +74,32 @@ rag:
     cohere_model: rerank-english-v3.0
     hybrid_search_enabled: false
     hybrid_search_weight: 0.5  # 0 = all keyword, 1 = all vector
+
+  caching:
+    # Embedding cache - stores computed embeddings to avoid recomputation
+    embedding_cache_enabled: true
+    embedding_cache_max_size: 10000  # Max number of cached embeddings
+    embedding_cache_ttl_seconds: 3600  # 1 hour TTL
+
+    # Query result cache - stores full retrieval results
+    query_cache_enabled: true
+    query_cache_max_size: 1000  # Max cached query results
+    query_cache_ttl_seconds: 300  # 5 minute TTL
+    query_cache_semantic_matching: true  # Match semantically similar queries
+    query_cache_similarity_threshold: 0.95  # Similarity threshold for matching
+  compression:
+    # Context compression to reduce token usage while preserving relevance
+    enabled: false  # Enable context compression
+    strategy: "extractive"  # Options: none, extractive, llmlingua, hybrid
+    target_ratio: 0.5  # Target compression ratio (0.0-1.0, lower = more compression)
+    min_context_length: 1000  # Only compress contexts longer than this
+
+    # LLMLingua-specific settings (requires transformers)
+    llmlingua_model: "gpt2"  # Model for perplexity scoring
+    llmlingua_force_tokens: []  # Tokens to always preserve
+    llmlingua_force_reserve_digit: true  # Preserve digit tokens
+
+    # Extractive-specific settings
+    extractive_preserve_first_sentence: true  # Always keep first sentence
+    extractive_preserve_last_sentence: false  # Optionally keep last sentence
+    extractive_min_sentences: 3  # Minimum sentences to retain
