@@ -3456,94 +3456,55 @@ class SetupWizardWindow(AtlasWindow):
         self, _button: Gtk.Button, entry: Gtk.Entry
     ) -> None:
         """Open a file chooser dialog for selecting the SQLite database location."""
-        chooser_cls = getattr(Gtk, "FileChooserNative", None)
-        action_enum = getattr(Gtk.FileChooserAction, "SAVE", None) if hasattr(Gtk, "FileChooserAction") else None
-        if chooser_cls is None or action_enum is None:
-            return
+        # Store reference to entry for the callback
+        self._sqlite_browse_entry = entry
 
-        dialog = chooser_cls(
-            title="Select SQLite database location",
-            transient_for=self,
-            action=action_enum,
-        )
-        dialog.set_modal(True)
+        dialog = Gtk.FileDialog()
+        dialog.set_title("Select SQLite database location")
+        dialog.set_initial_name("atlas.sqlite3")
 
-        # Suggest the default filename
-        if hasattr(dialog, "set_current_name"):
-            try:
-                dialog.set_current_name("atlas.sqlite3")
-            except Exception:
-                pass
-
-        # Start in the user's home directory or current entry value's directory
+        # Set initial folder based on current entry value or home directory
         current_path = entry.get_text().strip()
         if current_path:
             current_file = Path(current_path).expanduser()
             if current_file.parent.is_dir():
-                try:
-                    if hasattr(dialog, "set_current_folder"):
-                        dialog.set_current_folder(str(current_file.parent))
-                except Exception:
-                    pass
+                initial_folder = Gio.File.new_for_path(str(current_file.parent))
+                dialog.set_initial_folder(initial_folder)
         else:
-            # Default to user's home directory
-            try:
-                if hasattr(dialog, "set_current_folder"):
-                    dialog.set_current_folder(str(Path.home()))
-            except Exception:
-                pass
+            initial_folder = Gio.File.new_for_path(str(Path.home()))
+            dialog.set_initial_folder(initial_folder)
 
         # Add a filter for SQLite files
-        file_filter_cls = getattr(Gtk, "FileFilter", None)
-        if callable(file_filter_cls):
-            try:
-                sqlite_filter = file_filter_cls()
-                if hasattr(sqlite_filter, "set_name"):
-                    sqlite_filter.set_name("SQLite databases")
-                if hasattr(sqlite_filter, "add_pattern"):
-                    sqlite_filter.add_pattern("*.sqlite3")
-                    sqlite_filter.add_pattern("*.sqlite")
-                    sqlite_filter.add_pattern("*.db")
-                adder = getattr(dialog, "add_filter", None)
-                if callable(adder):
-                    adder(sqlite_filter)
-            except Exception:
-                pass
+        sqlite_filter = Gtk.FileFilter()
+        sqlite_filter.set_name("SQLite databases")
+        sqlite_filter.add_pattern("*.sqlite3")
+        sqlite_filter.add_pattern("*.sqlite")
+        sqlite_filter.add_pattern("*.db")
 
-        response = None
-        if hasattr(dialog, "run"):
-            try:
-                response = dialog.run()
-            except Exception:
-                response = None
+        filters = Gio.ListStore.new(Gtk.FileFilter)
+        filters.append(sqlite_filter)
+        dialog.set_filters(filters)
+        dialog.set_default_filter(sqlite_filter)
 
-        accepted = {
-            getattr(Gtk.ResponseType, "ACCEPT", None),
-            getattr(Gtk.ResponseType, "OK", None),
-            getattr(Gtk.ResponseType, "YES", None),
-        }
+        dialog.save(self, None, self._on_sqlite_file_selected)
 
-        filename: str | None = None
-        if response in accepted:
-            file_obj = getattr(dialog, "get_file", None)
-            file_handle = file_obj() if callable(file_obj) else None
-            if file_handle is not None and hasattr(file_handle, "get_path"):
-                filename = file_handle.get_path()
-            else:
-                getter = getattr(dialog, "get_filename", None)
-                if callable(getter):
-                    filename = getter()
-
-        if hasattr(dialog, "destroy"):
-            try:
-                dialog.destroy()
-            except Exception:
-                pass
-
-        if filename:
-            # Ensure the path is absolute and normalized
-            resolved_path = Path(filename).expanduser().resolve()
-            entry.set_text(str(resolved_path))
+    def _on_sqlite_file_selected(
+        self, dialog: Gtk.FileDialog, result: Gio.AsyncResult
+    ) -> None:
+        """Handle SQLite file selection from the file dialog."""
+        try:
+            file = dialog.save_finish(result)
+            if file:
+                filename = file.get_path()
+                if filename:
+                    # Ensure the path is absolute and normalized
+                    resolved_path = Path(filename).expanduser().resolve()
+                    if hasattr(self, "_sqlite_browse_entry") and self._sqlite_browse_entry:
+                        self._sqlite_browse_entry.set_text(str(resolved_path))
+        except GLib.Error as e:
+            # User cancelled the dialog - this is not an error
+            if "Dismissed" not in str(e):
+                logging.getLogger(__name__).error("SQLite file dialog error: %s", e)
 
     def _collect_database_state(self, *, strict: bool = False) -> DatabaseState:
         current = self.controller.state.database
