@@ -1,44 +1,122 @@
-# Ignore .env file
+# ===================
+# Environment & Secrets
+# ===================
 .env
+.env.*
+*.key
+*.pem
 
-# Ignore .venv files
-.venv
-
-# Ignore .vscode files
-.vscode
-
-# Ignore env directory
+# ===================
+# Virtual Environments
+# ===================
+.venv/
+venv/
 env/
-GCC.JSON/
+ENV/
 
-# Ignore all .log files
+# ===================
+# IDE & Editor Files
+# ===================
+.vscode/
+.idea/
+*.iml
+*.swp
+*.swo
+*~
+
+# ===================
+# OS Generated Files
+# ===================
+.DS_Store
+Thumbs.db
+*.pid
+*.sock
+*.lock
+
+# ===================
+# Logs
+# ===================
 *.log
 
-# Ignore model_cache directory
-/modules/Providers/HuggingFace/model_cache
+# ===================
+# Python Bytecode & Cache
+# ===================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
 
-# Ignore mp3, mp4, and wav audio/video files in assets
-*.mp3
-*output.wav
+# ===================
+# Python Build & Distribution
+# ===================
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+*.manifest
+*.spec
 
-# Ignore all SQLite database files and associated temporary files
+# ===================
+# Testing & Coverage
+# ===================
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+
+# ===================
+# Jupyter Notebooks
+# ===================
+.ipynb_checkpoints/
+
+# ===================
+# Database Files
+# ===================
 *.db
 *.db-shm
 *.db-wal
+*.sqlite
+*.sqlite3
 
-# Ignore Python bytecode files
-*.pyc
-*.cpython-310.pyc
+# ===================
+# Model & HuggingFace Cache
+# ===================
+/modules/Providers/HuggingFace/model_cache
 
-# Ignore Python cache directories
-__pycache__/
+# ===================
+# Audio/Media Output (User Generated)
+# ===================
+*.mp3
+*output.wav
+assets/SCOUT/tts_mp3/*
+assets/user/sst_output/*
+assets/user/sst_whisper/*
 
-# Ignore all Workspace directories under any module
+# ===================
+# Generated Documentation
+# ===================
+docs/generated/
+
+# ===================
+# Workspace Directories
+# ===================
 */Workspace/
 
-# Ignore user profile files (JSON, text, and database files) in user_profiles
+# ===================
+# User Profiles
+# ===================
 /modules/user_accounts/user_profiles/*
 
-
-/GCC.json
+# ===================
+# Project Specific
+# ===================
+GCC.JSON/
 GCC.json
+/GCC.json
