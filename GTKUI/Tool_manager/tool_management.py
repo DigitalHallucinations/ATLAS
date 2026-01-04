@@ -224,7 +224,7 @@ class ToolManagement:
             if callable(setter):
                 setter(12)
 
-        left_panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        left_panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         left_panel.set_hexpand(False)
         left_panel.set_vexpand(True)
 

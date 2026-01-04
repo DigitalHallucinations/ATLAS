@@ -223,7 +223,10 @@ class JobManagement:
         title_label = Gtk.Label()
         title_label.set_xalign(0.0)
         title_label.set_wrap(True)
-        title_label.add_css_class("heading") if hasattr(title_label, "add_css_class") else None
+        try:
+            title_label.add_css_class("title-3")
+        except Exception:  # pragma: no cover - GTK theme variations
+            pass
         detail_panel.append(title_label)
         self._title_label = title_label
 

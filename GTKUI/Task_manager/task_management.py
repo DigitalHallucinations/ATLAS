@@ -227,7 +227,7 @@ class TaskManagement:
         filter_box.append(search_row)
 
         search_entry = Gtk.Entry()
-        search_entry.set_placeholder_text("Search tasks")
+        search_entry.set_placeholder_text("Search tasks…")
         search_entry.set_hexpand(True)
         search_entry.connect("activate", self._on_search_activate)
         search_row.append(search_entry)
@@ -297,7 +297,10 @@ class TaskManagement:
         title_label = Gtk.Label()
         title_label.set_xalign(0.0)
         title_label.set_wrap(True)
-        title_label.add_css_class("heading") if hasattr(title_label, "add_css_class") else None
+        try:
+            title_label.add_css_class("title-3")
+        except Exception:  # pragma: no cover - GTK theme variations
+            pass
         detail_panel.append(title_label)
         self._title_label = title_label
 

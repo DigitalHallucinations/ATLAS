@@ -186,7 +186,7 @@ class KnowledgeBaseManager(AtlasWindow):
 
         # Search entry
         self._kb_search = Gtk.SearchEntry()
-        self._kb_search.set_placeholder_text("Search knowledge bases...")
+        self._kb_search.set_placeholder_text("Search knowledge bases…")
         self._kb_search.connect("search-changed", self._on_kb_search_changed)
         panel.append(self._kb_search)
 
@@ -651,7 +651,7 @@ class KnowledgeBaseManager(AtlasWindow):
 
         # Search
         self._doc_search = Gtk.SearchEntry()
-        self._doc_search.set_placeholder_text("Search documents...")
+        self._doc_search.set_placeholder_text("Search documents…")
         self._doc_search.connect("search-changed", self._on_doc_search_changed)
         panel.append(self._doc_search)
 

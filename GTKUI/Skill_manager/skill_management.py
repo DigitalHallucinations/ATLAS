@@ -204,7 +204,7 @@ class SkillManagement:
             if callable(setter):
                 setter(12)
 
-        left_panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        left_panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         left_panel.set_hexpand(False)
         left_panel.set_vexpand(True)
 
@@ -239,7 +239,7 @@ class SkillManagement:
         search_entry = SearchEntryClass()
         search_entry.set_hexpand(True)
         try:
-            search_entry.set_placeholder_text("Search skills")
+            search_entry.set_placeholder_text("Search skills…")
         except Exception:  # pragma: no cover - GTK stub variations
             pass
         search_entry.connect("search-changed", self._on_search_changed)
