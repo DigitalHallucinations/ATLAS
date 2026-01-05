@@ -70,7 +70,7 @@ The NCB uses domain-specific channels instead of generic topics:
 ### Publishing messages
 
 ```python
-from ATLAS.messaging import get_agent_bus, AgentMessage
+from core.messaging import get_agent_bus, AgentMessage
 
 bus = get_agent_bus()
 await bus.publish(AgentMessage(

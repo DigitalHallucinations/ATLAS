@@ -53,8 +53,8 @@ if 'ATLAS.config' not in sys.modules:
     atlas_config_stub.ConfigManager = _InitialStubConfigManager
     sys.modules['ATLAS.config'] = atlas_config_stub
 
-import ATLAS.persona_manager as persona_manager_module
-from ATLAS.persona_manager import PersonaManager
+import core.persona_manager as persona_manager_module
+from core.persona_manager import PersonaManager
 
 
 def _write_persona(personas_dir, persona):

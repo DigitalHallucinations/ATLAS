@@ -5,7 +5,7 @@ from typing import Any, Dict
 
 import pytest
 
-from ATLAS.SkillManager import SkillRunResult
+from core.SkillManager import SkillRunResult
 from modules.Server.routes import AtlasServer
 from modules.logging.audit import SkillAuditEntry
 from modules.orchestration.capability_registry import SkillCapabilityView

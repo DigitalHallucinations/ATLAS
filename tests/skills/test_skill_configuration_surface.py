@@ -51,9 +51,9 @@ from sqlalchemy.orm import sessionmaker
 
 from modules.conversation_store import ConversationStoreRepository
 
-from ATLAS.ATLAS import ATLAS
-from ATLAS.config import ConfigManager
-from ATLAS.persona_manager import PersonaManager
+from core.ATLAS import ATLAS
+from core.config import ConfigManager
+from core.persona_manager import PersonaManager
 from modules.orchestration.capability_registry import reset_capability_registry
 
 

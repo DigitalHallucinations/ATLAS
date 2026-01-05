@@ -11,13 +11,13 @@ from typing import Any, AsyncIterator, Dict, List, Optional, Tuple, Union
 
 from anthropic import APIError, AsyncAnthropic, RateLimitError
 
-from ATLAS.ToolManager import (
+from core.ToolManager import (
     ToolExecutionError,
     load_function_map_from_current_persona,
     load_functions_from_json,
     use_tool,
 )
-from ATLAS.config import ConfigManager
+from core.config import ConfigManager
 from modules.logging.logger import setup_logger
 from modules.Providers.common import close_client
 

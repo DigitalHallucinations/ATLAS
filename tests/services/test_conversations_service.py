@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from unittest.mock import Mock
 
-from ATLAS.services.conversations import ConversationService
+from core.services.conversations import ConversationService
 
 
 def _service(

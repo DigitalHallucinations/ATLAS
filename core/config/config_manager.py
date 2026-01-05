@@ -63,7 +63,7 @@ from .storage import StorageArchitecture
 from .ui_config import UIConfig
 from .budget import BudgetConfigSection
 from modules.logging.audit_templates import get_audit_template
-from ATLAS.messaging import AgentBus
+from core.messaging import AgentBus
 from modules.job_store import JobService, MongoJobStoreRepository
 from modules.job_store.repository import JobStoreRepository
 from modules.task_store import TaskService, TaskStoreRepository

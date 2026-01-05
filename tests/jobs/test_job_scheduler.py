@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 from typing import Any, Mapping
 
-from ATLAS.messaging import AgentBus
+from core.messaging import AgentBus
 from modules.Jobs.manifest_loader import JobMetadata, load_job_metadata
 from modules.job_store import JobStatus
 from modules.job_store.repository import JobStoreRepository

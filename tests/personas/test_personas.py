@@ -51,7 +51,7 @@ from modules.Personas import (
     load_tool_metadata,
     normalize_allowed_skills,
 )
-from ATLAS.persona_manager import PersonaManager
+from core.persona_manager import PersonaManager
 
 
 class _StubConfigManager:

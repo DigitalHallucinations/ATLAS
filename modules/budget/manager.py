@@ -36,7 +36,7 @@ from .models import (
 from .pricing import get_pricing_registry, PricingRegistry
 
 if TYPE_CHECKING:
-    from ATLAS.config import ConfigManager
+    from core.config import ConfigManager
 
 logger = setup_logger(__name__)
 

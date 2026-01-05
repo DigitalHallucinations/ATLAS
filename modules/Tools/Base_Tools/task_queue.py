@@ -81,7 +81,7 @@ from modules.logging.logger import setup_logger
 from urllib.parse import urlparse
 
 if TYPE_CHECKING:  # pragma: no cover - import solely for type checking
-    from ATLAS.config import ConfigManager
+    from core.config import ConfigManager
 
 
 __all__ = [
@@ -110,7 +110,7 @@ def _resolve_config_manager(config_manager: "ConfigManager | None") -> "ConfigMa
         return config_manager
 
     try:  # pragma: no cover - exercised indirectly via startup/import paths
-        from ATLAS.config import ConfigManager as _ConfigManager
+        from core.config import ConfigManager as _ConfigManager
     except ModuleNotFoundError:  # pragma: no cover - missing configuration subsystem
         logger.debug("ConfigManager module not found; proceeding without configuration", exc_info=True)
         return None

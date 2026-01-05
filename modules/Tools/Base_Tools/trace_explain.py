@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, Iterable, Mapping, MutableMapping, Optional, Sequence
 
 if TYPE_CHECKING:  # pragma: no cover - used for type checking only
-    from ATLAS import ToolManager as ToolManagerModule
+    from core import ToolManager as ToolManagerModule
 
 __all__ = ["trace_explain"]
 
@@ -26,7 +26,7 @@ def _get_tool_manager() -> Any | None:
             return ToolManagerModule
 
         try:
-            from ATLAS import ToolManager as ToolManagerModuleImport
+            from core import ToolManager as ToolManagerModuleImport
         except Exception:
             ToolManagerModule = None
         else:

@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any, Dict
 
-from ATLAS.messaging import AgentBus, AgentMessage
+from core.messaging import AgentBus, AgentMessage
 from modules.background_tasks.remediation import PersonaMetricRemediationWorker
 from modules.orchestration.remediation import RemediationOrchestrator
 

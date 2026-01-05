@@ -11,7 +11,7 @@ from typing import Any, AsyncIterator, Dict, Iterable, Mapping, Optional, Sequen
 from jsonschema import Draft202012Validator
 
 from modules.logging.logger import setup_logger
-from ATLAS.messaging import AgentBus
+from core.messaging import AgentBus
 from modules.task_store.repository import (
     TaskConcurrencyError,
     TaskNotFoundError,

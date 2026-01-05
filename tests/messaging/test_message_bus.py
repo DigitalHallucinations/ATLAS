@@ -8,7 +8,7 @@ import asyncio
 
 import pytest
 
-from ATLAS.messaging import AgentBus, AgentMessage, MessagePriority
+from core.messaging import AgentBus, AgentMessage, MessagePriority
 
 
 @pytest.fixture

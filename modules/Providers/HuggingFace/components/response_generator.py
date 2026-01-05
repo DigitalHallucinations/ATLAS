@@ -9,7 +9,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 from .huggingface_model_manager import HuggingFaceModelManager
 from ..utils.cache_manager import CacheManager
 from ..utils.logger import setup_logger
-from ATLAS.ToolManager import (
+from core.ToolManager import (
     ToolExecutionError,
     load_function_map_from_current_persona,
     load_functions_from_json,

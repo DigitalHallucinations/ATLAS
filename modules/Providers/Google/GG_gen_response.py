@@ -13,13 +13,13 @@ import google.generativeai as genai
 from google.generativeai import types as genai_types
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-from ATLAS.ToolManager import (
+from core.ToolManager import (
     ToolExecutionError,
     load_function_map_from_current_persona,
     load_functions_from_json,
     use_tool,
 )
-from ATLAS.config import ConfigManager
+from core.config import ConfigManager
 from modules.Providers.Google.settings_resolver import GoogleSettingsResolver
 from modules.logging.logger import setup_logger
 from modules.Providers.common import collect_response_chunks, get_or_create_generator

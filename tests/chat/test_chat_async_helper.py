@@ -731,7 +731,7 @@ for gio_name in ["Menu", "SimpleAction", "SimpleActionGroup"]:
     _ensure_widget(Gio, gio_name)
 
 
-from ATLAS.ATLAS import ATLAS
+from core.ATLAS import ATLAS
 from GTKUI.Chat.chat_page import ChatPage, GLib
 
 

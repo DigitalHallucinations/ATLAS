@@ -560,7 +560,7 @@ class JobManagement:
             response = list_jobs(params, context=context)
         except Exception as exc:
             logger.error("Failed to load job list: %s", exc, exc_info=True)
-            self._handle_backend_error("Unable to load jobs from ATLAS.")
+            self._handle_backend_error("Unable to load jobs from core.")
             return []
 
         items: Iterable[Any]

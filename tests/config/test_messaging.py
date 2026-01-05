@@ -1,6 +1,6 @@
 from typing import Any
 
-from ATLAS.config import messaging
+from core.config import messaging
 from modules.orchestration.policy import PolicyResolver
 
 

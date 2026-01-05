@@ -24,7 +24,7 @@ from modules.orchestration.planner import ExecutionPlan, PlanStep, PlanStepStatu
 from modules.orchestration.task_manager import TaskManager
 from modules.orchestration.utils import normalize_persona_identifier
 
-from ATLAS.messaging import (
+from core.messaging import (
     AgentBus,
     AgentMessage,
     MessagePriority,

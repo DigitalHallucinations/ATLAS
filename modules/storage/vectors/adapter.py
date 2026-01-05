@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any, Mapping, Optional, Sequence
 from modules.logging.logger import setup_logger
 
 if TYPE_CHECKING:
-    from ATLAS.config import ConfigManager
+    from core.config import ConfigManager
     from modules.storage.vectors.base import VectorProvider
 
 logger = setup_logger(__name__)

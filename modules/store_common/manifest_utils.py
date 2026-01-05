@@ -184,7 +184,7 @@ ensure_yaml_stub()
 from modules.logging.logger import setup_logger
 
 try:  # ConfigManager may not be available in certain test scenarios
-    from ATLAS.config import ConfigManager as _ConfigManager
+    from core.config import ConfigManager as _ConfigManager
 except Exception:  # pragma: no cover - defensive import guard
     _ConfigManager = None  # type: ignore
 

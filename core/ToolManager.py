@@ -7,12 +7,12 @@ import socket
 
 from modules.Tools.tool_event_system import event_system, publish_bus_event
 
-from ATLAS.config import ConfigManager
-from ATLAS.tools import cache as _cache
-from ATLAS.tools import execution as _execution
-from ATLAS.tools import manifests as _manifests
-from ATLAS.tools import streaming as _streaming
-from ATLAS.tools.errors import ToolExecutionError, ToolManifestValidationError
+from core.config import ConfigManager
+from core.tools import cache as _cache
+from core.tools import execution as _execution
+from core.tools import manifests as _manifests
+from core.tools import streaming as _streaming
+from core.tools.errors import ToolExecutionError, ToolManifestValidationError
 
 # Expose manifest helpers and caches
 load_default_function_map = _manifests.load_default_function_map

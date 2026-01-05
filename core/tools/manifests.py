@@ -91,7 +91,7 @@ except (ModuleNotFoundError, ImportError):  # pragma: no cover - fallback implem
 from modules.logging.logger import setup_logger
 from modules.orchestration.capability_registry import get_capability_registry
 
-from ATLAS.config import ConfigManager
+from core.config import ConfigManager
 
 from .errors import ToolManifestValidationError
 from .cache import get_config_manager

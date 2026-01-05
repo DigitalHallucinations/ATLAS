@@ -48,7 +48,7 @@ from sqlalchemy.sql import Select
 from modules.logging.logger import setup_logger
 
 try:  # ConfigManager is optional in some test environments
-    from ATLAS.config import ConfigManager
+    from core.config import ConfigManager
 except Exception:  # pragma: no cover - fallback when ConfigManager unavailable
     ConfigManager = None  # type: ignore
 

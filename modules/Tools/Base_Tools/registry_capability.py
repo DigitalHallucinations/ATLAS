@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict, is_dataclass
 from typing import Any, Mapping, MutableMapping, Optional, Sequence
 
-from ATLAS.utils import normalize_sequence
+from core.utils import normalize_sequence
 from modules.orchestration.capability_registry import get_capability_registry
 
 _DEFAULT_CAPABILITY_TYPES = ("summary",)

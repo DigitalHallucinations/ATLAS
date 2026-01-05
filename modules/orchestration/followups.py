@@ -9,7 +9,7 @@ from typing import Any, Awaitable, Callable, Iterable, Mapping, MutableMapping, 
 from modules.orchestration.job_manager import JobManager, build_task_manifest_resolver
 from modules.orchestration.task_manager import TaskManager
 
-from ATLAS.messaging import (
+from core.messaging import (
     AgentBus,
     AgentMessage,
     Subscription,

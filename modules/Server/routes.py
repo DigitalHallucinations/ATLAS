@@ -71,7 +71,7 @@ from modules.orchestration.capability_registry import (
 from modules.orchestration.utils import persona_matches_filter
 from modules.orchestration.job_manager import JobManager
 from modules.orchestration.job_scheduler import JobScheduler
-from ATLAS.messaging import AgentBus
+from core.messaging import AgentBus
 from modules.store_common.manifest_utils import (
     iter_persona_manifest_paths,
     resolve_app_root,
@@ -806,7 +806,7 @@ class AtlasServer:
         timeout_seconds: Optional[float] = None,
         budget_ms: Optional[float] = None,
     ) -> Any:
-        from ATLAS.SkillManager import use_skill
+        from core.SkillManager import use_skill
 
         async def _runner() -> Any:
             return await use_skill(
@@ -1452,7 +1452,7 @@ class AtlasServer:
         except (TypeError, ValueError):
             budget_value = None
 
-        from ATLAS.SkillManager import SkillExecutionContext
+        from core.SkillManager import SkillExecutionContext
 
         execution_context = SkillExecutionContext(
             conversation_id=str(conversation_id),

@@ -28,7 +28,7 @@ from modules.Providers.Media.base import (
 from modules.Providers.Media.registry import register_provider
 
 if TYPE_CHECKING:
-    from ATLAS.config import ConfigManager
+    from core.config import ConfigManager
     from PIL import Image as PILImage
 
 logger = setup_logger(__name__)

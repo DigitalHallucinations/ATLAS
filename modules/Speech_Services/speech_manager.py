@@ -26,7 +26,7 @@ from .elevenlabs_tts import ElevenLabsTTS
 from .Google_tts import GoogleTTS
 from .Google_stt import GoogleSTT
 from modules.logging.logger import setup_logger
-from ATLAS.config import ConfigManager
+from core.config import ConfigManager
 from modules.background_tasks import run_async_in_thread
 
 logger = setup_logger('speech_manager.py')

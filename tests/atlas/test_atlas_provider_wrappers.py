@@ -905,7 +905,7 @@ def _build_atlas(atlas_class):
 
 
 def _configure_speech_facade(atlas, speech_manager):
-    from ATLAS.services.speech import SpeechService
+    from core.services.speech import SpeechService
 
     if getattr(atlas, "logger", None) is None:
         atlas.logger = Mock()
@@ -922,7 +922,7 @@ def test_run_in_background_delegates_to_task_runner(atlas_class, monkeypatch):
     atlas = _build_atlas(atlas_class)
     atlas.logger = Mock()
 
-    import ATLAS.ATLAS as atlas_module
+    import core.ATLAS as atlas_module
 
     sentinel = object()
     captured = {}

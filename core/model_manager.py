@@ -3,7 +3,7 @@
 import threading
 import types
 from typing import Dict, List, Optional, Tuple
-from ATLAS.config import ConfigManager
+from core.config import ConfigManager
 from modules.logging.logger import setup_logger
 
 class ModelManager:

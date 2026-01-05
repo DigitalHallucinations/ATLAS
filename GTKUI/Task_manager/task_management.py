@@ -12,7 +12,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gdk, GLib, Gtk
 
-from ATLAS.utils import normalize_sequence
+from core.utils import normalize_sequence
 
 from .widgets import clear_container, create_badge, create_badge_container, sync_badge_section
 
@@ -760,7 +760,7 @@ class TaskManagement:
                     response = list_tasks(list_params, context=context)
             except Exception as exc:
                 logger.error("Failed to load task list: %s", exc, exc_info=True)
-                self._handle_backend_error("Unable to load tasks from ATLAS.")
+                self._handle_backend_error("Unable to load tasks from core.")
                 return []
 
             mapping_response = response if isinstance(response, Mapping) else None

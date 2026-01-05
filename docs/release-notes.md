@@ -14,7 +14,7 @@ source_of_truth: Release notes source only
 - **Messaging system replaced**: The legacy `modules/orchestration/message_bus.py` has been
   fully replaced by the Neural Cognitive Bus (NCB) and AgentBus architecture under
   `ATLAS/messaging/`. Code importing from `modules.orchestration.message_bus` must migrate
-  to `from ATLAS.messaging import AgentBus, AgentMessage, get_agent_bus`.
+  to `from core.messaging import AgentBus, AgentMessage, get_agent_bus`.
 
 ### New Features
 

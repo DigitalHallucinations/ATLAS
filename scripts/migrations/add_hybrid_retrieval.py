@@ -55,7 +55,7 @@ def get_connection_string() -> str:
 
     # Try to load from config
     try:
-        from ATLAS.config import ConfigManager
+        from core.config import ConfigManager
         config = ConfigManager()
         # Try the conversation store URL method if available
         getter = getattr(config, "get_conversation_store_database_url", None)

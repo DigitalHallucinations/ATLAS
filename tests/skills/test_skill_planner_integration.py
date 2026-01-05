@@ -4,7 +4,7 @@ from typing import Any, Dict, List
 
 import pytest
 
-from ATLAS.SkillManager import (
+from core.SkillManager import (
     SKILL_ACTIVITY_EVENT,
     SkillExecutionContext,
     SkillExecutionError,

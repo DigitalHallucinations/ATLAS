@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 from pathlib import Path
 
-from ATLAS.utils import change_validation
+from core.utils import change_validation
 
 
 def test_unscoped_files_flag_out_of_scope(tmp_path: Path) -> None:

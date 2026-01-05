@@ -26,8 +26,8 @@ pytest.importorskip(
 )
 from modules.conversation_store import Base, ConversationStoreRepository
 
-from ATLAS.services.conversations import ConversationService
-from ATLAS.ATLAS import ATLAS as AtlasApplication
+from core.services.conversations import ConversationService
+from core.ATLAS import core as AtlasApplication
 
 
 TENANT = "search-tenant"

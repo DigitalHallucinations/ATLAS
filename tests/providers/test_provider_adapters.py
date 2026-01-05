@@ -1,10 +1,10 @@
 import asyncio
 from types import SimpleNamespace
 
-from ATLAS.providers import anthropic as anthropic_adapter
-from ATLAS.providers import huggingface as huggingface_adapter
-from ATLAS.providers import openai as openai_adapter
-from ATLAS.providers.base import build_result
+from core.providers import anthropic as anthropic_adapter
+from core.providers import huggingface as huggingface_adapter
+from core.providers import openai as openai_adapter
+from core.providers.base import build_result
 
 
 class _RecorderLogger:

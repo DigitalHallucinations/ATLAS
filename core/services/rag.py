@@ -9,8 +9,8 @@ across ATLAS. Coordinates:
 - Caching layers for performance optimization
 
 Example:
-    >>> from ATLAS.services.rag import RAGService
-    >>> from ATLAS.config import ConfigManager
+    >>> from core.services.rag import RAGService
+    >>> from core.config import ConfigManager
     >>> 
     >>> config = ConfigManager()
     >>> rag_service = await RAGService.create(config)
@@ -34,8 +34,8 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 from modules.logging.logger import setup_logger
 
 if TYPE_CHECKING:
-    from ATLAS.config import ConfigManager
-    from ATLAS.config.rag import RAGSettings, CachingSettings, CompressionSettings
+    from core.config import ConfigManager
+    from core.config.rag import RAGSettings, CachingSettings, CompressionSettings
     from modules.storage.embeddings import EmbeddingProvider
     from modules.storage.ingestion import DocumentIngester
     from modules.storage.knowledge import KnowledgeStore
@@ -339,7 +339,7 @@ class RAGService:
         """
         try:
             from modules.storage.retrieval.compression import create_compressor
-            from ATLAS.config.rag import CompressionStrategy
+            from core.config.rag import CompressionStrategy
             
             strategy = settings.strategy.value  # Convert enum to string
             

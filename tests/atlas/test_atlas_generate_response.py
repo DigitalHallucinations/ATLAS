@@ -15,7 +15,7 @@ if "dotenv" not in sys.modules:
         find_dotenv=lambda *args, **kwargs: "",
     )
 
-from ATLAS.ATLAS import ATLAS
+from core.ATLAS import ATLAS
 
 
 def test_generate_response_returns_with_conversation_id():
@@ -49,7 +49,7 @@ def test_generate_response_returns_with_conversation_id():
 
 
 def test_generate_response_handles_tts_failure():
-    from ATLAS.services.speech import SpeechService
+    from core.services.speech import SpeechService
 
     atlas = ATLAS.__new__(ATLAS)
     atlas.logger = SimpleNamespace(error=Mock(), debug=Mock())
@@ -89,7 +89,7 @@ def test_generate_response_handles_tts_failure():
 
 
 def test_generate_response_streaming_skips_tts_and_preserves_stream():
-    from ATLAS.services.speech import SpeechService
+    from core.services.speech import SpeechService
 
     atlas = ATLAS.__new__(ATLAS)
     atlas.logger = SimpleNamespace(error=Mock(), debug=Mock())

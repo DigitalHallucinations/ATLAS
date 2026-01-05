@@ -50,11 +50,11 @@ from sqlalchemy.orm import sessionmaker
 
 from modules.conversation_store import ConversationStoreRepository
 
-from ATLAS.ATLAS import ATLAS
-from ATLAS.config import ConfigManager
+from core.ATLAS import ATLAS
+from core.config import ConfigManager
 from modules.Tools.manifest_loader import load_manifest_entries
 from modules.orchestration.capability_registry import reset_capability_registry
-from ATLAS import ToolManager as ToolManagerModule
+from core import ToolManager as ToolManagerModule
 
 
 @pytest.fixture(autouse=True)

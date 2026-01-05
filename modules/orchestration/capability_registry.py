@@ -32,7 +32,7 @@ from modules.orchestration.utils import (
 )
 
 try:  # ConfigManager may not be available in certain test scenarios
-    from ATLAS.config import ConfigManager
+    from core.config import ConfigManager
 except Exception:  # pragma: no cover - defensive import guard
     ConfigManager = None  # type: ignore
 
@@ -1336,7 +1336,7 @@ class CapabilityRegistry:
         persona_sources: Dict[Optional[str], bool] = {}
         manifest_entries: List[ToolManifestEntry] = []
         try:
-            from ATLAS.tools.manifests import _get_tool_manifest_validator
+            from core.tools.manifests import _get_tool_manifest_validator
 
             validator = _get_tool_manifest_validator(config_manager=self._config_manager)
         except Exception:

@@ -8,7 +8,7 @@ import requests
 from modules.logging.logger import setup_logger
 
 if TYPE_CHECKING:  # pragma: no cover - import for type checking only
-    from ATLAS.config import ConfigManager  # pylint: disable=ungrouped-imports
+    from core.config import ConfigManager  # pylint: disable=ungrouped-imports
 
 logger = setup_logger(__name__)
 
@@ -23,7 +23,7 @@ class _LazyConfigManagerAccessor:
 
     def _ensure_manager(self):
         if self._manager is None:
-            from ATLAS.config import ConfigManager  # Local import avoids circulars
+            from core.config import ConfigManager  # Local import avoids circulars
 
             self._manager = ConfigManager()
         return self._manager

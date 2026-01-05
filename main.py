@@ -7,11 +7,11 @@ import gi
 gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk
 
-from ATLAS.ATLAS import ATLAS
-from ATLAS.setup_marker import is_setup_complete
+from core.ATLAS import ATLAS
+from core.setup_marker import is_setup_complete
 from GTKUI.Setup.first_run import FirstRunCoordinator
 from GTKUI.sidebar import MainWindow
-from ATLAS.providers.atlas_provider import AtlasProvider
+from core.providers.atlas_provider import AtlasProvider
 
 logger = logging.getLogger(__name__)
 

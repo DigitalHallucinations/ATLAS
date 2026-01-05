@@ -13,7 +13,7 @@ from urllib.parse import urlparse
 import aiohttp
 
 if TYPE_CHECKING:  # pragma: no cover
-    from ATLAS.config import ConfigManager
+    from core.config import ConfigManager
 
 
 from modules.Tools.Base_Tools.utils import dedupe_strings
@@ -183,7 +183,7 @@ class WebpageFetcher:
     def _resolve_config_allowlist(self) -> tuple[str, ...]:
         manager = self._config_manager
         if manager is None:
-            from ATLAS.config import ConfigManager
+            from core.config import ConfigManager
 
             manager = ConfigManager()
             self._config_manager = manager

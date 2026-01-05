@@ -11,20 +11,20 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 from huggingface_hub import HfApi
-from ATLAS.model_manager import ModelManager
-from ATLAS.config import ConfigManager
-from ATLAS.context import LLMContextManager, LLMContext
+from core.model_manager import ModelManager
+from core.config import ConfigManager
+from core.context import LLMContextManager, LLMContext
 from modules.logging.logger import setup_logger
 from modules.Providers.HuggingFace.HF_gen_response import HuggingFaceGenerator
-from ATLAS.providers.base import build_result, get_invoker, register_invoker
-from ATLAS.providers.huggingface import (
+from core.providers.base import build_result, get_invoker, register_invoker
+from core.providers.huggingface import (
     clear_cache as hf_clear_cache_adapter,
     download_model as hf_download_adapter,
     search_models as hf_search_adapter,
     update_settings as hf_update_adapter,
 )
-from ATLAS.providers.openai import list_models as openai_list_models
-from ATLAS.providers.anthropic import list_models as anthropic_list_models
+from core.providers.openai import list_models as openai_list_models
+from core.providers.anthropic import list_models as anthropic_list_models
 from modules.Providers.Grok.grok_generate_response import GrokGenerator
 
 # Import other necessary provider generators

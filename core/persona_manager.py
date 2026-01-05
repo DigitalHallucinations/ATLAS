@@ -6,7 +6,7 @@ import copy
 from collections.abc import Iterable as IterableABC, Mapping as MappingABC
 from typing import Any, Dict, List, Optional, Tuple
 from modules.user_accounts.user_data_manager import UserDataManager
-from ATLAS.config import ConfigManager
+from core.config import ConfigManager
 from modules.logging.logger import setup_logger
 from modules.Personas import (
     PersonaValidationError,

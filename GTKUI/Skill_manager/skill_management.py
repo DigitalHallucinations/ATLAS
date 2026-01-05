@@ -17,7 +17,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 from gi.repository import GLib, Gtk
 
-from ATLAS.utils import normalize_sequence
+from core.utils import normalize_sequence
 
 logger = logging.getLogger(__name__)
 
@@ -727,7 +727,7 @@ class SkillManagement:
             response = getter(**kwargs)
         except Exception as exc:
             logger.error("Failed to load skill metadata: %s", exc, exc_info=True)
-            self._handle_backend_error("Unable to load skill metadata from ATLAS.")
+            self._handle_backend_error("Unable to load skill metadata from core.")
             return []
 
         skills = response.get("skills") if isinstance(response, Mapping) else None
@@ -1650,7 +1650,7 @@ class SkillManagement:
                 payload = getter(persona_name)
             except Exception as exc:  # pragma: no cover - backend failure logging
                 logger.error("Failed to load persona '%s' for enabling tools: %s", persona_name, exc, exc_info=True)
-                self._handle_backend_error("Unable to load persona configuration from ATLAS.")
+                self._handle_backend_error("Unable to load persona configuration from core.")
                 return
             if isinstance(payload, Mapping):
                 existing_tools = self._normalize_strings(payload.get("allowed_tools"))
@@ -1896,7 +1896,7 @@ class SkillManagement:
                 self._handle_prompt_response,
                 entry.name,
                 None,
-                "Unable to load skill details from ATLAS.",
+                "Unable to load skill details from core.",
             )
         else:
             GLib.idle_add(self._handle_prompt_response, entry.name, response, None)
@@ -2269,7 +2269,7 @@ class SkillManagement:
             response = method(**kwargs) if callable(method) else None
         except Exception as exc:  # pragma: no cover - backend failure logging
             logger.error("Failed to load skill history: %s", exc, exc_info=True)
-            self._handle_backend_error("Unable to load skill change history from ATLAS.")
+            self._handle_backend_error("Unable to load skill change history from core.")
             return []
 
         records = response

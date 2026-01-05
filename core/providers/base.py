@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Awaitable, Callable, Dict, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:  # pragma: no cover - import guard for type checkers only
-    from ATLAS.provider_manager import ProviderManager
+    from core.provider_manager import ProviderManager
 
 ResultPayload = Dict[str, Any]
 ProviderInvoker = Callable[["ProviderManager", Callable[..., Awaitable[Any]], Dict[str, Any]], Awaitable[Any]]

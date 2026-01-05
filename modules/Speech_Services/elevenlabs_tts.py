@@ -24,7 +24,7 @@ import requests
 from datetime import datetime
 from dotenv import load_dotenv
 
-from ATLAS.config import ConfigManager
+from core.config import ConfigManager
 from modules.audio import AudioEngine
 from modules.logging.logger import setup_logger
 

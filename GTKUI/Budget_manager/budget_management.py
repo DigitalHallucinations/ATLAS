@@ -117,7 +117,7 @@ class BudgetManagement:
     def _subscribe_to_bus(self) -> None:
         """Subscribe to budget-related MessageBus channels."""
         try:
-            from ATLAS.messaging import MessageBus
+            from core.messaging import MessageBus
 
             bus = MessageBus.get_instance()
 

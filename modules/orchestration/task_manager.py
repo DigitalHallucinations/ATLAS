@@ -23,7 +23,7 @@ from typing import Any, Callable, Dict, Iterable, Mapping, MutableMapping, Optio
 from modules.orchestration.blackboard import BlackboardClient
 from modules.orchestration.planner import ExecutionPlan, PlanStep, PlanStepStatus, Planner
 
-from ATLAS.messaging import (
+from core.messaging import (
     AgentBus,
     AgentMessage,
     MessagePriority,

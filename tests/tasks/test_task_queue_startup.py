@@ -28,7 +28,7 @@ def test_get_default_service_uses_lazy_config_manager(monkeypatch):
 
     monkeypatch.setitem(sys.modules, "ATLAS.config", stub_config_module)
     try:
-        import ATLAS as atlas_package
+        import core as atlas_package
     except ModuleNotFoundError:  # pragma: no cover - package should exist in test environment
         atlas_package = types.ModuleType("ATLAS")
         monkeypatch.setitem(sys.modules, "ATLAS", atlas_package)

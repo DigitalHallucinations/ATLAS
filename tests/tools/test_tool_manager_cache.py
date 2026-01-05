@@ -22,7 +22,7 @@ if "dotenv" not in sys.modules:
         find_dotenv=lambda *_args, **_kwargs: "",
     )
 
-import ATLAS.ToolManager as tool_manager
+import core.ToolManager as tool_manager
 
 
 def _manifest_entry(name, description='d', **overrides):

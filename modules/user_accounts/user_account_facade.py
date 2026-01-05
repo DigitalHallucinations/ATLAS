@@ -5,7 +5,7 @@ from __future__ import annotations
 import getpass
 from typing import Callable, Dict, List, Optional, Tuple
 
-from ATLAS.config import ConfigManager
+from core.config import ConfigManager
 from modules.background_tasks import run_async_in_thread
 from modules.conversation_store import ConversationStoreRepository
 from modules.user_accounts.user_account_service import PasswordRequirements

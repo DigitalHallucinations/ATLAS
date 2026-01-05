@@ -9,7 +9,7 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import Gdk, GLib, Gtk
 
 from GTKUI.Setup.setup_wizard import SetupWizardWindow
-from ATLAS.setup import (
+from core.setup import (
     DatabaseState,
     JobSchedulingState,
     KvStoreState,
@@ -705,7 +705,7 @@ def test_log_window_displays_setup_logs(monkeypatch):
     log_window = window._ensure_log_window()
     assert log_window is not None
 
-    target_logger = logging.getLogger("ATLAS.setup")
+    target_logger = logging.getLogger("core.setup")
     assert target_logger.getEffectiveLevel() <= logging.DEBUG
 
     target_logger.info("setup log message")

@@ -29,7 +29,7 @@ from GTKUI.Utils.utils import apply_css
 from modules.logging.logger import setup_logger
 
 if TYPE_CHECKING:
-    from ATLAS.services.rag import RAGService
+    from core.services.rag import RAGService
     from modules.storage.knowledge import KnowledgeStore
     from modules.storage.knowledge.base import KnowledgeBase
 

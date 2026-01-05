@@ -14,7 +14,7 @@ import yaml
 from sqlalchemy import create_engine
 from sqlalchemy.engine.url import make_url
 
-from ATLAS.config import (
+from core.config import (
     ConfigManager,
     PerformanceMode,
     StorageArchitecture,
@@ -27,7 +27,7 @@ from modules.job_store import ensure_job_schema
 from modules.user_accounts.user_account_service import UserAccountService
 from modules.orchestration.policy import MessagePolicy
 
-from ATLAS.setup.rag_capabilities import RAGCapabilities, RAGCapabilitiesDetector
+from core.setup.rag_capabilities import RAGCapabilities, RAGCapabilitiesDetector
 
 
 logger = logging.getLogger(__name__)

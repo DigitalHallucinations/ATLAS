@@ -48,8 +48,8 @@ if "dotenv" not in sys.modules:
     dotenv_module.dotenv_values = lambda *args, **kwargs: {}
     sys.modules["dotenv"] = dotenv_module
 
-import ATLAS.config.config_manager as config_impl
-from ATLAS.config import ConfigManager
+import core.config.config_manager as config_impl
+from core.config import ConfigManager
 
 
 class DummyLogger:

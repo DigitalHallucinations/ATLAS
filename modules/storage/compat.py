@@ -14,9 +14,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Dict, Mapping, Optional
 
 if TYPE_CHECKING:
-    from ATLAS.config import ConfigManager
-    from ATLAS.config.storage import StorageArchitecture, PerformanceMode
-    from ATLAS.setup.controller import DatabaseState
+    from core.config import ConfigManager
+    from core.config.storage import StorageArchitecture, PerformanceMode
+    from core.setup.controller import DatabaseState
     from modules.storage.manager import StorageManager
     from modules.storage.settings import StorageSettings
 
@@ -115,7 +115,7 @@ def storage_settings_to_architecture(
     Returns:
         StorageArchitecture for legacy compatibility.
     """
-    from ATLAS.config.storage import StorageArchitecture, PerformanceMode
+    from core.config.storage import StorageArchitecture, PerformanceMode
     from modules.storage.settings import SQLDialect, VectorBackendType
 
     # Map SQL dialect to conversation backend
@@ -294,7 +294,7 @@ def storage_settings_to_database_state(
     Returns:
         DatabaseState for setup wizard compatibility.
     """
-    from ATLAS.setup.controller import DatabaseState
+    from core.setup.controller import DatabaseState
     from modules.storage.settings import SQLDialect
 
     # Map SQL dialect to backend

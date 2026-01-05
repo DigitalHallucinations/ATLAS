@@ -13,7 +13,7 @@ import asyncio
 import time
 from typing import Any, Awaitable, Callable, Dict, List, Optional, TYPE_CHECKING
 
-from ATLAS.providers.base import register_invoker, get_invoker, build_result
+from core.providers.base import register_invoker, get_invoker, build_result
 from modules.logging.logger import setup_logger
 
 from .base import (
@@ -24,7 +24,7 @@ from .base import (
 from .registry import get_provider_factory, is_provider_registered
 
 if TYPE_CHECKING:
-    from ATLAS.config import ConfigManager
+    from core.config import ConfigManager
 
 logger = setup_logger(__name__)
 

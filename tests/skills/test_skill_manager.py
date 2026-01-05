@@ -11,7 +11,7 @@ if "yaml" not in sys.modules:
 
 import pytest
 
-from ATLAS.SkillManager import (
+from core.SkillManager import (
     SKILL_ACTIVITY_EVENT,
     SkillExecutionContext,
     SkillExecutionError,

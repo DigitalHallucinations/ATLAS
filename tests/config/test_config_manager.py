@@ -74,12 +74,12 @@ if "dotenv" not in sys.modules:
     dotenv_module.dotenv_values = lambda *args, **kwargs: {}
     sys.modules["dotenv"] = dotenv_module
 
-import ATLAS.config as config_module
-import ATLAS.config.config_manager as config_impl
-from ATLAS.config import ConfigManager
-from ATLAS.config.messaging import MessagingConfigSection
-from ATLAS.config.persistence import PersistenceConfigSection
-from ATLAS.config.tooling import ToolingConfigSection
+import core.config as config_module
+import core.config.config_manager as config_impl
+from core.config import ConfigManager
+from core.config.messaging import MessagingConfigSection
+from core.config.persistence import PersistenceConfigSection
+from core.config.tooling import ToolingConfigSection
 
 
 class _DummyURL:

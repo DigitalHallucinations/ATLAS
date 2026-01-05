@@ -3,9 +3,9 @@
 ## Roles and writable scopes
 
 - **UI Agent**: Works in `GTKUI/`, visual assets under `Icons/`, and UI entry points that wire GTK shell behaviors. Avoid backend or storage logic changes.
-- **Backend Agent**: Owns application logic in `ATLAS/`, `atlas_provider.py`, `modules/` (excluding data/DB submodules when a Data/DB Agent is assigned), and orchestration codepaths wired through `main.py` or CLI adapters.
-- **Data/DB Agent**: Handles persistence layers in `modules/conversation_store/`, `modules/task_store/`, `modules/job_store/`, associated migrations under `scripts/migrations/`, and storage-related configuration in `ATLAS/config/persistence.py`.
-- **Infra/Config Agent**: Manages configuration defaults, deployment templates, and runtime wiring in `server/`, `config.yaml`, `ATLAS/config/`, and scripts under `scripts/` that change operational behaviors.
+- **Backend Agent**: Owns application logic in `core/`, `atlas_provider.py`, `modules/` (excluding data/DB submodules when a Data/DB Agent is assigned), and orchestration codepaths wired through `main.py` or CLI adapters.
+- **Data/DB Agent**: Handles persistence layers in `modules/conversation_store/`, `modules/task_store/`, `modules/job_store/`, associated migrations under `scripts/migrations/`, and storage-related configuration in `core/config/persistence.py`.
+- **Infra/Config Agent**: Manages configuration defaults, deployment templates, and runtime wiring in `server/`, `config.yaml`, `core/config/`, and scripts under `scripts/` that change operational behaviors.
 - **Docs Agent**: Focuses solely on documentation tasks within `docs/`. When refactoring docs, ensure all changes are within the scope of `docs/_audit`. Follow the audit cadence documented in `docs/_audit/` (at least weekly and after material reorganizations), including link validation and front-matter checks, and treat `docs/_audit/inventory.md` and `docs/_audit/architecture-alignment-report.md` as the traceability sources. After any docs change, refresh `docs/_audit/inventory.md` and `docs/_audit/architecture-alignment-report.md` to reflect the updated state.
 - **Testing Agent**: Adds or updates tests in `tests/` without modifying application logic elsewhere.
 - **Security Agent**: Reviews configurations for security issues while avoiding changes to secrets or database credentials.

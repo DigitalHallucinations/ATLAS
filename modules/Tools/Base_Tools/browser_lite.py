@@ -22,7 +22,7 @@ except Exception:  # pragma: no cover - playwright is optional during testing
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:  # pragma: no cover - import for type checking only
-    from ATLAS.config import ConfigManager
+    from core.config import ConfigManager
 
 
 class BrowserLiteError(RuntimeError):
@@ -263,7 +263,7 @@ class BrowserLite:
             return provided
 
         try:
-            from ATLAS.config import ConfigManager
+            from core.config import ConfigManager
         except Exception as exc:  # pragma: no cover - configuration import failure
             raise BrowserLiteError(
                 "BrowserLite requires 'ATLAS.config.ConfigManager' but the module could not be imported."

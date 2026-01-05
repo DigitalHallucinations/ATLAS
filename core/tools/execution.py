@@ -32,10 +32,10 @@ from modules.logging.logger import setup_logger
 from modules.Tools.tool_event_system import event_system, publish_bus_event
 from modules.orchestration import budget_tracker
 from modules.orchestration.capability_registry import get_capability_registry
-from ATLAS.messaging import MessagePriority
+from core.messaging import MessagePriority
 
-from ATLAS.config import ConfigManager
-from ATLAS.tools.cache import (
+from core.config import ConfigManager
+from core.tools.cache import (
     clone_json_compatible as _clone_json_compatible,
     get_config_manager as _get_config_manager,
     get_config_section as _get_config_section,
@@ -44,8 +44,8 @@ from ATLAS.tools.cache import (
     record_tool_failure as _record_tool_failure,
     stringify_tool_value as _stringify_tool_value,
 )
-from ATLAS.tools.errors import ToolExecutionError, ToolManifestValidationError
-from ATLAS.tools.streaming import (
+from core.tools.errors import ToolExecutionError, ToolManifestValidationError
+from core.tools.streaming import (
     ToolStreamCapture as _ToolStreamCapture,
     collect_async_chunks as _collect_async_chunks,
     gather_async_iterator as _gather_async_iterator,

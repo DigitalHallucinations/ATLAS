@@ -9,7 +9,7 @@ from collections.abc import Mapping
 
 from modules.orchestration.policy import MessagePolicy, PolicyResolver
 
-from ATLAS.messaging import AgentBus, configure_agent_bus
+from core.messaging import AgentBus, configure_agent_bus
 
 
 @dataclass

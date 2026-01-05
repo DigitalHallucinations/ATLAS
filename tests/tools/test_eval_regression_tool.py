@@ -134,7 +134,7 @@ def test_eval_regression_manifest_entry_exposed():
 
 
 def test_eval_regression_available_via_tool_manager(monkeypatch):
-    import ATLAS.ToolManager as tool_manager
+    import core.ToolManager as tool_manager
 
     shared_map = tool_manager.load_default_function_map(refresh=True)
     assert "eval.regression" in shared_map

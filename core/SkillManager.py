@@ -19,7 +19,7 @@ from modules.orchestration.blackboard import BlackboardClient, get_blackboard
 from modules.orchestration.planner import Planner, PlanStep, PlanStepStatus
 from modules.logging.logger import setup_logger
 
-from ATLAS.messaging import MessagePriority, get_agent_bus
+from core.messaging import MessagePriority, get_agent_bus
 
 
 logger = setup_logger(__name__)

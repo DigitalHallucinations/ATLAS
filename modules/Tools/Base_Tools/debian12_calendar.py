@@ -51,7 +51,7 @@ logger = logging.getLogger(__name__)
 
 
 if TYPE_CHECKING:  # pragma: no cover - imported for static analysis only
-    from ATLAS.config import ConfigManager
+    from core.config import ConfigManager
 
 
 _CONFIG_MANAGER_SINGLETON: Optional["ConfigManager"] = None
@@ -70,7 +70,7 @@ def _resolve_config_manager() -> "ConfigManager":
         raise RuntimeError("ConfigManager is unavailable in this environment") from _CONFIG_MANAGER_IMPORT_ERROR
 
     try:  # pragma: no cover - exercised when ConfigManager import is unavailable
-        from ATLAS.config import ConfigManager as _ConfigManager
+        from core.config import ConfigManager as _ConfigManager
     except Exception as exc:  # pragma: no cover - exercised in environments without the manager
         _CONFIG_MANAGER_IMPORT_ERROR = exc
         raise RuntimeError("ConfigManager is unavailable in this environment") from exc

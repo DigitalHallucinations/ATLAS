@@ -8,14 +8,14 @@ from weakref import WeakKeyDictionary
 from types import MappingProxyType
 
 from openai import AsyncOpenAI
-from ATLAS.model_manager import ModelManager
+from core.model_manager import ModelManager
 
 from tenacity import retry, stop_after_attempt, wait_exponential
 from typing import List, Dict, Union, AsyncIterator, Optional, Any, Set, Mapping
-from ATLAS.config import ConfigManager
+from core.config import ConfigManager
 from modules.logging.logger import setup_logger
 from modules.Providers.common import close_client, get_or_create_generator
-from ATLAS.ToolManager import (
+from core.ToolManager import (
     ToolExecutionError,
     load_function_map_from_current_persona,
     load_functions_from_json,

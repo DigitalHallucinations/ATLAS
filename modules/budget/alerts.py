@@ -22,7 +22,7 @@ from .models import (
 )
 
 if TYPE_CHECKING:
-    from ATLAS.config import ConfigManager
+    from core.config import ConfigManager
     from .manager import BudgetManager
 
 logger = setup_logger(__name__)
@@ -248,7 +248,7 @@ class AlertEngine:
     async def _setup_message_bus(self) -> None:
         """Set up MessageBus integration for alert notifications."""
         try:
-            from ATLAS.messaging import get_message_bus
+            from core.messaging import get_message_bus
 
             bus = get_message_bus()
             if bus:

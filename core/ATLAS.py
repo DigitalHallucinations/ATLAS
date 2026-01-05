@@ -22,9 +22,9 @@ from typing import (
     Tuple,
     Union,
 )
-from ATLAS import ToolManager as ToolManagerModule
-from ATLAS.config import ConfigManager
-from ATLAS.context import (
+from core import ToolManager as ToolManagerModule
+from core.config import ConfigManager
+from core.context import (
     ExecutionContext,
     get_current_context,
     get_context_or_default,
@@ -32,8 +32,8 @@ from ATLAS.context import (
 )
 from modules.logging.logger import setup_logger
 from modules.logging.audit import get_persona_audit_logger
-from ATLAS.provider_manager import ProviderManager
-from ATLAS.persona_manager import PersonaManager
+from core.provider_manager import ProviderManager
+from core.persona_manager import PersonaManager
 from modules.Chat.chat_session import ChatHistoryExportError, ChatSession
 from modules.conversation_store import ConversationStoreRepository
 from modules.Speech_Services.speech_manager import SpeechManager
@@ -53,10 +53,10 @@ from modules.Server import AtlasServer
 from modules.orchestration.job_manager import JobManager
 from modules.orchestration.job_scheduler import JobScheduler
 from modules.orchestration.task_manager import TaskManager
-from ATLAS.services.tooling import ToolingService
-from ATLAS.services.conversations import ConversationService
-from ATLAS.services.providers import ProviderService
-from ATLAS.services.speech import SpeechService
+from core.services.tooling import ToolingService
+from core.services.conversations import ConversationService
+from core.services.providers import ProviderService
+from core.services.speech import SpeechService
 
 # Lazy import for StorageManager to avoid circular imports
 _storage_manager_module = None

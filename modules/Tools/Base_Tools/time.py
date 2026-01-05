@@ -32,7 +32,7 @@ def _load_config_manager() -> Optional[type[object]]:
 
     if _CONFIG_MANAGER_CACHE is _CONFIG_MANAGER_NOT_LOADED:
         try:  # ConfigManager is optional in certain test contexts
-            from ATLAS.config import ConfigManager as _ConfigManager
+            from core.config import ConfigManager as _ConfigManager
         except Exception:  # pragma: no cover - exercised when configuration is unavailable
             _CONFIG_MANAGER_CACHE = None
         else:

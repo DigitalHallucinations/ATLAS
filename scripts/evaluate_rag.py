@@ -291,8 +291,8 @@ async def run_with_rag(
     
     # Initialize RAG service
     try:
-        from ATLAS.services.rag import RAGService
-        from ATLAS.config.config_manager import ConfigManager
+        from core.services.rag import RAGService
+        from core.config.config_manager import ConfigManager
         
         config_manager = ConfigManager()
         rag_service = RAGService(config_manager)

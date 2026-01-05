@@ -13,7 +13,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-from ATLAS.utils.collections import dedupe_strings
+from core.utils.collections import dedupe_strings
 
 
 def _score_signal(region: str, skill: str, timeframe: str) -> float:

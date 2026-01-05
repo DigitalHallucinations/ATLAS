@@ -5,8 +5,8 @@ from __future__ import annotations
 import logging
 from typing import Callable, TypeVar
 
-from ATLAS.ATLAS import ATLAS
-from ATLAS.setup_marker import is_setup_complete
+from core.ATLAS import ATLAS
+from core.setup_marker import is_setup_complete
 
 logger = logging.getLogger(__name__)
 

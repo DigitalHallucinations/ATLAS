@@ -29,7 +29,7 @@ from ..base import (
 from ..registry import register_provider
 
 if TYPE_CHECKING:
-    from ATLAS.config import ConfigManager
+    from core.config import ConfigManager
 
 
 class IdeogramProvider(MediaProvider):

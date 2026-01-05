@@ -8,7 +8,7 @@ from typing import Any, Dict
 
 import pytest
 
-from ATLAS.services.tooling import ToolingService
+from core.services.tooling import ToolingService
 
 
 class DummyConfigManager:

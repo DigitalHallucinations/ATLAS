@@ -10,7 +10,7 @@ from modules.Tools.providers.base import ToolProvider, ToolProviderSpec
 from modules.Tools.providers.registry import tool_provider_registry
 
 if TYPE_CHECKING:
-    from ATLAS.config import ConfigManager
+    from core.config import ConfigManager
     from modules.Tools.Base_Tools.kv_store import KeyValueStoreService
 
 
@@ -35,7 +35,7 @@ class KeyValueStoreProvider(ToolProvider):
     @staticmethod
     def _resolve_config_manager() -> Optional["ConfigManager"]:
         try:
-            from ATLAS.config import ConfigManager as _ConfigManager  # Local import to avoid circular dependency
+            from core.config import ConfigManager as _ConfigManager  # Local import to avoid circular dependency
         except Exception:  # pragma: no cover - ConfigManager unavailable in some environments
             return None
         try:

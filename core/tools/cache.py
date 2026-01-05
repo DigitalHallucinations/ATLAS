@@ -10,9 +10,9 @@ from typing import Any, Dict, Iterable, List, Optional
 
 from modules.Tools.tool_event_system import publish_bus_event
 from modules.logging.logger import setup_logger
-from ATLAS.messaging import MessagePriority
+from core.messaging import MessagePriority
 
-from ATLAS.config import ConfigManager
+from core.config import ConfigManager
 
 logger = setup_logger(__name__)
 

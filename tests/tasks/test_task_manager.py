@@ -1,7 +1,7 @@
 import asyncio
 from collections import defaultdict
 
-from ATLAS.messaging import AgentBus, AgentMessage
+from core.messaging import AgentBus, AgentMessage
 from modules.orchestration.blackboard import BlackboardStore, configure_blackboard
 from modules.orchestration.task_manager import (
     TASK_COMPLETED_TOPIC,

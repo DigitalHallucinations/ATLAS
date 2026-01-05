@@ -11,7 +11,7 @@ This package provides two complementary context management systems:
    task context with intelligent token budgeting.
 """
 
-from ATLAS.context.execution import (
+from core.context.execution import (
     ExecutionContext,
     get_current_context,
     get_context_or_default,
@@ -24,14 +24,14 @@ from ATLAS.context.execution import (
     context_from_legacy_dict,
 )
 
-from ATLAS.context.llm_context import (
+from core.context.llm_context import (
     LLMContext,
     MessageEntry,
     TokenBudget,
     ToolDefinition,
 )
 
-from ATLAS.context.llm_context_manager import (
+from core.context.llm_context_manager import (
     LLMContextManager,
     estimate_tokens,
     get_model_context_limit,

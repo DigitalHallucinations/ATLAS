@@ -15,7 +15,7 @@ from modules.Tools.Base_Tools.context_tracker import context_tracker
 from modules.Tools.Base_Tools.memory_episodic import EpisodicMemoryTool
 from modules.conversation_store import ConversationStoreRepository
 from modules.logging.logger import setup_logger
-from ATLAS.messaging import AgentBus, MessagePriority, Subscription
+from core.messaging import AgentBus, MessagePriority, Subscription
 
 
 def _coerce_datetime(value: Any) -> datetime | None:

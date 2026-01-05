@@ -10,7 +10,7 @@ from modules.conversation_store import ConversationStoreRepository
 from modules.logging.logger import setup_logger
 
 if TYPE_CHECKING:  # pragma: no cover - imported for type checking only
-    from ATLAS.config import ConfigManager
+    from core.config import ConfigManager
 
 __all__ = [
     "MemoryGraphTool",
@@ -79,7 +79,7 @@ class MemoryGraphTool:
             if self._config_manager_import_failed:
                 return None
             try:  # pragma: no cover - import guarded for optional dependency
-                from ATLAS.config import ConfigManager as _ConfigManager
+                from core.config import ConfigManager as _ConfigManager
             except Exception:  # pragma: no cover - fallback when config unavailable
                 self._config_manager_import_failed = True
                 return None

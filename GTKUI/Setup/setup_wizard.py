@@ -17,8 +17,8 @@ gi.require_version("GLib", "2.0")
 gi.require_version("Gio", "2.0")
 from gi.repository import Gio, GLib, Gdk, Gtk
 
-from ATLAS.config import PERFORMANCE_PRESETS, PerformanceMode, StorageArchitecture
-from ATLAS.setup import (
+from core.config import PERFORMANCE_PRESETS, PerformanceMode, StorageArchitecture
+from core.setup import (
     AdminProfile,
     DatabaseState,
     HardwareProfile,
@@ -33,7 +33,7 @@ from ATLAS.setup import (
     SpeechState,
     UserState,
 )
-from ATLAS.setup_marker import write_setup_marker
+from core.setup_marker import write_setup_marker
 from GTKUI.Utils.logging import GTKUILogHandler
 from GTKUI.Utils.styled_window import AtlasWindow
 from GTKUI.Utils.utils import apply_css

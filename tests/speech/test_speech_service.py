@@ -4,7 +4,7 @@ from unittest.mock import ANY, AsyncMock, Mock
 
 import pytest
 
-from ATLAS.services.speech import SpeechService
+from core.services.speech import SpeechService
 
 
 def _make_service(manager, summary=None, logger=None):

@@ -13,7 +13,7 @@ import requests
 from modules.logging.logger import setup_logger
 
 try:  # ConfigManager is optional in some test contexts
-    from ATLAS.config import ConfigManager
+    from core.config import ConfigManager
 except Exception:  # pragma: no cover - fallback when ConfigManager is unavailable
     ConfigManager = None  # type: ignore
 

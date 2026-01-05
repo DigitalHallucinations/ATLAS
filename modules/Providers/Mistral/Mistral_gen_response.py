@@ -12,9 +12,9 @@ from weakref import WeakKeyDictionary
 from mistralai import Mistral
 from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential
 
-from ATLAS.config import ConfigManager
-from ATLAS.model_manager import ModelManager
-from ATLAS.ToolManager import (
+from core.config import ConfigManager
+from core.model_manager import ModelManager
+from core.ToolManager import (
     ToolExecutionError,
     load_function_map_from_current_persona,
     load_functions_from_json,

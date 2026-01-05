@@ -2,8 +2,8 @@ from typing import Any
 
 import pytest
 
-from ATLAS.config import core
-from ATLAS.config.core import ConfigCore
+from core.config import core
+from core.config.core import ConfigCore
 
 
 class DummyLogger:

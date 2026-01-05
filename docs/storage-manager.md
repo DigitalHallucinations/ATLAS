@@ -6,7 +6,7 @@ The **StorageManager** is the primary and only storage mechanism in ATLAS. It pr
 
 ## Overview
 
-```
+```Text
 ┌──────────────────────────────────────────────────────────────────┐
 │                        StorageManager                              │
 │                    (Singleton Orchestrator)                        │
@@ -90,7 +90,7 @@ await manager.shutdown()
 StorageSettings can be loaded from environment variables:
 
 | Variable | Description | Default |
-|----------|-------------|---------|
+| -------- | ----------- | ------- |
 | `ATLAS_SQL_DIALECT` | `postgresql` or `sqlite` | `postgresql` |
 | `ATLAS_SQL_HOST` | Database host | `localhost` |
 | `ATLAS_SQL_PORT` | Database port | `5432` |
@@ -363,7 +363,7 @@ from modules.storage import (
     database_state_to_settings,
     storage_settings_to_database_state,
 )
-from ATLAS.setup.controller import DatabaseState
+from core.setup.controller import DatabaseState
 
 # Convert wizard state to settings
 db_state = DatabaseState(
@@ -413,7 +413,7 @@ from modules.Tools.Base_Tools.vector_store import create_vector_store_adapter
 adapter = create_vector_store_adapter("storage_manager")
 ```
 
-## Configuration
+## Initialization Configuration
 
 StorageManager is automatically initialized during ATLAS startup. Configure it via environment variables or `config.yaml`:
 
@@ -451,7 +451,7 @@ storage:
 ### StorageManager
 
 | Method | Description |
-|--------|-------------|
+| ------ | ----------- |
 | `await initialize()` | Initialize all storage subsystems |
 | `await shutdown()` | Graceful shutdown |
 | `await health_check()` | Get health status |
@@ -466,7 +466,7 @@ storage:
 ### Singleton Access
 
 | Function | Description |
-|----------|-------------|
+| -------- | ----------- |
 | `await get_storage_manager()` | Get/create singleton |
 | `get_storage_manager_sync()` | Get existing instance (no create) |
 | `await reset_storage_manager()` | Shutdown and clear singleton |

@@ -454,7 +454,7 @@ if "soundfile" not in sys.modules:
     soundfile_stub.read = lambda *_args, **_kwargs: ([], 16000)
     sys.modules["soundfile"] = soundfile_stub
 
-from ATLAS.ATLAS import ATLAS
+from core.ATLAS import ATLAS
 
 
 class _SilentLogger:

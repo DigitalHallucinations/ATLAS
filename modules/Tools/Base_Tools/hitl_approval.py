@@ -12,7 +12,7 @@ __all__ = ["HITLApprovalError", "HITLApprovalTool", "hitl_approval"]
 
 
 if TYPE_CHECKING:
-    from ATLAS.config import ConfigManager
+    from core.config import ConfigManager
 
 
 class HITLApprovalError(RuntimeError):
@@ -157,7 +157,7 @@ class HITLApprovalTool:
 
         manager = self._config_manager
         if manager is None:
-            from ATLAS.config import ConfigManager as _ConfigManager
+            from core.config import ConfigManager as _ConfigManager
 
             manager = _ConfigManager()
             self._config_manager = manager

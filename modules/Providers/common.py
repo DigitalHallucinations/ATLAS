@@ -7,8 +7,8 @@ from collections.abc import AsyncIterator as AsyncIteratorABC
 from typing import Any, Callable, Optional, TypeVar, Union
 from weakref import WeakKeyDictionary
 
-from ATLAS.config import ConfigManager
-from ATLAS.model_manager import ModelManager
+from core.config import ConfigManager
+from core.model_manager import ModelManager
 
 
 TGenerator = TypeVar("TGenerator")

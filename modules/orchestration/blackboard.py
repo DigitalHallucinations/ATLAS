@@ -16,7 +16,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Dict, Iterable, List, Mapping, Optional
 
-from ATLAS.messaging import (
+from core.messaging import (
     AgentBus,
     AgentMessage,
     MessagePriority,
@@ -25,7 +25,7 @@ from ATLAS.messaging import (
     BLACKBOARD_EVENT,
 )
 
-from ATLAS.utils.collections import dedupe_strings
+from core.utils.collections import dedupe_strings
 
 _BLACKBOARD_EVENT_TOPIC = BLACKBOARD_EVENT.name
 _SUPPORTED_CATEGORIES = {"hypothesis", "claim", "artifact"}

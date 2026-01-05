@@ -2,7 +2,7 @@ import asyncio
 from collections import defaultdict
 from types import MappingProxyType, SimpleNamespace
 
-from ATLAS.messaging import AgentBus, AgentMessage
+from core.messaging import AgentBus, AgentMessage
 from modules.Jobs.manifest_loader import JobMetadata, load_job_metadata
 from modules.orchestration.blackboard import BlackboardStore, configure_blackboard
 from modules.orchestration.job_manager import (

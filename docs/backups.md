@@ -42,7 +42,7 @@ Both endpoints respect the tenant and user context provided via request headers.
   ```bash
   python - <<'PY'
   from pathlib import Path
-  from ATLAS.ATLAS import ATLAS
+  from core.ATLAS import ATLAS
 
   atlas = ATLAS()
   result = atlas.export_user_backup(Path("/tmp/atlas-backups"))

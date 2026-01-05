@@ -10,7 +10,7 @@ sqlalchemy = pytest.importorskip("sqlalchemy")
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from ATLAS.messaging import AgentBus
+from core.messaging import AgentBus
 from modules.Server import AtlasServer, RequestContext
 from modules.Server.conversation_routes import (
     ConversationAuthorizationError,

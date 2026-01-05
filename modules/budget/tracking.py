@@ -18,7 +18,7 @@ from modules.logging.logger import setup_logger
 from .models import BudgetCheckResult, LimitAction, OperationType, UsageRecord
 
 if TYPE_CHECKING:
-    from ATLAS.config import ConfigManager
+    from core.config import ConfigManager
     from .manager import BudgetManager
 
 logger = setup_logger(__name__)

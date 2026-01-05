@@ -91,7 +91,7 @@ def test_safety_scout_skill_executes_policy_reference(persona_name, monkeypatch)
     skills = load_skill_metadata(config_manager=config_manager)
     safety_scout = next(entry for entry in skills if entry.name == "SafetyScout")
 
-    from ATLAS.SkillManager import SkillExecutionContext, SkillRunResult, use_skill
+    from core.SkillManager import SkillExecutionContext, SkillRunResult, use_skill
 
     context = SkillExecutionContext(
         conversation_id="conv-safety",
@@ -146,7 +146,7 @@ def test_atlas_reporter_skill_executes_with_context_tools(monkeypatch):
     skills = load_skill_metadata(config_manager=config_manager)
     atlas_reporter = next(entry for entry in skills if entry.name == "AtlasReporter")
 
-    from ATLAS.SkillManager import SkillExecutionContext, SkillRunResult, use_skill
+    from core.SkillManager import SkillExecutionContext, SkillRunResult, use_skill
 
     conversation_history = [
         {"role": "user", "content": "Need a mission update on Project Atlas."},

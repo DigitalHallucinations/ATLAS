@@ -64,7 +64,7 @@ from modules.store_common.bundle_utils import (
 from modules.store_common.manifest_utils import resolve_app_root
 
 try:  # ConfigManager is heavy but required for accurate path resolution.
-    from ATLAS.config import ConfigManager
+    from core.config import ConfigManager
 except Exception:  # pragma: no cover - defensive import guard for test stubs
     ConfigManager = None  # type: ignore
 

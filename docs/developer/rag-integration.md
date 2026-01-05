@@ -84,7 +84,7 @@ class KnowledgeChunk:
 ### Initialization
 
 ```python
-from ATLAS.services.rag import RAGService
+from core.services.rag import RAGService
 
 # Initialize with dependencies
 rag_service = RAGService(
@@ -253,7 +253,7 @@ results = await store.search(search_query)
 Create a new embedding provider by extending the base class:
 
 ```python
-from ATLAS.services.rag.embedding import EmbeddingProvider
+from core.services.rag.embedding import EmbeddingProvider
 
 class CustomEmbeddingProvider(EmbeddingProvider):
     """Custom embedding provider implementation."""
@@ -290,7 +290,7 @@ class CustomEmbeddingProvider(EmbeddingProvider):
 Register your provider:
 
 ```python
-from ATLAS.services.rag.embedding import register_embedding_provider
+from core.services.rag.embedding import register_embedding_provider
 
 register_embedding_provider("custom-model", CustomEmbeddingProvider)
 ```

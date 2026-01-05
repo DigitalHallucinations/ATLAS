@@ -15,7 +15,7 @@ from .registry import tool_provider_registry
 
 
 if TYPE_CHECKING:  # pragma: no cover - import used only for typing
-    from ATLAS.config import ConfigManager
+    from core.config import ConfigManager
 
 
 class _LazyConfigManagerAccessor:
@@ -28,7 +28,7 @@ class _LazyConfigManagerAccessor:
 
     def get_manager(self) -> "ConfigManager":
         if self._manager is None:
-            from ATLAS.config import ConfigManager  # Local import avoids circular deps
+            from core.config import ConfigManager  # Local import avoids circular deps
 
             self._manager = ConfigManager()
         return self._manager

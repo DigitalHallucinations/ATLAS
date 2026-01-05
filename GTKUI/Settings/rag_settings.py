@@ -19,7 +19,7 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import GLib, Gtk
 
 if TYPE_CHECKING:
-    from ATLAS.config import ConfigManager
+    from core.config import ConfigManager
 
 
 class RAGSettingsPanel(Gtk.Box):
@@ -546,7 +546,7 @@ class RAGSettingsPanel(Gtk.Box):
 
     def _on_reset_clicked(self, button: Gtk.Button) -> None:
         """Reset to default settings."""
-        from ATLAS.config import DEFAULT_RAG_SETTINGS
+        from core.config import DEFAULT_RAG_SETTINGS
         self._config_manager.set_rag_settings(DEFAULT_RAG_SETTINGS)
         self._load_settings()
 
@@ -557,7 +557,7 @@ class RAGSettingsPanel(Gtk.Box):
     def _save_settings(self) -> None:
         """Save UI values to config."""
         from dataclasses import replace
-        from ATLAS.config.rag import (
+        from core.config.rag import (
             RAGSettings,
             EmbeddingSettings,
             ChunkingSettings,

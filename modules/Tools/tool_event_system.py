@@ -6,7 +6,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional
 
-from ATLAS.messaging import (
+from core.messaging import (
     AgentBus,
     AgentMessage,
     MessagePriority,

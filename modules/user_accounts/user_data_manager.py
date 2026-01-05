@@ -8,7 +8,7 @@ import subprocess
 from threading import Lock
 from typing import Any, Dict, Mapping, Optional
 
-from ATLAS.config import ConfigManager
+from core.config import ConfigManager
 from modules.conversation_store import ConversationStoreRepository
 from modules.logging.logger import setup_logger
 

@@ -6,7 +6,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from ATLAS.config import ConfigManager
+from core.config import ConfigManager
 from modules.user_accounts import user_account_facade as user_account_facade_module
 from modules.user_accounts import user_account_service as user_account_service_module
 from modules.user_accounts.user_account_facade import (

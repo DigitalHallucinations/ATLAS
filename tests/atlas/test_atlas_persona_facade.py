@@ -308,7 +308,7 @@ if "modules.Speech_Services.Google_stt" not in sys.modules:
     google_stt_module.GoogleSTT = _StubGoogleSTT
     sys.modules["modules.Speech_Services.Google_stt"] = google_stt_module
 
-from ATLAS.ATLAS import ATLAS
+from core.ATLAS import ATLAS
 
 
 class _DummyLogger:

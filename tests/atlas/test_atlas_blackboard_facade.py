@@ -48,7 +48,7 @@ if execution_module is None:
         setattr(execution_module, name, _stub_function)
     sys.modules["ATLAS.tools.execution"] = execution_module
 
-from ATLAS.ATLAS import ATLAS
+from core.ATLAS import ATLAS
 
 
 def _make_atlas_with_server() -> ATLAS:

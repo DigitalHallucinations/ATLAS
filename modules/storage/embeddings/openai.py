@@ -28,7 +28,7 @@ from .base import (
 )
 
 if TYPE_CHECKING:
-    from ATLAS.config import ConfigManager
+    from core.config import ConfigManager
 
 logger = setup_logger(__name__)
 

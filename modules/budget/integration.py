@@ -26,8 +26,8 @@ from typing import Any, AsyncIterator, Callable, Dict, List, Optional, TYPE_CHEC
 from modules.logging.logger import setup_logger
 
 if TYPE_CHECKING:
-    from ATLAS.config import ConfigManager
-    from ATLAS.provider_manager import ProviderManager
+    from core.config import ConfigManager
+    from core.provider_manager import ProviderManager
     from modules.Providers.Media.manager import MediaProviderManager
     from modules.Providers.Media.base import ImageGenerationRequest, ImageGenerationResult
 

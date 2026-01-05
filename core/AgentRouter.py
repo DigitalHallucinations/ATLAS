@@ -10,7 +10,7 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional
 from modules.logging.logger import setup_logger
 
 try:  # ConfigManager is optional in some test contexts
-    from ATLAS.config import ConfigManager
+    from core.config import ConfigManager
 except Exception:  # pragma: no cover - fallback for isolated tests
     ConfigManager = None  # type: ignore
 

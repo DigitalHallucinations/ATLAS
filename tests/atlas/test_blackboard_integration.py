@@ -25,8 +25,8 @@ if "jsonschema" not in sys.modules:
 
 import pytest
 
-from ATLAS.messaging import AgentBus, get_agent_bus
-from ATLAS.SkillManager import SkillExecutionContext
+from core.messaging import AgentBus, get_agent_bus
+from core.SkillManager import SkillExecutionContext
 from modules.Server import RequestContext
 from modules.Server.conversation_routes import ConversationAuthorizationError
 from modules.Server.routes import AtlasServer

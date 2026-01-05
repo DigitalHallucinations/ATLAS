@@ -29,7 +29,7 @@ jsonschema = pytest.importorskip(
     "jsonschema", reason="jsonschema is required for tool manifest validation tests."
 )
 
-import ATLAS.ToolManager as tool_manager
+import core.ToolManager as tool_manager
 
 importlib.reload(tool_manager)
 

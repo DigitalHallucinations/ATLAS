@@ -10,7 +10,7 @@ from modules.conversation_store import ConversationStoreRepository
 from modules.logging.logger import setup_logger
 
 if TYPE_CHECKING:  # pragma: no cover - import for typing only
-    from ATLAS.config import ConfigManager
+    from core.config import ConfigManager
 
 __all__ = [
     "EpisodicMemoryTool",
@@ -44,7 +44,7 @@ class EpisodicMemoryTool:
             if self._config_manager is not None:
                 return self._config_manager
             try:
-                from ATLAS.config import ConfigManager as _ConfigManager
+                from core.config import ConfigManager as _ConfigManager
             except Exception as exc:  # pragma: no cover - defensive logging only
                 logger.error("Failed to import ConfigManager for episodic memory: %s", exc)
                 raise RuntimeError(

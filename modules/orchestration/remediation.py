@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, Mapping, MutableMapping, Optional, Tuple
 
 from modules.orchestration import budget_tracker
-from ATLAS.messaging import (
+from core.messaging import (
     AgentBus,
     AgentMessage,
     MessagePriority,

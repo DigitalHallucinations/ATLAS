@@ -9,7 +9,7 @@ from typing import Any, Dict, Tuple
 
 import requests
 
-from ATLAS.config import ConfigManager
+from core.config import ConfigManager
 from modules.logging.logger import setup_logger
 
 config_manager = ConfigManager()

@@ -13,7 +13,7 @@ try:
 except Exception:  # pragma: no cover - fallback when jsonschema is stubbed
     jsonschema = None
 
-from ATLAS.tools.manifests import _get_tool_manifest_validator
+from core.tools.manifests import _get_tool_manifest_validator
 from modules.orchestration.capability_registry import CapabilityRegistry
 from modules.Tools.providers.mcp_manifest import translate_mcp_tool_to_manifest
 

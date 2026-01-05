@@ -6,7 +6,7 @@ High-level service facades that coordinate multiple subsystems:
 - ProviderService: LLM provider orchestration (future)
 """
 
-from ATLAS.services.rag import RAGService, RAGServiceStatus
+from core.services.rag import RAGService, RAGServiceStatus
 
 __all__ = [
     "RAGService",

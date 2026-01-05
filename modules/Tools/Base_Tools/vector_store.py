@@ -28,7 +28,7 @@ from typing import Any, Callable, Dict, Mapping, Optional, Protocol, Sequence, T
 from modules.logging.logger import setup_logger
 
 if TYPE_CHECKING:  # pragma: no cover - import only for type checking
-    from ATLAS.config import ConfigManager
+    from core.config import ConfigManager
 
 logger = setup_logger(__name__)
 
@@ -236,7 +236,7 @@ def _ensure_config_manager(
         return config_manager
 
     try:
-        from ATLAS.config import ConfigManager as _ConfigManager
+        from core.config import ConfigManager as _ConfigManager
     except Exception as exc:  # pragma: no cover - defensive guard
         raise VectorStoreConfigurationError("ConfigManager import failed.") from exc
 

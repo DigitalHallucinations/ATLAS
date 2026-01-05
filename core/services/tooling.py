@@ -8,10 +8,10 @@ import types
 from collections.abc import Mapping, Sequence
 from typing import Any, Callable, Dict, List, Optional
 
-from ATLAS import ToolManager as ToolManagerModule
-from ATLAS.config import ConfigManager
-from ATLAS.persona_manager import PersonaManager
-from ATLAS.utils import normalize_sequence
+from core import ToolManager as ToolManagerModule
+from core.config import ConfigManager
+from core.persona_manager import PersonaManager
+from core.utils import normalize_sequence
 from modules.Skills import load_skill_metadata
 from modules.orchestration.capability_registry import get_capability_registry
 from modules.orchestration.job_manager import JobManager

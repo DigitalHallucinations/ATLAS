@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Dict, Iterable, Mapping, Optional, Sequence
 
 from modules.logging.logger import setup_logger
-from ATLAS.messaging import (
+from core.messaging import (
     AgentBus,
     AgentMessage,
     Subscription,

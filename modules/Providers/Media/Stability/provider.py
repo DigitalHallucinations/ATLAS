@@ -24,7 +24,7 @@ from modules.Providers.Media.base import (
 from modules.Providers.Media.registry import register_provider
 
 if TYPE_CHECKING:
-    from ATLAS.config import ConfigManager
+    from core.config import ConfigManager
 
 logger = setup_logger(__name__)
 

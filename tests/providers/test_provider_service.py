@@ -3,8 +3,8 @@ import inspect
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
-import ATLAS.services.providers as providers_module
-from ATLAS.services.providers import ProviderService
+import core.services.providers as providers_module
+from core.services.providers import ProviderService
 
 
 def _make_service(**overrides):

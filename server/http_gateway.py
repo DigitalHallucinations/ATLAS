@@ -16,8 +16,8 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from ATLAS.ATLAS import ATLAS
-from ATLAS.messaging import shutdown_agent_bus
+from core.ATLAS import ATLAS
+from core.messaging import shutdown_agent_bus
 from modules.Server.conversation_routes import (
     ConversationAuthorizationError,
     ConversationRouteError,

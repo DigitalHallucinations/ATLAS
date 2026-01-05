@@ -1006,7 +1006,7 @@ class _NavigationSidebar(Gtk.Box):
     def _load_rag_state(self) -> None:
         """Load the current RAG enabled state from ConfigManager."""
         try:
-            from ATLAS.config import ConfigManager
+            from core.config import ConfigManager
             config = ConfigManager()
             enabled = config.is_rag_enabled()
             self._rag_switch.set_active(enabled)
@@ -1017,7 +1017,7 @@ class _NavigationSidebar(Gtk.Box):
         """Handle RAG toggle switch changes."""
         enabled = switch.get_active()
         try:
-            from ATLAS.config import ConfigManager
+            from core.config import ConfigManager
             config = ConfigManager()
             config.set_rag_enabled(enabled)
             logger.info("RAG %s via sidebar toggle", "enabled" if enabled else "disabled")

@@ -14,7 +14,7 @@ pytest.importorskip(
 from sqlalchemy import create_engine  # type: ignore[assignment]
 from sqlalchemy.orm import sessionmaker  # type: ignore[assignment]
 
-from ATLAS.config import ConfigManager
+from core.config import ConfigManager
 from modules.conversation_store import Base, ConversationStoreRepository
 
 

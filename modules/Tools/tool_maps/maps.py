@@ -76,7 +76,7 @@ from modules.Tools.Base_Tools.task_queue import (
     get_task_status as _task_queue_status,
     schedule_cron_task as _task_queue_schedule,
 )
-from ATLAS.config import ConfigManager
+from core.config import ConfigManager
 from modules.Tools.Code_Execution import JavaScriptExecutor, PythonInterpreter
 
 _config_manager = ConfigManager()

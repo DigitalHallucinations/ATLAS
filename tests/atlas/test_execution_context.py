@@ -3,7 +3,7 @@
 import asyncio
 import pytest
 
-from ATLAS.context import (
+from core.context import (
     ExecutionContext,
     get_current_context,
     get_context_or_default,

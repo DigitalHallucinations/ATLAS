@@ -18,7 +18,7 @@ import datetime as _dt
 from dataclasses import dataclass, replace
 from typing import Callable, Dict, Iterable, List, Optional, Tuple, Mapping
 
-from ATLAS.config import ConfigManager
+from core.config import ConfigManager
 from modules.logging.logger import setup_logger
 from modules.conversation_store import ConversationStoreRepository
 from sqlalchemy.exc import IntegrityError

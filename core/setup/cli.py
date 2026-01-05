@@ -13,7 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Mapping
 
-from ATLAS.setup.controller import (
+from core.setup.controller import (
     AdminProfile,
     DatabaseState,
     JobSchedulingState,
@@ -27,7 +27,7 @@ from ATLAS.setup.controller import (
     UserState,
     _parse_default_dsn,
 )
-from ATLAS.setup_marker import write_setup_marker
+from core.setup_marker import write_setup_marker
 from modules.conversation_store.bootstrap import BootstrapError
 
 

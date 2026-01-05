@@ -14,7 +14,7 @@ from jsonschema import Draft202012Validator
 
 from modules.conversation_store import ConversationStoreRepository
 from modules.logging.logger import setup_logger
-from ATLAS.messaging import AgentBus
+from core.messaging import AgentBus
 
 if TYPE_CHECKING:
     from modules.task_store.service import TaskService

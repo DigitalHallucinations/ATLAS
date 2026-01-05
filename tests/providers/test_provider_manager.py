@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from urllib.error import URLError
 from weakref import WeakKeyDictionary
 
-from ATLAS.providers import openai as openai_module
+from core.providers import openai as openai_module
 
 # Ensure the HuggingFace base configuration defaults are available for tests
 from modules.Providers.HuggingFace.config.base_config import BaseConfig
@@ -856,8 +856,8 @@ _ensure_async_function_module("modules.Providers.Google.GG_gen_response", "googl
 
 import pytest
 
-import ATLAS.provider_manager as provider_manager_module
-from ATLAS.provider_manager import ProviderManager
+import core.provider_manager as provider_manager_module
+from core.provider_manager import ProviderManager
 from modules.Providers.HuggingFace.components import (
     response_generator as hf_response_module,
 )

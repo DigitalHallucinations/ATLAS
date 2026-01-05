@@ -11,7 +11,7 @@ if "yaml" not in sys.modules:
 
 import pytest
 
-from ATLAS.AgentRouter import AgentRouter, RouterDecision
+from core.AgentRouter import AgentRouter, RouterDecision
 
 
 class _StubConfig:
@@ -92,7 +92,7 @@ def test_router_filters_candidates_by_allowlist(router):
 
 
 def test_router_denies_when_allowlist_blocks_capability(router):
-    audit_logger = logging.getLogger("ATLAS.AgentRouter")
+    audit_logger = logging.getLogger("core.AgentRouter")
     stream = io.StringIO()
     handler = logging.StreamHandler(stream)
     handler.setLevel(logging.INFO)
@@ -125,7 +125,7 @@ def test_router_denies_when_allowlist_blocks_capability(router):
 
     log_output = stream.getvalue()
     stream.close()
-    assert "Denied tool selection due to allowlist" in log_output
+    assert "is not permitted to use tools" in log_output
     assert "expensive_tool" in log_output or "cheap_tool" in log_output
 
 

@@ -2,7 +2,7 @@
 
 import pytest
 
-from ATLAS.context import (
+from core.context import (
     LLMContext,
     LLMContextManager,
     MessageEntry,

@@ -720,15 +720,15 @@ class ToolManagement:
                         response = getter(**kwargs)
                     except Exception as inner_exc:
                         logger.error("Failed to load tool metadata: %s", inner_exc, exc_info=True)
-                        self._handle_backend_error("Unable to load tool metadata from ATLAS.")
+                        self._handle_backend_error("Unable to load tool metadata from core.")
                         return []
                 else:
                     logger.error("Failed to load tool metadata: %s", exc, exc_info=True)
-                    self._handle_backend_error("Unable to load tool metadata from ATLAS.")
+                    self._handle_backend_error("Unable to load tool metadata from core.")
                     return []
             except Exception as exc:
                 logger.error("Failed to load tool metadata: %s", exc, exc_info=True)
-                self._handle_backend_error("Unable to load tool metadata from ATLAS.")
+                self._handle_backend_error("Unable to load tool metadata from core.")
                 return []
 
             tools_candidate = response.get("tools") if isinstance(response, Mapping) else None
@@ -859,7 +859,7 @@ class ToolManagement:
             persona_payload = getter(persona)
         except Exception as exc:
             logger.error("Failed to load persona '%s': %s", persona, exc, exc_info=True)
-            self._handle_backend_error("Unable to read persona configuration from ATLAS.")
+            self._handle_backend_error("Unable to read persona configuration from core.")
             return []
 
         allowed = persona_payload.get("allowed_tools") if isinstance(persona_payload, Mapping) else None
@@ -2539,7 +2539,7 @@ class ToolManagement:
             response = method(**kwargs) if callable(method) else None
         except Exception as exc:  # pragma: no cover - backend failure logging
             logger.error("Failed to load tool history: %s", exc, exc_info=True)
-            self._handle_backend_error("Unable to load tool change history from ATLAS.")
+            self._handle_backend_error("Unable to load tool change history from core.")
             return []
 
         records = response

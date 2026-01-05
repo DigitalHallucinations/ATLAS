@@ -37,7 +37,7 @@ def configure_conversation_store(monkeypatch, postgresql):
         engine.dispose()
 
 
-from ATLAS.ATLAS import ATLAS
+from core.ATLAS import ATLAS
 
 
 class _StubService:

@@ -4,7 +4,7 @@ from typing import Any, Dict, Optional
 
 import pytest
 
-from ATLAS.tools import cache, manifests, streaming, execution
+from core.tools import cache, manifests, streaming, execution
 
 
 class _StubRegistry:

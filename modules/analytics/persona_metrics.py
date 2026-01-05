@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from modules.Tools.tool_event_system import publish_bus_event
-from ATLAS.messaging import MessagePriority
+from core.messaging import MessagePriority
 
 __all__ = [
     "PersonaMetricEvent",

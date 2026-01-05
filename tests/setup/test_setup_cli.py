@@ -207,9 +207,9 @@ class _UserAccountService:
 user_account_module.UserAccountService = _UserAccountService
 sys.modules["modules.user_accounts.user_account_service"] = user_account_module
 
-from ATLAS.setup import BootstrapError, OptionalState, UserState
-from ATLAS.setup.cli import SetupUtility
-from ATLAS.setup.controller import (
+from core.setup import BootstrapError, OptionalState, UserState
+from core.setup.cli import SetupUtility
+from core.setup.controller import (
     AdminProfile,
     DatabaseState,
     JobSchedulingState,

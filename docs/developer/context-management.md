@@ -19,7 +19,7 @@ ATLAS provides two complementary context management systems:
 ### Basic Usage
 
 ```python
-from ATLAS.context import ExecutionContext, execution_context, get_current_context
+from core.context import ExecutionContext, execution_context, get_current_context
 
 # Create a context
 ctx = ExecutionContext(
@@ -71,7 +71,7 @@ ctx5 = ctx4.with_metadata(source="api")
 Use `@require_context` to enforce context presence:
 
 ```python
-from ATLAS.context import require_context
+from core.context import require_context
 
 @require_context
 def process_request():
@@ -121,7 +121,7 @@ context_dict = ctx.to_dict()
 ### Building LLM Context
 
 ```python
-from ATLAS.context import LLMContextManager
+from core.context import LLMContextManager
 
 manager = LLMContextManager(
     model_name="gpt-4o",

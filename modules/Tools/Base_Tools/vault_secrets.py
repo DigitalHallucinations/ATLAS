@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Iterable, Mapping, Optional
 
-from ATLAS.config import ConfigManager
+from core.config import ConfigManager
 from modules.logging.logger import setup_logger
 
 __all__ = ["VaultSecretsTool"]

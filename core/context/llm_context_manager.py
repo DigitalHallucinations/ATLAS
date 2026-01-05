@@ -21,8 +21,8 @@ from .llm_context import (
 )
 
 if TYPE_CHECKING:
-    from ATLAS.config import ConfigManager
-    from ATLAS.persona_manager import PersonaManager
+    from core.config import ConfigManager
+    from core.persona_manager import PersonaManager
     from modules.orchestration.blackboard import BlackboardStore
     from modules.storage.retrieval import RAGRetriever
 
@@ -718,7 +718,7 @@ class LLMContextManager:
         # Create tool resolver that uses ToolManager
         def tool_resolver() -> List[Dict[str, Any]]:
             try:
-                from ATLAS.tools.manifests import load_function_map_from_current_persona
+                from core.tools.manifests import load_function_map_from_current_persona
                 current_persona = None
                 if persona_manager:
                     current_persona = getattr(persona_manager, "current_persona", None)

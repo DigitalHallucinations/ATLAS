@@ -25,7 +25,7 @@ from sqlalchemy.orm import sessionmaker
 
 from modules.conversation_store import ConversationStoreRepository
 
-from ATLAS.ATLAS import ATLAS
+from core.ATLAS import ATLAS
 
 
 @pytest.mark.asyncio

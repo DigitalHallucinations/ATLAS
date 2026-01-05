@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, MutableMapping
 from typing import Any
 
-from ATLAS.utils.collections import dedupe_strings
+from core.utils.collections import dedupe_strings
 
 __all__ = [
     "dedupe_strings",

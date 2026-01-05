@@ -19,7 +19,7 @@ from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 from modules.logging.logger import setup_logger
 
 if TYPE_CHECKING:
-    from ATLAS.config import ConfigManager
+    from core.config import ConfigManager
 
 logger = setup_logger(__name__)
 

@@ -86,7 +86,7 @@ if not hasattr(atlas_config, "PerformanceMode") or not hasattr(atlas_config, "St
 
 PerformanceMode = atlas_config.PerformanceMode
 StorageArchitecture = atlas_config.StorageArchitecture
-from ATLAS.setup import (
+from core.setup import (
     AdminProfile,
     JobSchedulingState,
     KvStoreState,
