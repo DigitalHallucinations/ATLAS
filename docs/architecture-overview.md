@@ -2,7 +2,7 @@
 audience: New contributors and maintainers
 status: in_review
 last_verified: 2025-12-22
-source_of_truth: main.py; ATLAS/ATLAS.py; modules/conversation_store/; modules/orchestration/; modules/Speech_Services/; modules/Server/
+source_of_truth: main.py; ATLAS/ATLAS.py; modules/conversation_store/; modules/orchestration/; modules/Speech_Services/; modules/Server/; modules/budget/
 ---
 
 # ATLAS Architecture & Codebase Tour
@@ -121,6 +121,87 @@ RAG settings are managed under the `rag:` key in `config.yaml`. See [Configurati
 - [RAG User Guide](user/rag-guide.md) - End-user documentation
 - [RAG Developer Guide](developer/rag-integration.md) - API integration patterns
 - [Configuration Reference](configuration.md#rag-retrieval-augmented-generation) - All RAG settings
+
+## Budget Manager
+
+ATLAS includes a comprehensive budget management system for tracking API costs, enforcing spending limits, and generating usage reports across all AI providers.
+
+### Budget Architecture Components
+
+```text
+┌─────────────────────────────────────────────────────────┐
+│                    BudgetManager                        │
+│                (modules/budget/)                        │
+├─────────────────────────────────────────────────────────┤
+│  ┌─────────────┐ ┌─────────────┐ ┌──────────────────┐  │
+│  │UsageTracker │ │AlertEngine  │ │ReportGenerator   │  │
+│  └─────────────┘ └─────────────┘ └──────────────────┘  │
+│  ┌─────────────┐ ┌─────────────┐                       │
+│  │PricingReg.  │ │BudgetStore  │                       │
+│  └─────────────┘ └─────────────┘                       │
+└─────────────────────────────────────────────────────────┘
+        │                 │                  │
+        ▼                 ▼                  ▼
+   ┌─────────┐     ┌───────────┐     ┌────────────┐
+   │Provider │     │PostgreSQL │     │Config      │
+   │Pricing  │     │Storage    │     │Manager     │
+   │Data     │     │           │     │            │
+   └─────────┘     └───────────┘     └────────────┘
+```
+
+### Budget Data Flow
+
+1. **Usage Recording**: Provider integrations call `UsageTracker.record_usage()` after each API request with token counts, model info, and user context.
+2. **Cost Calculation**: `PricingRegistry` looks up model pricing and calculates costs based on input/output tokens, image generation, or embedding dimensions.
+3. **Policy Evaluation**: `BudgetManager` checks recorded usage against configured policies (global, user, provider, or model scopes).
+4. **Alert Generation**: `AlertEngine` evaluates threshold rules and generates alerts when spending approaches or exceeds limits.
+5. **Reporting**: `ReportGenerator` aggregates usage data into summary, trend, comparison, and projection reports.
+
+### Budget Modules
+
+| Module | Location | Purpose |
+| ------ | -------- | ------- |
+| **BudgetManager** | `modules/budget/manager.py` | Central coordinator singleton |
+| **UsageTracker** | `modules/budget/tracking.py` | Records and aggregates usage |
+| **PricingRegistry** | `modules/budget/pricing.py` | Model pricing database |
+| **AlertEngine** | `modules/budget/alerts.py` | Threshold evaluation and notifications |
+| **ReportGenerator** | `modules/budget/reports.py` | Usage analytics and exports |
+| **BudgetStore** | `modules/budget/persistence.py` | Database persistence layer |
+
+### Budget UI Components
+
+The Budget Manager UI (`GTKUI/Budget_manager/`) provides:
+
+- **Dashboard**: Current spending, budget progress, top providers/models
+- **Policy Editor**: Create and manage budget policies with scope, period, and action settings
+- **Usage History**: Browse detailed usage records with filtering
+- **Reports View**: Generate and export usage reports (JSON, CSV, Markdown)
+- **Alerts Panel**: View and acknowledge budget alerts
+
+### Supported Providers
+
+The pricing registry includes current pricing for:
+
+- **OpenAI**: GPT-4o, GPT-4o-mini, GPT-4, o1, o1-mini, DALL-E 3, text-embedding-3, Whisper
+- **Anthropic**: Claude Sonnet 4, Claude 3.5 Sonnet/Haiku, Claude 3 Opus/Sonnet/Haiku
+- **Google**: Gemini 2.5/2.0/1.5 Pro/Flash
+- **Mistral**: Mistral Large, Ministral, Pixtral, Codestral
+- **Groq**: LLaMA models, Mixtral
+- **xAI**: Grok 2/3/3-mini
+
+### Budget Configuration
+
+Budget settings are managed under the `budget:` key in `config.yaml`. See [Budget Manager Documentation](budget-manager.md) for all options including:
+
+- Global enable/disable
+- Default limits and soft limit percentages
+- Alert channels and cooldown settings
+- Pre-configured policies
+
+### Budget Related Documentation
+
+- [Budget Manager Guide](budget-manager.md) - Full user and API documentation
+- [Configuration Reference](configuration.md#budget-manager) - All budget settings
 
 ## Development & Testing
 

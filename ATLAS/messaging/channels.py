@@ -433,6 +433,42 @@ BLACKBOARD_EVENT = ChannelConfig(
 )
 
 # -----------------------------------------------------------------------------
+# Budget Management Channels
+# -----------------------------------------------------------------------------
+
+BUDGET_USAGE = ChannelConfig(
+    name="budget.usage",
+    maxsize=500,
+    priority_levels=1,
+    ttl_seconds=60.0,
+    drop_policy="drop_old",
+    default_priority=MessagePriority.BACKGROUND,
+    description="Usage tracking events for cost monitoring",
+)
+
+BUDGET_ALERT = ChannelConfig(
+    name="budget.alert",
+    maxsize=100,
+    priority_levels=3,
+    ttl_seconds=300.0,
+    drop_policy="drop_new",
+    default_priority=MessagePriority.HIGH,
+    persistent=True,
+    description="Budget threshold alerts and warnings",
+)
+
+BUDGET_POLICY = ChannelConfig(
+    name="budget.policy",
+    maxsize=50,
+    priority_levels=2,
+    ttl_seconds=120.0,
+    drop_policy="drop_new",
+    default_priority=MessagePriority.NORMAL,
+    persistent=True,
+    description="Budget policy changes and updates",
+)
+
+# -----------------------------------------------------------------------------
 # System Control Plane Channels
 # -----------------------------------------------------------------------------
 
@@ -531,6 +567,10 @@ ALL_CHANNELS: tuple[ChannelConfig, ...] = (
     SKILL_ACTIVITY,
     # Blackboard
     BLACKBOARD_EVENT,
+    # Budget
+    BUDGET_USAGE,
+    BUDGET_ALERT,
+    BUDGET_POLICY,
     # System
     SYSTEM_CONTROL,
     SYSTEM_METRICS,

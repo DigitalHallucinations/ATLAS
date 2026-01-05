@@ -61,6 +61,7 @@ from .rag import RAGSettings
 from .tooling import ToolingConfigSection
 from .storage import StorageArchitecture
 from .ui_config import UIConfig
+from .budget import BudgetConfigSection
 from modules.logging.audit_templates import get_audit_template
 from ATLAS.messaging import AgentBus
 from modules.job_store import JobService, MongoJobStoreRepository
@@ -199,6 +200,15 @@ class ConfigManager(ProviderConfigMixin, PersistenceConfigMixin, ConfigCore):
             conversation_backend_options=_DEFAULT_CONVERSATION_STORE_BACKENDS,
         )
         self.persistence.apply()
+
+        # --- Budget management configuration -------------------------
+        self.budget = BudgetConfigSection(
+            config=self.config,
+            yaml_config=self.yaml_config,
+            env_config=self.env_config,
+            logger=self.logger,
+            write_yaml_callback=self._write_yaml_config,
+        )
 
         # --- Task queue defaults --------------------------------------
         queue_block = self.config.get('task_queue')

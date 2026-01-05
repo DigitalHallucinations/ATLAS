@@ -103,3 +103,43 @@ rag:
     extractive_preserve_first_sentence: true  # Always keep first sentence
     extractive_preserve_last_sentence: false  # Optionally keep last sentence
     extractive_min_sentences: 3  # Minimum sentences to retain
+
+# Budget Manager configuration
+budget:
+  # Enable/disable budget tracking globally
+  enabled: true
+
+  # Interval (seconds) between flushing usage records to database
+  flush_interval: 300
+
+  # Cache TTL (seconds) for spend summaries
+  cache_ttl: 60
+
+  # Default budget limit for new users (USD)
+  default_limit: 100.00
+
+  # Percentage at which soft limit warnings trigger
+  soft_limit_percent: 80
+
+  # Default action when limit is exceeded: warn, block, throttle, notify
+  default_action: warn
+
+  # Alert configuration
+  alerts:
+    enabled: true
+    # Cooldown (minutes) between repeated alerts for same policy
+    cooldown_minutes: 60
+    # Channels for alert delivery: ui, log, email, webhook
+    default_channels:
+      - ui
+      - log
+
+# Pre-configured budget policies (loaded at startup)
+budget_policies: []
+  # Example policy:
+  # - name: "Global Monthly Budget"
+  #   scope: global
+  #   period: monthly
+  #   limit_amount: 500.00
+  #   soft_limit_percent: 80
+  #   action: warn

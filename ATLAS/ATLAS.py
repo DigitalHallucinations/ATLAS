@@ -895,6 +895,17 @@ class ATLAS:
         except Exception as exc:  # pragma: no cover - defensive guard for early adoption
             self.logger.warning("Job scheduling initialization failed: %s", exc, exc_info=True)
 
+        # Initialize budget management if enabled
+        try:
+            from modules.budget import setup_budget_integration
+            budget_enabled = await setup_budget_integration(self.config_manager)
+            if budget_enabled:
+                self.logger.info("Budget management initialized successfully.")
+            else:
+                self.logger.debug("Budget management is disabled.")
+        except Exception as exc:
+            self.logger.warning("Budget management initialization failed: %s", exc, exc_info=True)
+
         self._initialized = True
         self._notify_persona_change_listeners()
 
@@ -3026,6 +3037,13 @@ class ATLAS:
         """
         Perform cleanup operations.
         """
+        # Shutdown budget management
+        try:
+            from modules.budget import shutdown_budget_integration
+            await shutdown_budget_integration()
+        except Exception as exc:
+            self.logger.warning("Budget management shutdown failed: %s", exc)
+
         if self.provider_manager is not None:
             await self.provider_manager.close()
         await self.speech_manager.close()

@@ -13,6 +13,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 from gi.repository import GLib, Gtk
 
+from GTKUI.Budget_manager import BudgetManagement
 from GTKUI.Chat.chat_page import ChatPage
 from GTKUI.Chat.conversation_history_page import ConversationHistoryPage
 from GTKUI.Docs.docs_page import DocsPage
@@ -50,6 +51,7 @@ class MainWindow(AtlasWindow):
         self.skill_management = SkillManagement(self.ATLAS, self)
         self.task_management = TaskManagement(self.ATLAS, self)
         self.job_management = JobManagement(self.ATLAS, self)
+        self.budget_management = BudgetManagement(self.ATLAS, self)
         self.tool_management.on_open_in_persona = self._open_tool_in_persona
         self.skill_management.on_open_in_persona = self._open_skill_in_persona
 
@@ -83,6 +85,7 @@ class MainWindow(AtlasWindow):
             "tools": self.tool_management.get_embeddable_widget,
             "tasks": self.task_management.get_embeddable_widget,
             "jobs": self.job_management.get_embeddable_widget,
+            "budget": self.budget_management.get_embeddable_widget,
             "skills": self.skill_management.get_embeddable_widget,
             "speech": self._build_speech_settings_page,
             "settings": self._build_backup_settings_page,
@@ -185,6 +188,14 @@ class MainWindow(AtlasWindow):
             self.sidebar.set_active_item("jobs")
             self._focus_job_if_requested(job_id)
 
+    def show_budget_workspace(self) -> None:
+        if not self._ensure_initialized():
+            return
+
+        page = self._open_or_focus_page("budget", "Budget")
+        if page is not None:
+            self.sidebar.set_active_item("budget")
+
     def create_new_job(self) -> None:
         if not self._ensure_initialized():
             return
@@ -274,7 +285,7 @@ class MainWindow(AtlasWindow):
         notifier = getattr(self, "show_success_toast", None)
         if callable(notifier):
             notifier(f"Job moved to {target_status.replace('_', ' ').title()}")
-        return payload
+        return dict(payload) if isinstance(payload, Mapping) else {}
 
     def start_job(
         self,
@@ -313,7 +324,7 @@ class MainWindow(AtlasWindow):
                 notifier = getattr(self, "show_success_toast", None)
                 if callable(notifier):
                     notifier("Job run queued")
-                return payload
+                return dict(payload) if isinstance(payload, Mapping) else {}
 
             if scheduled_payload is not None:
                 return scheduled_payload
@@ -348,7 +359,7 @@ class MainWindow(AtlasWindow):
             notifier = getattr(self, "show_success_toast", None)
             if callable(notifier):
                 notifier("Job schedule resumed")
-            return payload
+            return dict(payload) if isinstance(payload, Mapping) else {}
 
         return self._transition_job(job_id, "scheduled", updated_at=updated_at)
 
@@ -372,7 +383,7 @@ class MainWindow(AtlasWindow):
             notifier = getattr(self, "show_success_toast", None)
             if callable(notifier):
                 notifier("Job schedule paused")
-            return payload
+            return dict(payload) if isinstance(payload, Mapping) else {}
 
         status = (current_status or "").lower()
         if status == "scheduled":
@@ -405,7 +416,7 @@ class MainWindow(AtlasWindow):
         notifier = getattr(self, "show_success_toast", None)
         if callable(notifier):
             notifier("Job rerun queued")
-        return payload
+        return dict(payload) if isinstance(payload, Mapping) else {}
 
     def show_accounts_page(self) -> None:
         if not self._ensure_initialized():
@@ -511,7 +522,7 @@ class MainWindow(AtlasWindow):
         _collect_scrollers(widget)
 
         for scroller in scrollers:
-            def _reset_scroll(sc=scroller) -> None:
+            def _reset_scroll(sc=scroller) -> bool:
                 vadj = sc.get_vadjustment()
                 if vadj is not None:
                     vadj.set_value(vadj.get_lower())
@@ -693,9 +704,13 @@ class MainWindow(AtlasWindow):
         if context is None:
             return
 
+        add_class = getattr(context, "add_class", None)
+        if not callable(add_class):
+            return
+
         for css_class in ("chat-page", "sidebar"):
             try:
-                context.add_class(css_class)
+                add_class(css_class)
             except Exception:
                 continue
 
@@ -784,6 +799,12 @@ class _NavigationSidebar(Gtk.Box):
             "New job",
             self.main_window.create_new_job,
             tooltip="Create a new job",
+        )
+        self._create_nav_item(
+            "budget",
+            "Budget",
+            self.main_window.show_budget_workspace,
+            tooltip="Budget Manager",
         )
         self._create_nav_item(
             "skills",
@@ -1047,7 +1068,9 @@ class _NavigationSidebar(Gtk.Box):
         fetched_successfully = False
         if callable(fetcher):
             try:
-                records = fetcher(limit=self._history_limit)
+                result = fetcher(limit=self._history_limit)
+                if isinstance(result, list):
+                    records = result
                 fetched_successfully = True
             except Exception as exc:  # pragma: no cover - defensive logging
                 logger.debug("Failed to refresh history sidebar: %s", exc, exc_info=True)
@@ -1068,11 +1091,15 @@ class _NavigationSidebar(Gtk.Box):
         getter = getattr(session, "get_conversation_id", None)
         if callable(getter):
             try:
-                conversation_id = getter()
+                result = getter()
+                if isinstance(result, str):
+                    conversation_id = result
             except Exception as exc:  # pragma: no cover - defensive logging
                 logger.debug("Failed to determine active conversation id: %s", exc, exc_info=True)
         if not conversation_id and hasattr(session, "conversation_id"):
-            conversation_id = getattr(session, "conversation_id")
+            attr = getattr(session, "conversation_id", None)
+            if isinstance(attr, str):
+                conversation_id = attr
 
         text_id = str(conversation_id).strip() if conversation_id else ""
         if not text_id:
@@ -1115,9 +1142,10 @@ class _NavigationSidebar(Gtk.Box):
 
         children_getter = getattr(listbox, "get_children", None)
         if callable(children_getter):
-            rows = list(children_getter())
+            result = children_getter()
+            rows: List[Any] = list(result) if isinstance(result, (list, tuple)) else []
         else:
-            rows: List[Gtk.ListBoxRow] = []
+            rows = []
             child = listbox.get_first_child()
             while child is not None:
                 rows.append(child)

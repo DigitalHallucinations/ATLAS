@@ -269,3 +269,32 @@ class DomainStoreFactory:
         self._task_repo = None
         self._job_repo = None
         self._kv_stores.clear()
+
+
+def create_budget_store(
+    storage_manager: "StorageManager",
+):
+    """
+    Create a BudgetStore backed by StorageManager.
+
+    Args:
+        storage_manager: The initialized StorageManager instance.
+
+    Returns:
+        BudgetStore instance configured with SQL backend.
+
+    Raises:
+        RuntimeError: If StorageManager is not initialized.
+    """
+    from modules.budget.persistence import SQLBudgetStore
+
+    if not storage_manager.is_initialized:
+        raise RuntimeError("StorageManager must be initialized before creating stores")
+
+    session_factory = storage_manager.get_session_factory()
+    engine = storage_manager.get_sql_engine()
+
+    return SQLBudgetStore(
+        session_factory=session_factory,
+        engine=engine,
+    )
