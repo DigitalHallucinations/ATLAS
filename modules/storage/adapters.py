@@ -109,12 +109,12 @@ def create_job_repository(
         storage_manager: The initialized StorageManager instance.
 
     Returns:
-        JobStoreRepository or MongoJobStoreRepository instance.
+        JobStoreRepository instance.
 
     Raises:
         RuntimeError: If StorageManager is not initialized.
     """
-    from modules.job_store import JobStoreRepository
+    from modules.job_store.repository import JobStoreRepository
 
     if not storage_manager.is_initialized:
         raise RuntimeError("StorageManager must be initialized before creating repositories")
@@ -128,34 +128,50 @@ def create_job_repository(
 def create_kv_store(
     storage_manager: "StorageManager",
     *,
-    namespace: str = "default",
+    namespace_quota_bytes: int = 10 * 1024 * 1024,  # 10MB per namespace
+    global_quota_bytes: Optional[int] = 100 * 1024 * 1024,  # 100MB total
 ):
     """
     Create a KV store backed by StorageManager.
 
     Args:
         storage_manager: The initialized StorageManager instance.
-        namespace: The namespace for key isolation.
+        namespace_quota_bytes: Maximum bytes per namespace (default 10MB).
+        global_quota_bytes: Maximum total bytes across all namespaces (default 100MB).
 
     Returns:
-        KVStore instance.
+        KeyValueStoreService instance.
 
     Raises:
         RuntimeError: If StorageManager is not initialized.
     """
-    # Import here to avoid circular dependency issues
-    try:
-        from modules.store_common.kv_store import KVStore
-    except ImportError:
-        # Fallback for different module structure
-        from modules.kv_store import KVStore  # type: ignore
+    from modules.Tools.Base_Tools.kv_store import (
+        KeyValueStoreService,
+        PostgresKeyValueStoreAdapter,
+        SQLiteKeyValueStoreAdapter,
+    )
 
     if not storage_manager.is_initialized:
         raise RuntimeError("StorageManager must be initialized before creating stores")
 
-    session_factory = storage_manager.get_session_factory()
+    engine = storage_manager.get_sql_engine()
+    dialect = engine.dialect.name
 
-    return KVStore(session_factory, namespace=namespace)
+    # Select appropriate adapter based on database dialect
+    if dialect == "postgresql":
+        adapter = PostgresKeyValueStoreAdapter(
+            engine=engine,
+            namespace_quota_bytes=namespace_quota_bytes,
+            global_quota_bytes=global_quota_bytes,
+        )
+    else:
+        adapter = SQLiteKeyValueStoreAdapter(
+            engine=engine,
+            namespace_quota_bytes=namespace_quota_bytes,
+            global_quota_bytes=global_quota_bytes,
+        )
+
+    return KeyValueStoreService(adapter=adapter)
 
 
 class DomainStoreFactory:
@@ -246,22 +262,16 @@ class DomainStoreFactory:
             self._job_repo = create_job_repository(self._storage_manager)
         return self._job_repo
 
-    def get_kv_store(self, namespace: str = "default"):
+    def get_kv_store(self):
         """
-        Get or create a KV store for the given namespace.
-
-        Args:
-            namespace: The namespace for key isolation.
+        Get or create a KV store.
 
         Returns:
-            KVStore instance.
+            KeyValueStoreService instance.
         """
-        if namespace not in self._kv_stores:
-            self._kv_stores[namespace] = create_kv_store(
-                self._storage_manager,
-                namespace=namespace,
-            )
-        return self._kv_stores[namespace]
+        if "default" not in self._kv_stores:
+            self._kv_stores["default"] = create_kv_store(self._storage_manager)
+        return self._kv_stores["default"]
 
     def clear_caches(self) -> None:
         """Clear all cached repository instances."""
