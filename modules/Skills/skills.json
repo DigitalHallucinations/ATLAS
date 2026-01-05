@@ -417,5 +417,26 @@
       "tone",
       "audience"
     ]
+  },
+  {
+    "name": "ImageCreation",
+    "version": "1.0.0",
+    "instruction_prompt": "When the user requests an image, illustration, artwork, or visual content, use the generate_image tool. Craft detailed, descriptive prompts that capture the user's intent including subject, style, mood, lighting, composition, and any specific details mentioned. For ambiguous requests, ask clarifying questions about style preferences (photorealistic, illustration, abstract, etc.) and key visual elements before generating. Consider the active persona's style guidance when formulating prompts.",
+    "required_tools": [
+      "generate_image"
+    ],
+    "required_capabilities": [
+      "image_generation",
+      "creative"
+    ],
+    "safety_notes": "Do not generate images of real people without explicit consent. Avoid generating violent, explicit, or harmful imagery. Respect copyright by not replicating copyrighted characters or artworks. When uncertain about content appropriateness, ask the user for clarification.",
+    "summary": "Generate images from text descriptions using AI image generation models.",
+    "category": "Creative",
+    "capability_tags": [
+      "image_generation",
+      "creative",
+      "media",
+      "art"
+    ]
   }
 ]

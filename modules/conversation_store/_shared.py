@@ -10,7 +10,23 @@ from datetime import datetime, timezone
 from typing import Any, List, Mapping, Optional, Sequence
 
 
+# Message type constants
 _DEFAULT_MESSAGE_TYPE = "text"
+MESSAGE_TYPE_TEXT = "text"
+MESSAGE_TYPE_IMAGE = "image"
+MESSAGE_TYPE_AUDIO = "audio"
+MESSAGE_TYPE_VIDEO = "video"
+MESSAGE_TYPE_FILE = "file"
+MESSAGE_TYPE_TOOL_CALL = "tool_call"
+MESSAGE_TYPE_TOOL_RESULT = "tool_result"
+
+# Asset type constants
+ASSET_TYPE_IMAGE = "image"
+ASSET_TYPE_AUDIO = "audio"
+ASSET_TYPE_VIDEO = "video"
+ASSET_TYPE_FILE = "file"
+ASSET_TYPE_ATTACHMENT = "attachment"
+
 _DEFAULT_STATUS = "sent"
 
 

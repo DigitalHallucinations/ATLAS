@@ -16,6 +16,20 @@ from .models import (
     UserCredential,
     UserLoginAttempt,
 )
+from ._shared import (
+    MESSAGE_TYPE_TEXT,
+    MESSAGE_TYPE_IMAGE,
+    MESSAGE_TYPE_AUDIO,
+    MESSAGE_TYPE_VIDEO,
+    MESSAGE_TYPE_FILE,
+    MESSAGE_TYPE_TOOL_CALL,
+    MESSAGE_TYPE_TOOL_RESULT,
+    ASSET_TYPE_IMAGE,
+    ASSET_TYPE_AUDIO,
+    ASSET_TYPE_VIDEO,
+    ASSET_TYPE_FILE,
+    ASSET_TYPE_ATTACHMENT,
+)
 from .mongo_repository import MongoConversationStoreRepository
 
 try:
@@ -51,4 +65,18 @@ __all__ = [
     "create_conversation_engine",
     "ConversationVectorCatalog",
     "ConversationVectorPipeline",
+    # Message type constants
+    "MESSAGE_TYPE_TEXT",
+    "MESSAGE_TYPE_IMAGE",
+    "MESSAGE_TYPE_AUDIO",
+    "MESSAGE_TYPE_VIDEO",
+    "MESSAGE_TYPE_FILE",
+    "MESSAGE_TYPE_TOOL_CALL",
+    "MESSAGE_TYPE_TOOL_RESULT",
+    # Asset type constants
+    "ASSET_TYPE_IMAGE",
+    "ASSET_TYPE_AUDIO",
+    "ASSET_TYPE_VIDEO",
+    "ASSET_TYPE_FILE",
+    "ASSET_TYPE_ATTACHMENT",
 ]

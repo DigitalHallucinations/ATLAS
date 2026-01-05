@@ -2745,6 +2745,216 @@ class ChatPage(Gtk.Box):
         # Schedule scrolling to the bottom after a short delay.
         GLib.timeout_add(100, self.scroll_to_bottom)
 
+    def add_image_bubble(
+        self,
+        sender: str,
+        images: List[Dict[str, Any]],
+        caption: Optional[str] = None,
+        is_user: bool = False,
+        timestamp: Optional[str] = None,
+    ) -> None:
+        """Add a message bubble containing one or more images.
+
+        Args:
+            sender: The name of the message sender.
+            images: List of image dicts with 'path', 'url', 'id', 'mime', 'revised_prompt'.
+            caption: Optional text caption for the images.
+            is_user: True if the message is from the user.
+            timestamp: Optional timestamp string.
+        """
+        bubble = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        bubble.set_margin_top(4)
+        bubble.set_margin_bottom(4)
+
+        # Header row with sender and timestamp
+        header_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        sender_label = Gtk.Label(label=sender)
+        sender_label.set_halign(Gtk.Align.START)
+        sender_label.add_css_class("caption")
+        header_row.append(sender_label)
+        header_row.append(self._spacer())
+        display_time, tooltip_text = self._format_message_timestamp(timestamp)
+        ts = Gtk.Label(label=display_time)
+        ts.set_tooltip_text(tooltip_text)
+        ts.add_css_class("dim-label")
+        ts.set_halign(Gtk.Align.END)
+        header_row.append(ts)
+        bubble.append(header_row)
+
+        # Content box for images
+        bubble_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        bubble_box.get_style_context().add_class("message-bubble")
+
+        # Image grid (up to 2 per row)
+        image_grid = Gtk.FlowBox()
+        image_grid.set_max_children_per_line(2)
+        image_grid.set_min_children_per_line(1)
+        image_grid.set_selection_mode(Gtk.SelectionMode.NONE)
+        image_grid.set_homogeneous(True)
+        image_grid.set_column_spacing(8)
+        image_grid.set_row_spacing(8)
+
+        for img_data in images:
+            img_widget = self._create_image_widget(img_data)
+            if img_widget is not None:
+                image_grid.append(img_widget)
+
+        bubble_box.append(image_grid)
+
+        # Add caption if provided
+        if caption:
+            caption_label = Gtk.Label(label=caption)
+            caption_label.set_wrap(True)
+            caption_label.set_max_width_chars(46)
+            caption_label.set_halign(Gtk.Align.START)
+            caption_label.add_css_class("dim-label")
+            bubble_box.append(caption_label)
+
+        # Styling based on sender
+        if is_user:
+            bubble_box.get_style_context().add_class("user-message")
+            bubble.set_halign(Gtk.Align.END)
+        else:
+            bubble_box.get_style_context().add_class("assistant-message")
+            bubble.set_halign(Gtk.Align.START)
+
+        bubble.append(bubble_box)
+        self.chat_history.append(bubble)
+
+        GLib.timeout_add(100, self.scroll_to_bottom)
+
+    def _create_image_widget(self, img_data: Dict[str, Any]) -> Optional[Gtk.Widget]:
+        """Create a clickable image widget from image data.
+
+        Args:
+            img_data: Dict with 'path', 'url', 'id', 'mime', 'revised_prompt'.
+
+        Returns:
+            Gtk.Box containing the image, or None if loading fails.
+        """
+        from gi.repository import Gio, GdkPixbuf
+
+        path = img_data.get("path")
+        url = img_data.get("url")
+        revised_prompt = img_data.get("revised_prompt", "")
+
+        container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        container.set_halign(Gtk.Align.CENTER)
+
+        # Try to load from file path first
+        picture = None
+        if path and os.path.isfile(path):
+            try:
+                picture = Gtk.Picture.new_for_filename(path)
+            except Exception as exc:
+                logger.warning("Failed to load image from path %s: %s", path, exc)
+
+        # Fall back to URL if available
+        if picture is None and url:
+            try:
+                # For URLs, we show a placeholder and load async
+                picture = Gtk.Picture()
+                self._load_image_from_url_async(picture, url)
+            except Exception as exc:
+                logger.warning("Failed to create picture for URL %s: %s", url, exc)
+
+        if picture is None:
+            # Show error placeholder
+            error_label = Gtk.Label(label="[Image unavailable]")
+            error_label.add_css_class("dim-label")
+            container.append(error_label)
+            return container
+
+        # Configure picture display
+        picture.set_can_shrink(True)
+        picture.set_content_fit(Gtk.ContentFit.CONTAIN)
+        picture.set_size_request(256, 256)
+
+        # Add tooltip with revised prompt
+        if revised_prompt:
+            picture.set_tooltip_text(f"Prompt: {revised_prompt}")
+
+        # Make clickable to open in external viewer
+        click_gesture = Gtk.GestureClick()
+        click_gesture.connect("pressed", self._on_image_clicked, path or url)
+        picture.add_controller(click_gesture)
+
+        container.append(picture)
+
+        return container
+
+    def _load_image_from_url_async(self, picture: Gtk.Picture, url: str) -> None:
+        """Load an image from URL asynchronously.
+
+        Args:
+            picture: The Gtk.Picture to populate.
+            url: URL to load the image from.
+        """
+        import threading
+
+        def load_in_thread():
+            try:
+                import urllib.request
+                import tempfile
+
+                # Download to temp file
+                with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+                    tmp_path = tmp.name
+                    with urllib.request.urlopen(url, timeout=30) as resp:
+                        tmp.write(resp.read())
+
+                # Update picture on main thread
+                GLib.idle_add(self._set_picture_from_file, picture, tmp_path)
+            except Exception as exc:
+                logger.warning("Failed to load image from URL %s: %s", url, exc)
+                GLib.idle_add(self._set_picture_error, picture)
+
+        thread = threading.Thread(target=load_in_thread, daemon=True)
+        thread.start()
+
+    def _set_picture_from_file(self, picture: Gtk.Picture, path: str) -> bool:
+        """Set picture source from file path (called from main thread)."""
+        try:
+            picture.set_filename(path)
+        except Exception as exc:
+            logger.warning("Failed to set picture from file %s: %s", path, exc)
+        return False  # Remove from idle queue
+
+    def _set_picture_error(self, picture: Gtk.Picture) -> bool:
+        """Set error state on picture (called from main thread)."""
+        # We can't easily change a Picture to show text, so just log
+        logger.warning("Image loading failed")
+        return False
+
+    def _on_image_clicked(
+        self, gesture: Gtk.GestureClick, n_press: int, x: float, y: float, source: str
+    ) -> None:
+        """Handle click on an image to open in external viewer.
+
+        Args:
+            gesture: The click gesture.
+            n_press: Number of presses.
+            x: Click x coordinate.
+            y: Click y coordinate.
+            source: Path or URL to open.
+        """
+        if n_press == 2:  # Double-click to open
+            try:
+                if source.startswith(("http://", "https://")):
+                    # Open URL in browser
+                    import webbrowser
+                    webbrowser.open(source)
+                elif os.path.isfile(source):
+                    # Open file in default viewer
+                    if sys.platform == "linux":
+                        subprocess.Popen(["xdg-open", source])
+                    elif sys.platform == "darwin":
+                        subprocess.Popen(["open", source])
+                    elif sys.platform == "win32":
+                        os.startfile(source)  # type: ignore
+            except Exception as exc:
+                logger.warning("Failed to open image: %s", exc)
+
     def _update_terminal_thinking(self, thinking: Optional[str]) -> None:
         expander = getattr(self, "thinking_expander", None)
         buffer = getattr(self, "thinking_buffer", None)

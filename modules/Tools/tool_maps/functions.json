@@ -5267,5 +5267,136 @@
                 "query"
             ]
         }
+    },
+    {
+        "name": "generate_image",
+        "version": "1.0.0",
+        "side_effects": "filesystem",
+        "default_timeout": 120,
+        "auth": {
+            "required": true,
+            "type": "api_key",
+            "envs": {
+                "OPENAI_API_KEY": {
+                    "required": false,
+                    "providers": ["openai_images"]
+                },
+                "HUGGINGFACE_API_KEY": {
+                    "required": false,
+                    "providers": ["huggingface_images"]
+                },
+                "STABILITY_API_KEY": {
+                    "required": false,
+                    "providers": ["stability"]
+                },
+                "FAL_API_KEY": {
+                    "required": false,
+                    "providers": ["fal"]
+                },
+                "GROK_API_KEY": {
+                    "required": false,
+                    "providers": ["xai_aurora"]
+                }
+            },
+            "docs": "At least one image generation provider API key must be configured."
+        },
+        "allow_parallel": false,
+        "idempotency_key": {
+            "required": true,
+            "scope": "per-prompt",
+            "guidance": "Use hash of prompt + seed + model as idempotency key."
+        },
+        "cost_per_call": 0.04,
+        "cost_unit": "USD",
+        "capabilities": [
+            "image_generation",
+            "media",
+            "creative"
+        ],
+        "providers": [
+            {
+                "name": "openai_images",
+                "priority": 0,
+                "health_check_interval": 300
+            },
+            {
+                "name": "huggingface_images",
+                "priority": 10,
+                "health_check_interval": 300
+            },
+            {
+                "name": "stability",
+                "priority": 20,
+                "health_check_interval": 300
+            },
+            {
+                "name": "xai_aurora",
+                "priority": 30,
+                "health_check_interval": 300
+            },
+            {
+                "name": "fal",
+                "priority": 100,
+                "health_check_interval": 60
+            }
+        ],
+        "description": "Generate images from text prompts using AI image generation models. Supports multiple providers (OpenAI DALL-E/GPT-Image, HuggingFace FLUX/Stable Diffusion, Stability AI, xAI Aurora, fal.ai). Returns file paths to generated images.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "prompt": {
+                    "type": "string",
+                    "description": "Detailed text description of the image to generate.",
+                    "minLength": 1
+                },
+                "model": {
+                    "type": "string",
+                    "description": "Optional model identifier (e.g., 'dall-e-3', 'gpt-image-1', 'FLUX.1-schnell', 'sd3-large'). Defaults to provider's best model."
+                },
+                "n": {
+                    "type": "integer",
+                    "description": "Number of images to generate.",
+                    "default": 1,
+                    "minimum": 1,
+                    "maximum": 4
+                },
+                "size": {
+                    "type": "string",
+                    "description": "Image dimensions (e.g., '1024x1024', '1792x1024').",
+                    "enum": ["256x256", "512x512", "1024x1024", "1024x1792", "1792x1024"]
+                },
+                "aspect_ratio": {
+                    "type": "string",
+                    "description": "Aspect ratio (alternative to size, e.g., '16:9', '1:1', '9:16')."
+                },
+                "style": {
+                    "type": "string",
+                    "description": "Style preset (provider-specific, e.g., 'vivid', 'natural', 'photographic', 'digital-art')."
+                },
+                "quality": {
+                    "type": "string",
+                    "description": "Quality level.",
+                    "enum": ["draft", "standard", "hd"]
+                },
+                "provider": {
+                    "type": "string",
+                    "description": "Explicitly select provider (openai_images, huggingface_images, stability, xai_aurora, fal)."
+                },
+                "seed": {
+                    "type": "integer",
+                    "description": "Random seed for reproducibility (not all providers support this)."
+                },
+                "reference_images": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "File paths or URLs of reference images for image-to-image generation."
+                }
+            },
+            "required": [
+                "prompt"
+            ]
+        }
     }
 ]

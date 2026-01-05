@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import inspect
+import types
 from collections.abc import Mapping, Sequence
 from typing import Any, Callable, Dict, List, Optional
 
@@ -26,7 +27,7 @@ class ToolingService:
         self,
         *,
         config_manager: ConfigManager,
-        tool_manager_module: ToolManagerModule,
+        tool_manager_module: types.ModuleType,
         persona_manager: PersonaManager | None,
         message_bus: Any,
         logger: Any,

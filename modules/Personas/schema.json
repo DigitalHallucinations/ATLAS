@@ -105,6 +105,60 @@
                     },
                     "uniqueItems": true
                 },
+                "image_generation": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "description": "Configuration for image generation capabilities.",
+                    "properties": {
+                        "enabled": {
+                            "description": "Enable image generation for this persona.",
+                            "anyOf": [
+                                {"type": "boolean"},
+                                {"type": "string", "enum": ["True", "False", "true", "false", ""]}
+                            ],
+                            "default": false
+                        },
+                        "allowed_providers": {
+                            "description": "List of allowed image providers. Empty array means all providers allowed.",
+                            "type": "array",
+                            "items": {
+                                "type": "string",
+                                "enum": ["openai", "stability", "xai", "bfl", "huggingface", "gemini", "falai"]
+                            },
+                            "uniqueItems": true,
+                            "default": []
+                        },
+                        "max_images_per_request": {
+                            "description": "Maximum number of images per generation request.",
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 10,
+                            "default": 4
+                        },
+                        "max_cost_per_image": {
+                            "description": "Maximum cost in USD per individual image.",
+                            "type": "number",
+                            "minimum": 0,
+                            "default": 0.10
+                        },
+                        "allowed_sizes": {
+                            "description": "Allowed output image sizes. Empty array means all sizes allowed.",
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            },
+                            "default": []
+                        },
+                        "nsfw_filter": {
+                            "description": "Enable NSFW content filtering.",
+                            "anyOf": [
+                                {"type": "boolean"},
+                                {"type": "string", "enum": ["True", "False", "true", "false", ""]}
+                            ],
+                            "default": true
+                        }
+                    }
+                },
                 "collaboration": {
                     "type": "object",
                     "additionalProperties": false,

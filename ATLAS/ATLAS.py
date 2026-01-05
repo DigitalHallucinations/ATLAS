@@ -3,6 +3,7 @@
 import base64
 import binascii
 import copy
+from collections.abc import Sequence as AbcSequence
 from dataclasses import asdict
 import json
 from datetime import datetime
@@ -341,8 +342,9 @@ class ATLAS:
             return
         try:
             service = getter()
-            if service is not None and hasattr(service, "ensure_running"):
-                service.ensure_running()
+            ensure_running = getattr(service, "ensure_running", None)
+            if ensure_running is not None and callable(ensure_running):
+                ensure_running()
         except Exception as exc:  # pragma: no cover - advisory health check
             self.logger.warning("Background worker health check failed: %s", exc)
 
@@ -848,7 +850,7 @@ class ATLAS:
                 self.logger.debug("Active provider manager does not expose conversation ID tracking.")
 
         default_provider = self.config_manager.get_default_provider()
-        if self.config_manager.is_default_provider_ready():
+        if default_provider is not None and self.config_manager.is_default_provider_ready():
             await self.provider_facade.set_current_provider(default_provider)
             self.logger.debug(
                 "Default provider set to: %s",
@@ -858,7 +860,7 @@ class ATLAS:
                 "Default model set to: %s",
                 self.provider_manager.get_current_model(),
             )
-        else:
+        elif default_provider is not None:
             warning_message = self.config_manager.get_pending_provider_warnings().get(
                 default_provider,
                 f"API key for provider '{default_provider}' is not configured.",
@@ -868,6 +870,8 @@ class ATLAS:
                 default_provider,
                 warning_message,
             )
+        else:
+            self.logger.warning("No default provider configured.")
 
         self.logger.info("ATLAS initialized successfully.")
         
@@ -2063,10 +2067,10 @@ class ATLAS:
         self,
         message: str,
         *,
-        on_success: Optional[Callable[[str, str], None]] = None,
+        on_success: Optional[Callable[[str, Union[str, Dict[str, Any]]], None]] = None,
         on_error: Optional[Callable[[str, Exception], None]] = None,
         thread_name: Optional[str] = None,
-    ) -> Future[str]:
+    ) -> Future[Union[str, Dict[str, Any]]]:
         """Dispatch ``message`` via the chat session on a background worker.
 
         The provided callbacks are invoked with the active persona's name along
@@ -2077,7 +2081,7 @@ class ATLAS:
 
         session = self._require_chat_session()
 
-        def _invoke_success(response: str) -> None:
+        def _invoke_success(response: Union[str, Dict[str, Any]]) -> None:
             if on_success is None:
                 return
             persona_name = self.get_active_persona_name()
@@ -3022,13 +3026,9 @@ class ATLAS:
         """
         Perform cleanup operations.
         """
-        await self.provider_manager.close()
+        if self.provider_manager is not None:
+            await self.provider_manager.close()
         await self.speech_manager.close()
-        if self._user_account_service is not None:
-            try:
-                self._user_account_service.close()
-            except Exception:  # pragma: no cover - best effort cleanup
-                pass
         self.tooling_service.shutdown_jobs()
         self.logger.info("ATLAS closed and all providers unloaded.")
 
@@ -3087,6 +3087,14 @@ class ATLAS:
         if not self.current_persona:
             self.logger.error("No persona is currently loaded. Cannot generate response.")
             return "Error: No persona is currently loaded. Please select a persona."
+
+        if self.chat_session is None:
+            self.logger.error("No chat session available. Cannot generate response.")
+            return "Error: No chat session available."
+
+        if self.provider_manager is None:
+            self.logger.error("No provider manager available. Cannot generate response.")
+            return "Error: No provider manager available."
 
         try:
             conversation_id = self.chat_session.conversation_id

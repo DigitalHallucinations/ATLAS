@@ -198,6 +198,19 @@ Review the [conversation store data model](conversation-store.md) for table-leve
 | Hugging Face | `HUGGINGFACE_API_KEY` | Required for hosted inference APIs and cached downloads.【F:ATLAS/config/providers.py†L25-L37】【F:ATLAS/config/providers.py†L2075-L2140】 |
 | ElevenLabs | `XI_API_KEY` | Speech synthesis key surfaced in setup flows.【F:ATLAS/config/providers.py†L25-L37】【F:ATLAS/setup/controller.py†L211-L220】 |
 
+#### Media/Image generation providers
+
+| Provider | Environment variable | Notes |
+| --- | --- | --- |
+| Stability AI | `STABILITY_API_KEY` | Stable Diffusion models via Stability API.【F:modules/Providers/Media/Stability/provider.py】 |
+| FalAI | `FAL_KEY` | Flux and other fast inference models.【F:modules/Providers/Media/FalAI/provider.py】 |
+| Black Forest Labs | `BFL_API_KEY` | High-quality Flux 1.1 Pro/Ultra models.【F:modules/Providers/Media/BlackForestLabs/provider.py】 |
+| XAI Images | `XAI_API_KEY` | Grok-based image generation.【F:modules/Providers/Media/XAI/provider.py】 |
+| Google Imagen | `GOOGLE_API_KEY`, `GOOGLE_CLOUD_PROJECT` | Vertex AI Imagen models; requires project ID.【F:modules/Providers/Media/Google/provider.py】 |
+| Replicate | `REPLICATE_API_TOKEN` | Alternative backend for various diffusion models. |
+
+See the [Image Generation Tools](tools/image_generation.md) guide for detailed usage and configuration.
+
 ### `DEFAULT_PROVIDER` and `DEFAULT_MODEL`
 
 The default chat provider and model fall back to `OpenAI` / `gpt-4o` unless overridden via `.env`. Missing API keys trigger startup warnings so operators know which credentials still need to be supplied.【F:ATLAS/config/core.py†L55-L70】【F:ATLAS/config/providers.py†L80-L103】【F:ATLAS/config/providers.py†L1967-L2021】 The setup wizard reads these values to seed provider state.【F:ATLAS/setup/controller.py†L192-L209】

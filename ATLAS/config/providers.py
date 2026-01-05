@@ -23,13 +23,24 @@ class ProviderConfigSections:
         self.manager = manager
         self.logger = manager.logger
         self._env_keys: Dict[str, str] = {
+            # LLM providers
             "OpenAI": "OPENAI_API_KEY",
             "Mistral": "MISTRAL_API_KEY",
             "Google": "GOOGLE_API_KEY",
             "HuggingFace": "HUGGINGFACE_API_KEY",
             "Anthropic": "ANTHROPIC_API_KEY",
             "Grok": "GROK_API_KEY",
+            # Speech providers
             "ElevenLabs": "XI_API_KEY",
+            # Image generation providers
+            "XAI": "XAI_API_KEY",
+            "BlackForestLabs": "BFL_API_KEY",
+            "Stability": "STABILITY_API_KEY",
+            "Fal": "FAL_API_KEY",
+            "Ideogram": "IDEOGRAM_API_KEY",
+            "Runway": "RUNWAY_API_KEY",
+            "Replicate": "REPLICATE_API_TOKEN",
+            "Leonardo": "LEONARDO_API_KEY",
         }
         self._provider_env_lookup: Dict[str, str] = {
             env_key: provider for provider, env_key in self._env_keys.items()

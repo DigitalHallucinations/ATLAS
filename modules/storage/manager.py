@@ -173,6 +173,7 @@ class StorageManager:
     _task_store: Optional[Any] = field(default=None, init=False, repr=False)
     _job_store: Optional[Any] = field(default=None, init=False, repr=False)
     _kv_store: Optional[Any] = field(default=None, init=False, repr=False)
+    _image_store: Optional[Any] = field(default=None, init=False, repr=False)
 
     # Unit of work manager
     _uow_manager: Optional[UnitOfWorkManager] = field(default=None, init=False, repr=False)
@@ -358,6 +359,7 @@ class StorageManager:
             self._task_store = None
             self._job_store = None
             self._kv_store = None
+            self._image_store = None
             self._uow_manager = None
 
             self._initialized = False
@@ -566,6 +568,23 @@ class StorageManager:
             namespace_quota_bytes=self.settings.kv.namespace_quota_bytes,
             global_quota_bytes=self.settings.kv.global_quota_bytes,
         )
+
+    @property
+    def images(self) -> "ImageArtifactRepository":
+        """Get the image artifact repository.
+
+        Lazily initializes on first access.
+        Used for storing generated images with metadata.
+        """
+        if self._image_store is None:
+            self._image_store = self._create_image_store()
+        return self._image_store
+
+    def _create_image_store(self) -> Any:
+        """Create the image artifact repository."""
+        from modules.storage.images import ImageArtifactRepository
+
+        return ImageArtifactRepository(settings=self.settings)
 
     @property
     def vectors(self) -> Optional[VectorProvider]:

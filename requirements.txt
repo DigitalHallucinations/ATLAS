@@ -97,6 +97,23 @@ faiss-cpu
 pinecone-client
 
 # =====================================
+# Media/Image generation providers
+# =====================================
+
+# HTTP client for API-based providers (Stability, BlackForestLabs, XAI)
+httpx
+
+# FalAI image generation
+fal-client
+
+# Google Vertex AI / Imagen
+google-cloud-aiplatform
+vertexai
+
+# Replicate API (alternative backend)
+replicate
+
+# =====================================
 # RAG enhancements
 # =====================================
 
