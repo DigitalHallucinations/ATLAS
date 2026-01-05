@@ -6,6 +6,7 @@ import json
 from collections.abc import AsyncIterator as AsyncIteratorABC
 from weakref import WeakKeyDictionary
 from types import MappingProxyType
+from typing import TYPE_CHECKING, cast
 
 from openai import AsyncOpenAI
 from core.model_manager import ModelManager
@@ -23,6 +24,10 @@ from core.ToolManager import (
 )
 
 class OpenAIGenerator:
+    """OpenAI API response generator with streaming and tool calling support."""
+
+    client: Optional[AsyncOpenAI]
+
     def __init__(
         self,
         config_manager: ConfigManager,
@@ -34,8 +39,8 @@ class OpenAIGenerator:
         if not self.api_key:
             self.logger.error("OpenAI API key not found in configuration")
             raise ValueError("OpenAI API key not found in configuration")
-        settings = self.config_manager.get_openai_llm_settings()
-        client_kwargs = {"api_key": self.api_key}
+        settings: Dict[str, Any] = self.config_manager.get_openai_llm_settings()  # type: ignore[attr-defined]
+        client_kwargs: Dict[str, Any] = {"api_key": self.api_key}
         base_url = settings.get("base_url")
         if base_url:
             client_kwargs["base_url"] = base_url
@@ -68,7 +73,7 @@ class OpenAIGenerator:
     async def generate_response(
         self,
         messages: List[Dict[str, str]],
-        model: str = None,
+        model: Optional[str] = None,
         max_tokens: Optional[int] = None,
         max_output_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
@@ -76,11 +81,11 @@ class OpenAIGenerator:
         frequency_penalty: Optional[float] = None,
         presence_penalty: Optional[float] = None,
         stream: Optional[bool] = None,
-        current_persona=None,
-        conversation_manager=None,
-        user=None,
-        conversation_id=None,
-        functions=None,
+        current_persona: Optional[Dict[str, Any]] = None,
+        conversation_manager: Optional[Any] = None,
+        user: Optional[str] = None,
+        conversation_id: Optional[str] = None,
+        functions: Optional[Any] = None,
         reasoning_effort: Optional[str] = None,
         function_calling: Optional[bool] = None,
         parallel_tool_calls: Optional[bool] = None,
@@ -90,9 +95,9 @@ class OpenAIGenerator:
         audio_enabled: Optional[bool] = None,
         audio_voice: Optional[str] = None,
         audio_format: Optional[str] = None,
-    ) -> Union[str, AsyncIterator[str]]:
+    ) -> Union[str, Dict[str, Any], AsyncIterator[Union[str, Dict[str, Any]]]]:
         try:
-            settings = self.config_manager.get_openai_llm_settings()
+            settings: Dict[str, Any] = self.config_manager.get_openai_llm_settings()  # type: ignore[attr-defined]
             current_model = self.model_manager.get_current_model()
 
             if model and model != current_model:
@@ -312,6 +317,9 @@ class OpenAIGenerator:
                 current_persona=current_persona,
             )
 
+            if self.client is None:
+                raise RuntimeError("OpenAI client is not initialized")
+
             response = await self.client.chat.completions.create(**request_kwargs)
 
             self.logger.info("Received response from OpenAI API.")
@@ -405,7 +413,7 @@ class OpenAIGenerator:
         deny_prefixes: Set[str] = set()
 
         try:
-            settings = self.config_manager.get_openai_llm_settings()
+            settings: Dict[str, Any] = self.config_manager.get_openai_llm_settings()  # type: ignore[attr-defined]
         except Exception:  # pragma: no cover - defensive fallback
             settings = {}
 
@@ -497,10 +505,10 @@ class OpenAIGenerator:
             formatted.append(formatted_message)
         return formatted
 
-    def _convert_functions_to_tools(self, functions):
-        tools = []
+    def _convert_functions_to_tools(self, functions: Optional[Any]) -> List[Dict[str, Any]]:
+        tools: List[Dict[str, Any]] = []
         try:
-            settings = self.config_manager.get_openai_llm_settings()
+            settings: Dict[str, Any] = self.config_manager.get_openai_llm_settings()  # type: ignore[attr-defined]
         except Exception:
             settings = {}
 
@@ -976,7 +984,7 @@ class OpenAIGenerator:
 
         return MappingProxyType(settings)
 
-    def _safe_get(self, target, attribute: str, default=None):
+    def _safe_get(self, target: Any, attribute: str, default: Any = None) -> Any:
         if target is None:
             return default
         if isinstance(target, dict):
@@ -1309,7 +1317,10 @@ class OpenAIGenerator:
                 self.logger.warning("Cannot submit tool outputs without a response id: %s", response)
                 break
 
-            response = await self.client.responses.submit_tool_outputs(
+            if self.client is None:
+                raise RuntimeError("OpenAI client is not initialized")
+
+            response = await self.client.responses.submit_tool_outputs(  # type: ignore[attr-defined]
                 response_id=response_id,
                 tool_outputs=tool_outputs,
             )
@@ -1331,12 +1342,13 @@ class OpenAIGenerator:
 
         return tool_messages
 
-    def _update_pending_tool_calls(self, pending: Dict[int, Dict[str, Any]], tool_call_delta):
+    def _update_pending_tool_calls(self, pending: Dict[int, Dict[str, Any]], tool_call_delta: Any) -> None:
         if not tool_call_delta:
             return
 
         try:
-            index = int(self._safe_get(tool_call_delta, "index"))
+            index_val = self._safe_get(tool_call_delta, "index")
+            index = int(index_val) if index_val is not None else 0
         except (TypeError, ValueError):
             index = 0
 
@@ -1482,7 +1494,10 @@ class OpenAIGenerator:
                 generation_settings=generation_settings,
             )
 
-        response = await self.client.responses.create(**request_kwargs)
+        if self.client is None:
+            raise RuntimeError("OpenAI client is not initialized")
+
+        response = await self.client.responses.create(**request_kwargs)  # type: ignore[attr-defined]
 
         if allow_function_calls:
             response, _ = await self._handle_responses_required_actions(
@@ -1606,12 +1621,15 @@ class OpenAIGenerator:
         generation_settings: Optional[Mapping[str, Any]] = None,
     ):
         full_response = ""
-        final_response = None
+        final_response: Any = None
         audio_chunks: List[bytes] = []
         captured_audio_format: Optional[str] = audio_format
         captured_audio_voice: Optional[str] = audio_voice
 
-        async with self.client.responses.stream(**request_kwargs) as stream_response:
+        if self.client is None:
+            raise RuntimeError("OpenAI client is not initialized")
+
+        async with self.client.responses.stream(**request_kwargs) as stream_response:  # type: ignore[attr-defined]
             async for event in stream_response:
                 event_type = self._safe_get(event, "type") or self._safe_get(event, "event")
                 if event_type == "response.output_text.delta":
@@ -1645,7 +1663,11 @@ class OpenAIGenerator:
 
             getter = getattr(stream_response, "get_final_response", None)
             if callable(getter):
-                final_response = await getter()
+                result = getter()
+                if inspect.isawaitable(result):
+                    final_response = await result
+                else:
+                    final_response = result
 
         if allow_function_calls and final_response is not None:
             final_response, required_action_results = await self._handle_responses_required_actions(
@@ -1695,8 +1717,9 @@ class OpenAIGenerator:
                     generation_settings=generation_settings,
                 )
                 if tool_result:
-                    yield tool_result
-                    full_response += tool_result
+                    tool_result_str = str(tool_result) if not isinstance(tool_result, str) else tool_result
+                    yield tool_result_str
+                    full_response += tool_result_str
 
         if conversation_manager:
             if allow_function_calls and final_response is not None:
@@ -2086,7 +2109,7 @@ def get_generator(
 async def generate_response(
     config_manager: ConfigManager,
     messages: List[Dict[str, str]],
-    model: str = None,
+    model: Optional[str] = None,
     max_tokens: int = 4000,
     max_output_tokens: Optional[int] = None,
     temperature: float = 0.0,
@@ -2094,18 +2117,18 @@ async def generate_response(
     frequency_penalty: float = 0.0,
     presence_penalty: float = 0.0,
     stream: bool = True,
-    current_persona=None,
-    conversation_manager=None,
-    user=None,
-    conversation_id=None,
-    functions=None,
+    current_persona: Optional[Dict[str, Any]] = None,
+    conversation_manager: Optional[Any] = None,
+    user: Optional[str] = None,
+    conversation_id: Optional[str] = None,
+    functions: Optional[Any] = None,
     reasoning_effort: Optional[str] = None,
     function_calling: Optional[bool] = None,
     parallel_tool_calls: Optional[bool] = None,
     tool_choice: Optional[Any] = None,
     json_mode: Optional[Any] = None,
     json_schema: Optional[Any] = None
-) -> Union[str, AsyncIterator[str]]:
+) -> Union[str, Dict[str, Any], AsyncIterator[Union[str, Dict[str, Any]]]]:
     generator = get_generator(config_manager)
     return await generator.generate_response(
         messages,
@@ -2130,10 +2153,16 @@ async def generate_response(
         json_schema
     )
 
-async def process_streaming_response(response: AsyncIterator[Dict]) -> str:
+async def process_streaming_response(response: AsyncIterator[Any]) -> str:
     content = ""
     async for chunk in response:
-        delta_content = chunk.choices[0].delta.content
+        choices = getattr(chunk, "choices", None)
+        if not choices or not isinstance(choices, (list, tuple)) or len(choices) == 0:
+            continue
+        delta = getattr(choices[0], "delta", None)
+        if delta is None:
+            continue
+        delta_content = getattr(delta, "content", None)
         if delta_content is None:
             continue
         if isinstance(delta_content, str):

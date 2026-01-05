@@ -10,6 +10,7 @@ from typing import Any, AsyncIterator, Dict, List, Optional, Tuple, Union
 from weakref import WeakKeyDictionary
 
 from mistralai import Mistral
+from mistralai.models import SDKError
 from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential
 
 from core.config import ConfigManager
@@ -29,7 +30,12 @@ from modules.Providers.common import (
 
 _SUPPORTED_PROMPT_MODES = {"reasoning"}
 
+
 class MistralGenerator:
+    """Mistral AI response generator with streaming and tool calling support."""
+
+    client: Optional[Mistral]
+
     def __init__(
         self,
         config_manager: ConfigManager,
@@ -106,11 +112,11 @@ class MistralGenerator:
         safe_prompt: Optional[bool] = None,
         random_seed: Optional[int] = None,
         stream: Optional[bool] = None,
-        current_persona=None,
-        functions=None,
-        conversation_manager=None,
-        user=None,
-        conversation_id=None,
+        current_persona: Optional[Dict[str, Any]] = None,
+        functions: Optional[Any] = None,
+        conversation_manager: Optional[Any] = None,
+        user: Optional[str] = None,
+        conversation_id: Optional[str] = None,
         tool_choice: Optional[Any] = None,
         parallel_tool_calls: Optional[bool] = None,
         stop_sequences: Optional[Any] = None,
@@ -216,7 +222,7 @@ class MistralGenerator:
                         value = candidate
                         if value is None:
                             value = settings.get(stored_key)
-                        if value in {None, ""}:
+                        if value is None or value == "":
                             return None
                         try:
                             numeric = int(value)
@@ -400,6 +406,9 @@ class MistralGenerator:
                     if effective_prompt_mode:
                         request_kwargs['prompt_mode'] = effective_prompt_mode
 
+                    if self.client is None:
+                        raise RuntimeError("Mistral client is not initialized")
+
                     if effective_stream:
                         response_stream = await asyncio.to_thread(
                             self.client.chat.stream,
@@ -424,6 +433,9 @@ class MistralGenerator:
                         self.client.chat.complete,
                         **request_kwargs,
                     )
+                    if response is None or not hasattr(response, 'choices') or not response.choices:
+                        self.logger.error("Empty response from Mistral API")
+                        return ""
                     message = self._safe_get(response.choices[0], "message")
                     tool_messages = self._extract_tool_messages(message)
                     if tool_messages:
@@ -451,14 +463,17 @@ class MistralGenerator:
                         )
                         if tool_result is not None:
                             return tool_result
-                    return self._safe_get(message, "content")
+                    return self._safe_get(message, "content") or ""
 
-                except Mistral.APIError as exc:
+                except SDKError as exc:
                     self.logger.error(f"Mistral API error: {str(exc)}")
                     raise
                 except Exception as exc:
                     self.logger.error(f"Unexpected error with Mistral: {str(exc)}")
                     raise
+
+        # This should never be reached due to reraise=True, but satisfies type checker
+        raise RuntimeError("Mistral generate_response exhausted retries without result")
 
     def convert_messages_to_mistral_format(
         self, messages: List[Dict[str, Any]]
@@ -720,12 +735,12 @@ class MistralGenerator:
         self,
         response,
         *,
-        user=None,
-        conversation_id=None,
-        conversation_manager=None,
-        function_map=None,
-        functions=None,
-        current_persona=None,
+        user: Optional[str] = None,
+        conversation_id: Optional[str] = None,
+        conversation_manager: Optional[Any] = None,
+        function_map: Optional[Mapping[str, Any]] = None,
+        functions: Optional[Any] = None,
+        current_persona: Optional[Dict[str, Any]] = None,
         temperature: Optional[float] = None,
         top_p: Optional[float] = None,
         frequency_penalty: Optional[float] = None,
@@ -818,7 +833,7 @@ class MistralGenerator:
             elif kind == "done":
                 break
 
-    def _safe_get(self, target: Any, attribute: str, default=None):
+    def _safe_get(self, target: Any, attribute: str, default: Any = None) -> Any:
         if isinstance(target, dict):
             return target.get(attribute, default)
         return getattr(target, attribute, default)
@@ -830,7 +845,7 @@ class MistralGenerator:
         tool_choice: Optional[Any],
         parallel_tool_calls: Optional[bool],
         response_format: Optional[Dict[str, Any]],
-        current_persona,
+        current_persona: Optional[Dict[str, Any]],
     ) -> MappingProxyType:
         settings: Dict[str, Any] = {}
 
@@ -1082,12 +1097,12 @@ class MistralGenerator:
         self,
         tool_messages: List[Dict[str, Any]],
         *,
-        user=None,
-        conversation_id=None,
-        conversation_manager=None,
-        function_map=None,
-        functions=None,
-        current_persona=None,
+        user: Optional[str] = None,
+        conversation_id: Optional[str] = None,
+        conversation_manager: Optional[Any] = None,
+        function_map: Optional[Mapping[str, Any]] = None,
+        functions: Optional[Any] = None,
+        current_persona: Optional[Dict[str, Any]] = None,
         temperature: Optional[float] = None,
         top_p: Optional[float] = None,
         frequency_penalty: Optional[float] = None,
@@ -1189,11 +1204,19 @@ async def generate_response(
     max_tokens: Optional[int] = None,
     temperature: float = 0.0,
     stream: bool = True,
-    current_persona=None,
-    functions=None,
+    current_persona: Optional[Dict[str, Any]] = None,
+    functions: Optional[Any] = None,
 ) -> Union[str, AsyncIterator[str]]:
     generator = get_generator(config_manager)
-    return await generator.generate_response(messages, model, max_tokens, temperature, stream, current_persona, functions)
+    return await generator.generate_response(
+        messages,
+        model=model,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        stream=stream,
+        current_persona=current_persona,
+        functions=functions,
+    )
 
 async def process_response(response: Union[str, AsyncIterator[str]]) -> str:
     return await collect_response_chunks(response)
@@ -1213,4 +1236,6 @@ def generate_response_sync(config_manager: ConfigManager, messages: List[Dict[st
     )
     if stream:
         return loop.run_until_complete(process_response(response))
-    return response
+    if isinstance(response, str):
+        return response
+    return loop.run_until_complete(process_response(response))

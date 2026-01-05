@@ -39,7 +39,7 @@ class GoogleGeminiGenerator:
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
     async def generate_response(
         self,
-        messages: List[Dict[str, str]],
+        messages: List[Dict[str, Any]],
         model: Optional[str] = None,
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
@@ -49,8 +49,8 @@ class GoogleGeminiGenerator:
         candidate_count: Optional[int] = None,
         stop_sequences: Optional[Iterable[str]] = None,
         stream: Optional[bool] = None,
-        current_persona=None,
-        functions=None,
+        current_persona: Optional[Any] = None,
+        functions: Optional[Any] = None,
         safety_settings: Optional[Any] = None,
         response_mime_type: Optional[str] = None,
         system_instruction: Optional[str] = None,
@@ -58,9 +58,9 @@ class GoogleGeminiGenerator:
         response_schema: Optional[Any] = None,
         seed: Optional[int] = None,
         response_logprobs: Optional[bool] = None,
-        conversation_manager=None,
-        user=None,
-        conversation_id=None,
+        conversation_manager: Optional[Any] = None,
+        user: Optional[str] = None,
+        conversation_id: Optional[str] = None,
     ) -> Union[str, AsyncIterator[Union[str, Dict[str, Dict[str, str]]]]]:
         try:
             contents = self._convert_messages_to_contents(messages)
@@ -421,16 +421,18 @@ class GoogleGeminiGenerator:
                 )
                 if self._is_async_stream(tool_result):
                     collected: List[Any] = []
-                    async for chunk in tool_result:  # pragma: no cover - safety
+                    async for chunk in tool_result:  # type: ignore[union-attr]
                         if chunk is None:
                             continue
                         collected.append(chunk)
                     if not collected:
                         return ""
                     if len(collected) == 1:
-                        return collected[0]
-                    return collected
-                return tool_result
+                        return str(collected[0])
+                    return "".join(str(c) for c in collected)
+                if tool_result is not None:
+                    return str(tool_result) if not isinstance(tool_result, str) else tool_result
+                return ""
 
             return response.text
 
@@ -443,9 +445,9 @@ class GoogleGeminiGenerator:
         self._model_cache.clear()
 
     def _convert_messages_to_contents(
-        self, messages: List[Dict[str, Union[str, Dict, List]]]
-    ) -> List[genai_types.ContentDict]:
-        contents: List[genai_types.ContentDict] = []
+        self, messages: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        contents: List[Dict[str, Any]] = []
         for message in messages:
             role = message.get("role")
             if not role:
@@ -467,7 +469,7 @@ class GoogleGeminiGenerator:
                     if normalized_tool_call:
                         parts.append({"function_call": normalized_tool_call})
 
-            content_dict: genai_types.ContentDict = {
+            content_dict: Dict[str, Any] = {
                 "role": role,
                 "parts": parts or [""],
             }
@@ -483,7 +485,7 @@ class GoogleGeminiGenerator:
 
         return contents
 
-    def _normalize_parts(self, content_payload) -> Iterable[genai_types.PartDict]:
+    def _normalize_parts(self, content_payload: Any) -> List[Dict[str, Any]]:
         if content_payload is None:
             return []
 
@@ -494,7 +496,7 @@ class GoogleGeminiGenerator:
             return [self._normalize_part_dict(content_payload)]
 
         if isinstance(content_payload, Iterable):
-            normalized_parts: List[genai_types.PartDict] = []
+            normalized_parts: List[Dict[str, Any]] = []
             for item in content_payload:
                 if isinstance(item, str):
                     normalized_parts.append({"text": item})
@@ -506,7 +508,7 @@ class GoogleGeminiGenerator:
 
         return [{"text": str(content_payload)}]
 
-    def _normalize_part_dict(self, payload: Dict) -> genai_types.PartDict:
+    def _normalize_part_dict(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         if not isinstance(payload, dict):
             return {"text": str(payload)}
 
@@ -526,7 +528,7 @@ class GoogleGeminiGenerator:
             if normalized_call:
                 return {"function_call": normalized_call}
 
-        return payload
+        return dict(payload)
 
     def _build_tools_payload(
         self,
@@ -874,22 +876,20 @@ class GoogleGeminiGenerator:
         self,
         response,
         *,
-        user=None,
-        conversation_id=None,
-        conversation_manager=None,
-        current_persona=None,
-        functions=None,
-        function_map=None,
-        temperature=None,
-        top_p=None,
+        user: Optional[str] = None,
+        conversation_id: Optional[str] = None,
+        conversation_manager: Optional[Any] = None,
+        current_persona: Optional[Any] = None,
+        functions: Optional[Any] = None,
+        function_map: Optional[Mapping[str, Any]] = None,
+        temperature: Optional[float] = None,
+        top_p: Optional[float] = None,
         generation_settings: Optional[Mapping[str, Any]] = None,
     ) -> AsyncIterator[Union[str, Dict[str, Dict[str, str]]]]:
         loop = asyncio.get_running_loop()
-        queue: "asyncio.Queue[tuple[str, Optional[tuple[str, Any]]]]" = (
-            asyncio.Queue()
-        )
+        queue: "asyncio.Queue[tuple[str, Any]]" = asyncio.Queue()
 
-        def producer():
+        def producer() -> None:
             try:
                 for chunk in response:
                     for payload in self._iter_stream_payloads(chunk):
@@ -923,7 +923,7 @@ class GoogleGeminiGenerator:
                             stream=True,
                         )
                         if self._is_async_stream(tool_result):
-                            async for item in tool_result:
+                            async for item in tool_result:  # type: ignore[union-attr]
                                 if item is None:
                                     continue
                                 yield item
@@ -970,15 +970,15 @@ async def generate_response(
     candidate_count: Optional[int] = None,
     stop_sequences: Optional[Iterable[str]] = None,
     stream: bool = True,
-    current_persona=None,
-    functions=None,
+    current_persona: Optional[Any] = None,
+    functions: Optional[Any] = None,
     safety_settings: Optional[Any] = None,
     response_mime_type: Optional[str] = None,
     system_instruction: Optional[str] = None,
     enable_functions: bool = True,
-    conversation_manager=None,
-    conversation_id=None,
-    user=None,
+    conversation_manager: Optional[Any] = None,
+    conversation_id: Optional[str] = None,
+    user: Optional[str] = None,
 ):
     generator = get_generator(config_manager)
     return await generator.generate_response(

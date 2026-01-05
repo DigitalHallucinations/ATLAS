@@ -244,6 +244,8 @@ def _build_thinking_payload(enabled: bool, budget: Optional[int]) -> Optional[Di
 
 
 class AnthropicGenerator:
+    client: Optional[AsyncAnthropic]
+
     def __init__(self, config_manager: Optional[ConfigManager] = None):
         self.config_manager = config_manager or ConfigManager()
         self.logger = setup_logger(__name__)
@@ -273,7 +275,8 @@ class AnthropicGenerator:
         getter = getattr(self.config_manager, "get_anthropic_settings", None)
         if callable(getter):
             try:
-                settings = getter() or {}
+                result = getter()
+                settings = result if isinstance(result, dict) else {}
             except Exception as exc:  # pragma: no cover - defensive logging
                 self.logger.warning(
                     "Unable to load persisted Anthropic settings: %s", exc, exc_info=True
@@ -385,15 +388,15 @@ class AnthropicGenerator:
         top_k: Optional[int] = None,
         max_output_tokens: Optional[int] = None,
         stream: Optional[bool] = None,
-        current_persona=None,
+        current_persona: Optional[Dict[str, Any]] = None,
         functions: Optional[List[Dict]] = None,
         stop_sequences: Optional[Any] = None,
-        conversation_manager=None,
-        user=None,
-        conversation_id=None,
+        conversation_manager: Optional[Any] = None,
+        user: Optional[str] = None,
+        conversation_id: Optional[str] = None,
         generation_settings: Optional[Mapping[str, Any]] = None,
-        **kwargs
-    ) -> Union[str, AsyncIterator[Union[str, Dict[str, Any]]]]:
+        **kwargs: Any
+    ) -> Union[str, Dict[str, Any], AsyncIterator[Union[str, Dict[str, Any]]]]:
         try:
             model = model or self.default_model
             stream = self.streaming_enabled if stream is None else stream
@@ -496,7 +499,7 @@ class AnthropicGenerator:
 
             response = await self._create_message_with_retry(message_params)
             if self.function_calling_enabled:
-                return await self.process_function_call(
+                result = await self.process_function_call(
                     response,
                     user=user,
                     conversation_id=conversation_id,
@@ -509,6 +512,8 @@ class AnthropicGenerator:
                     generation_settings=generation_settings,
                     stream=False,
                 )
+                if result is not None:
+                    return result
             text_content, thinking_content = self._extract_text_and_thinking_content(
                 getattr(response, "content", None) or []
             )
@@ -538,6 +543,8 @@ class AnthropicGenerator:
 
         while True:
             try:
+                if self.client is None:
+                    raise RuntimeError("Anthropic client has been closed")
                 return await asyncio.wait_for(
                     self.client.messages.create(**message_params),
                     timeout=self.timeout,
@@ -598,12 +605,12 @@ class AnthropicGenerator:
         self,
         message_params: Dict[str, Any],
         *,
-        user=None,
-        conversation_id=None,
-        conversation_manager=None,
-        function_map=None,
-        functions=None,
-        current_persona=None,
+        user: Optional[str] = None,
+        conversation_id: Optional[str] = None,
+        conversation_manager: Optional[Any] = None,
+        function_map: Optional[Mapping[str, Any]] = None,
+        functions: Optional[List[Dict]] = None,
+        current_persona: Optional[Dict[str, Any]] = None,
         temperature: Optional[float] = None,
         top_p: Optional[float] = None,
         generation_settings: Optional[Mapping[str, Any]] = None,
@@ -615,6 +622,8 @@ class AnthropicGenerator:
         timeout_ctx = getattr(asyncio, "timeout", None)
         while True:
             try:
+                if self.client is None:
+                    raise RuntimeError("Anthropic client has been closed")
                 if timeout_ctx is not None:
                     async with timeout_ctx(self.timeout):
                         async with self.client.messages.stream(**message_params) as stream:
@@ -622,7 +631,7 @@ class AnthropicGenerator:
                                 for chunk in self._translate_stream_event(event):
                                     yield chunk
 
-                            final_response = await stream.get_final_response()
+                            final_response = await stream.get_final_response()  # type: ignore[attr-defined]
                             if self.function_calling_enabled:
                                 tool_response = await self.process_function_call(
                                     final_response,
@@ -641,7 +650,7 @@ class AnthropicGenerator:
                                     yield tool_chunk
                             return
                 else:
-                    stream_cm = self.client.messages.stream(**message_params)
+                    stream_cm = self.client.messages.stream(**message_params)  # type: ignore[union-attr]
                     stream = await asyncio.wait_for(
                         stream_cm.__aenter__(), timeout=self.timeout
                     )
@@ -651,7 +660,7 @@ class AnthropicGenerator:
                                 yield chunk
 
                         final_response = await asyncio.wait_for(
-                            stream.get_final_response(), timeout=self.timeout
+                            stream.get_final_response(), timeout=self.timeout  # type: ignore[attr-defined]
                         )
                         if self.function_calling_enabled:
                             tool_response = await self.process_function_call(
@@ -786,7 +795,7 @@ class AnthropicGenerator:
         return "".join(text_segments), "".join(thinking_segments)
 
     async def process_response(
-        self, response: Union[str, AsyncIterator[Union[str, Dict[str, Any]]]]
+        self, response: Union[str, Dict[str, Any], AsyncIterator[Union[str, Dict[str, Any]]]]
     ) -> Union[str, Dict[str, Any]]:
         """Consume a streamed response and return aggregated text or structured data.
 
@@ -798,9 +807,12 @@ class AnthropicGenerator:
         if isinstance(response, str):
             return response
 
+        if isinstance(response, dict):
+            return response
+
         collected_text: List[str] = []
         thinking_segments: List[str] = []
-        async for chunk in response:
+        async for chunk in response:  # type: ignore[union-attr]
             if isinstance(chunk, str):
                 collected_text.append(chunk)
                 continue
@@ -858,12 +870,12 @@ class AnthropicGenerator:
         self,
         response,
         *,
-        user=None,
-        conversation_id=None,
-        conversation_manager=None,
-        function_map=None,
-        functions=None,
-        current_persona=None,
+        user: Optional[str] = None,
+        conversation_id: Optional[str] = None,
+        conversation_manager: Optional[Any] = None,
+        function_map: Optional[Mapping[str, Any]] = None,
+        functions: Optional[List[Dict]] = None,
+        current_persona: Optional[Dict[str, Any]] = None,
         temperature: Optional[float] = None,
         top_p: Optional[float] = None,
         generation_settings: Optional[Mapping[str, Any]] = None,
@@ -1111,11 +1123,11 @@ async def generate_response(
     top_k: Optional[int] = None,
     max_output_tokens: Optional[int] = None,
     stream: Optional[bool] = None,
-    current_persona=None,
+    current_persona: Optional[Dict[str, Any]] = None,
     functions: Optional[List[Dict]] = None,
     stop_sequences: Optional[Any] = None,
-    **kwargs
-) -> Union[str, AsyncIterator[Union[str, Dict[str, Any]]]]:
+    **kwargs: Any
+) -> Union[str, Dict[str, Any], AsyncIterator[Union[str, Dict[str, Any]]]]:
     generator = setup_anthropic_generator(config_manager)
     return await generator.generate_response(
         messages,
@@ -1132,7 +1144,7 @@ async def generate_response(
     )
 
 async def process_response(
-    response: Union[str, AsyncIterator[Union[str, Dict[str, Any]]]]
+    response: Union[str, Dict[str, Any], AsyncIterator[Union[str, Dict[str, Any]]]]
 ) -> Union[str, Dict[str, Any]]:
     generator = setup_anthropic_generator()
     return await generator.process_response(response)
@@ -1161,7 +1173,11 @@ def generate_response_sync(
             **kwargs,
         )
         if resolved_stream:
+            if isinstance(response, dict):
+                return response
             return await generator.process_response(response)
+        if isinstance(response, str):
+            return response
         return response  # type: ignore[return-value]
 
     coroutine = _execute()

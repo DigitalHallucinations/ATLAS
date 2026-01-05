@@ -34,9 +34,9 @@ from modules.Providers.Google.GG_gen_response import get_generator as get_google
 from modules.Providers.Anthropic.Anthropic_gen_response import AnthropicGenerator
 
 try:  # pragma: no cover - import guard for optional detailed exceptions
-    from mistralai.exceptions import MistralException
+    from mistralai.exceptions import MistralException  # type: ignore[import-not-found]
 except Exception:  # pragma: no cover - fallback when the optional module layout changes
-    MistralException = Exception
+    MistralException = Exception  # type: ignore[assignment,misc]
 
 try:  # pragma: no cover - optional dependency at runtime
     from mistralai import Mistral  # type: ignore
@@ -77,7 +77,7 @@ class ProviderManager:
         self._mistral_generator = None
         self._google_generator = None
         self.current_functions = None
-        self.providers = {}
+        self._provider_callables: Dict[str, Callable[..., Awaitable[Any]]] = {}
         self.chat_session = None
         self.conversation_manager = None
         self.current_conversation_id: Optional[str] = None
@@ -216,7 +216,7 @@ class ProviderManager:
         try:
             asyncio.get_running_loop()
         except RuntimeError:
-            return asyncio.run(coro)
+            return asyncio.run(coro)  # type: ignore[arg-type]
         raise RuntimeError(
             "Synchronous provider helpers cannot be invoked while the event loop is running."
         )
@@ -308,7 +308,7 @@ class ProviderManager:
     ) -> Callable[..., Awaitable[Any]]:
         """Ensure a callable is registered for the requested provider."""
 
-        existing = self.providers.get(provider)
+        existing = self._provider_callables.get(provider)
         if callable(existing):
             return existing
 
@@ -342,7 +342,7 @@ class ProviderManager:
         else:
             raise ValueError(f"Provider '{provider}' is not recognized for fallback handling.")
 
-        self.providers[provider] = func
+        self._provider_callables[provider] = func
         return func
 
     async def _anthropic_generate_response(self, _config_manager, **kwargs):
@@ -601,7 +601,8 @@ class ProviderManager:
             return {}
 
         try:
-            settings = getter() or {}
+            result = getter()
+            settings = result if isinstance(result, dict) else {}
         except Exception as exc:  # pragma: no cover - defensive logging
             self.logger.error("Failed to load OpenAI settings: %s", exc, exc_info=True)
             return {}
@@ -707,7 +708,8 @@ class ProviderManager:
             return {}
 
         try:
-            settings = getter() or {}
+            result = getter()
+            settings = result if isinstance(result, dict) else {}
         except Exception as exc:  # pragma: no cover - defensive logging
             self.logger.error("Failed to load Google settings: %s", exc, exc_info=True)
             return {}
@@ -770,7 +772,9 @@ class ProviderManager:
             )
         else:
             try:
-                generator.set_default_model(settings.get("model"))
+                model_val = settings.get("model")
+                if model_val is not None:
+                    generator.set_default_model(model_val)
                 generator.set_streaming(settings.get("stream", True))
                 generator.set_function_calling(settings.get("function_calling", False))
                 generator.set_temperature(settings.get("temperature", 0.0))
@@ -819,7 +823,8 @@ class ProviderManager:
             return {}
 
         try:
-            settings = getter() or {}
+            result = getter()
+            settings = result if isinstance(result, dict) else {}
         except Exception as exc:  # pragma: no cover - defensive logging
             self.logger.error("Failed to load Anthropic settings: %s", exc, exc_info=True)
             return {}
@@ -1109,6 +1114,8 @@ class ProviderManager:
                 effective_base_url = candidate or None
 
         def _list_models() -> Any:
+            if Mistral is None:
+                raise RuntimeError("Mistral SDK is not installed")
             client_kwargs: Dict[str, Any] = {"api_key": api_key}
             if effective_base_url:
                 client_kwargs["server_url"] = effective_base_url
@@ -1222,7 +1229,8 @@ class ProviderManager:
         getter = getattr(self.config_manager, "get_available_providers", None)
         if callable(getter):
             try:
-                provider_values = getter() or {}
+                result = getter()
+                provider_values = result if isinstance(result, dict) else {}
             except Exception as exc:  # pragma: no cover - defensive logging
                 self.logger.error(
                     "Unable to read provider credentials for %s: %s",
@@ -1371,7 +1379,8 @@ class ProviderManager:
         if not configured_token:
             getter = getattr(self.config_manager, "get_huggingface_api_key", None)
             if callable(getter):
-                configured_token = getter() or ""
+                result = getter()
+                configured_token = result if isinstance(result, str) else ""
 
         if not configured_token:
             return build_result(False, error="No HuggingFace token provided.")
@@ -1402,6 +1411,8 @@ class ProviderManager:
             return ensure_result
 
         try:
+            if self.huggingface_generator is None:
+                return build_result(False, error="HuggingFace generator not initialized")
             await self.huggingface_generator.load_model(model_name, force_download)
             self.model_manager.set_model(model_name, "HuggingFace")
             if self.current_llm_provider == "HuggingFace":
@@ -1436,6 +1447,8 @@ class ProviderManager:
             return ensure_result
 
         try:
+            if self.huggingface_generator is None:
+                return build_result(False, error="HuggingFace generator not initialized")
             await asyncio.to_thread(
                 self.huggingface_generator.model_manager.remove_installed_model,
                 model_name,
@@ -1453,6 +1466,8 @@ class ProviderManager:
             return ensure_result
 
         try:
+            if self.huggingface_generator is None:
+                return build_result(False, error="HuggingFace generator not initialized")
             models = self.huggingface_generator.get_installed_models()
             return build_result(True, data=models, message="Retrieved installed HuggingFace models.")
         except Exception as exc:  # pragma: no cover - defensive logging
@@ -1619,6 +1634,8 @@ class ProviderManager:
                 if not ensure_result.get("success"):
                     raise ValueError(ensure_result.get("error", "Failed to initialize HuggingFace generator."))
 
+                if self.huggingface_generator is None:
+                    raise ValueError("HuggingFace generator failed to initialize.")
                 self.generate_response_func = self.huggingface_generator.generate_response
                 self.process_streaming_response_func = self.huggingface_generator.process_streaming_response
                 default_model = self.get_default_model_for_provider("HuggingFace")
@@ -1686,7 +1703,7 @@ class ProviderManager:
                     raise ValueError("No default model available for OpenAI provider.")
 
             self.current_llm_provider = llm_provider
-            self.providers[llm_provider] = self.generate_response_func
+            self._provider_callables[llm_provider] = self.generate_response_func
 
             self.logger.info("Switched to LLM provider: %s", self.current_llm_provider)
             if self.current_model:
@@ -1716,7 +1733,7 @@ class ProviderManager:
         if self.current_model:
             self.logger.debug("Current model set to: %s", self.current_model)
 
-    def get_current_model(self) -> str:
+    def get_current_model(self) -> Optional[str]:
         """
         Get the current model being used.
 
@@ -1726,7 +1743,8 @@ class ProviderManager:
         if self.current_llm_provider == "HuggingFace" and self.huggingface_generator:
             getter = getattr(self.huggingface_generator, "get_current_model", None)
             if callable(getter):
-                return getter()
+                result = getter()
+                return result if isinstance(result, str) else None
         return self.current_model
 
     def set_current_functions(self, functions):
@@ -1750,6 +1768,7 @@ class ProviderManager:
         blackboard_facade: Optional[Any] = None,
         active_task: Optional[Dict[str, Any]] = None,
         max_history_tokens: Optional[int] = None,
+        conversation_id: Optional[str] = None,
     ) -> LLMContext:
         """Build a complete LLM context for a generation request.
         
@@ -1766,23 +1785,26 @@ class ProviderManager:
             blackboard_facade: Optional blackboard facade for state injection.
             active_task: Optional active task for context injection.
             max_history_tokens: Override for maximum history tokens.
+            conversation_id: Conversation ID for context.
             
         Returns:
             LLMContext with all context assembled and token-budgeted.
         """
         resolved_model = model or self.get_current_model() or "gpt-4"
+        resolved_conversation_id = conversation_id or self.current_conversation_id or ""
         
         manager = LLMContextManager(
-            model_name=resolved_model,
-            system_prompt=system_prompt or "",
-            history=history or [],
-            tools=tools or [],
-            mcp_client=mcp_client,
-            blackboard_facade=blackboard_facade,
-            active_task=active_task,
+            blackboard=blackboard_facade,
         )
         
-        return await manager.build_context(max_history_tokens=max_history_tokens)
+        return await manager.build_context(
+            conversation_id=resolved_conversation_id,
+            messages=history or [],
+            model=resolved_model,
+            max_history_tokens=max_history_tokens,
+            system_prompt_override=system_prompt,
+            task_context=active_task,
+        )
 
     async def generate_with_context(
         self,
@@ -1819,14 +1841,14 @@ class ProviderManager:
         """
         # Format messages for the provider
         resolved_provider = provider or self.current_llm_provider
-        messages = llm_context.format_messages_for_provider(resolved_provider)
+        messages = llm_context.get_messages_as_dicts()
         
         # Format tools for the provider
-        tools = llm_context.format_tools_for_provider(resolved_provider)
+        tools = llm_context.get_tools_for_provider(resolved_provider or "OpenAI")
         
         return await self.generate_response(
             messages=messages,
-            model=llm_context.model_name,
+            model=llm_context.model,
             provider=resolved_provider,
             functions=tools if tools else None,
             current_persona=current_persona,
@@ -1841,8 +1863,8 @@ class ProviderManager:
     async def generate_response(
         self,
         messages: List[Dict[str, str]],
-        model: str = None,
-        provider: str = None,
+        model: Optional[str] = None,
+        provider: Optional[str] = None,
         max_tokens: Optional[int] = None,
         max_output_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
@@ -1859,8 +1881,8 @@ class ProviderManager:
         frequency_penalty: Optional[float] = None,
         presence_penalty: Optional[float] = None,
         stream: Optional[bool] = None,
-        current_persona=None,
-        functions=None,
+        current_persona: Optional[Dict[str, Any]] = None,
+        functions: Optional[Any] = None,
         function_calling: Optional[bool] = None,
         parallel_tool_calls: Optional[bool] = None,
         tool_choice: Optional[Any] = None,
@@ -1870,7 +1892,7 @@ class ProviderManager:
         audio_voice: Optional[str] = None,
         audio_format: Optional[str] = None,
         reasoning_effort: Optional[str] = None,
-        llm_call_type: str = None,
+        llm_call_type: Optional[str] = None,
         user: Optional[str] = None,
         conversation_id: Optional[str] = None,
         conversation_manager: Optional[Any] = None,
@@ -1920,7 +1942,7 @@ class ProviderManager:
             requested_provider = self.config_manager.get_default_provider()
 
         desired_provider = requested_provider
-        if desired_provider != self.current_llm_provider:
+        if desired_provider and desired_provider != self.current_llm_provider:
             await self.switch_llm_provider(desired_provider)
 
         requested_provider = self.current_llm_provider or desired_provider
@@ -1933,7 +1955,7 @@ class ProviderManager:
 
         current_active_model = self.get_current_model()
         resolved_model = model or defaults.get("model") or current_active_model
-        if not resolved_model:
+        if not resolved_model and requested_provider:
             fallback_model = self.get_default_model_for_provider(requested_provider)
             resolved_model = fallback_model
 
@@ -2081,6 +2103,7 @@ class ProviderManager:
             llm_call_type,
         )
 
+        call_kwargs: Dict[str, Any] = {}
         try:
             if conversation_id:
                 self.set_current_conversation_id(conversation_id)
@@ -2162,7 +2185,7 @@ class ProviderManager:
                     call_kwargs["max_tokens"] = resolved_max_output_tokens
 
             response = await self._invoke_provider_callable(
-                requested_provider,
+                requested_provider or "OpenAI",
                 self.generate_response_func,
                 dict(call_kwargs),
             )
@@ -2300,11 +2323,15 @@ class ProviderManager:
         """
         try:
             if self.current_llm_provider == "HuggingFace":
-                return await self.huggingface_generator.process_streaming_response(response)
+                if self.huggingface_generator is None:
+                    raise ValueError("HuggingFace generator not initialized")
+                return await self.huggingface_generator.process_streaming_response(response)  # type: ignore[arg-type]
             elif self.current_llm_provider == "Grok":
-                return await self.grok_generator.process_streaming_response(response)
+                if self.grok_generator is None:
+                    raise ValueError("Grok generator not initialized")
+                return await self.grok_generator.process_streaming_response(response)  # type: ignore[arg-type]
             elif self.process_streaming_response_func:
-                return await self.process_streaming_response_func(response)
+                return await self.process_streaming_response_func(response)  # type: ignore[call-arg,arg-type,misc]
             else:
                 raise ValueError(f"Streaming response processing not implemented for {self.current_llm_provider}")
         except Exception as e:
@@ -2324,9 +2351,10 @@ class ProviderManager:
                 raise ValueError(load_result.get("error", f"Failed to load HuggingFace model {model}."))
         else:
             self.current_model = model
-            self.model_manager.set_model(model, self.current_llm_provider)
-            self._provider_model_ready[self.current_llm_provider] = True
-            self._pending_models.pop(self.current_llm_provider, None)
+            if self.current_llm_provider is not None:
+                self.model_manager.set_model(model, self.current_llm_provider)
+                self._provider_model_ready[self.current_llm_provider] = True
+                self._pending_models.pop(self.current_llm_provider, None)
         self.logger.debug("Model set to %s", model)
 
     def switch_background_provider(self, background_provider: str):
@@ -2343,7 +2371,7 @@ class ProviderManager:
         self.current_background_provider = background_provider
         self.logger.debug("Switched background provider to: %s", self.current_background_provider)
 
-    def get_current_provider(self) -> str:
+    def get_current_provider(self) -> Optional[str]:
         """
         Get the current LLM provider.
 
@@ -2352,7 +2380,7 @@ class ProviderManager:
         """
         return self.current_llm_provider
 
-    def get_current_background_provider(self) -> str:
+    def get_current_background_provider(self) -> Optional[str]:
         """
         Get the current background provider.
 
@@ -2365,6 +2393,8 @@ class ProviderManager:
         """Return True if a model is marked as loaded for the given provider."""
 
         target = provider or self.current_llm_provider
+        if target is None:
+            return False
         return bool(self._provider_model_ready.get(target))
 
     def get_pending_model_for_provider(self, provider: str) -> Optional[str]:
@@ -2372,7 +2402,7 @@ class ProviderManager:
 
         return self._pending_models.get(provider)
 
-    def get_default_model_for_provider(self, provider: str) -> str:
+    def get_default_model_for_provider(self, provider: str) -> Optional[str]:
         """
         Get the default model for a specific provider.
 
@@ -2395,7 +2425,8 @@ class ProviderManager:
             getter = getattr(self, getter_name, None)
             if callable(getter):
                 try:
-                    settings = getter() or {}
+                    result = getter()
+                    settings = result if isinstance(result, dict) else {}
                 except Exception as exc:  # pragma: no cover - defensive logging
                     self.logger.warning(
                         "Failed to load %s for provider %s: %s",
@@ -2413,7 +2444,8 @@ class ProviderManager:
             getter = getattr(self.config_manager, getter_name, None)
             if callable(getter):
                 try:
-                    settings = getter() or {}
+                    result = getter()
+                    settings = result if isinstance(result, dict) else {}
                 except Exception as exc:  # pragma: no cover - defensive logging
                     self.logger.warning(
                         "Failed to load %s for provider %s: %s",
@@ -2482,6 +2514,8 @@ class ProviderManager:
         Returns:
             List[str]: A list of available model names.
         """
+        if self.current_llm_provider is None:
+            return []
         return self.model_manager.get_available_models(self.current_llm_provider).get(self.current_llm_provider, [])
 
     def set_conversation_manager(self, conversation_manager):
@@ -2501,7 +2535,8 @@ class ProviderManager:
                 except TypeError:
                     current_id = conversation_id_getter
                 else:
-                    self.current_conversation_id = current_id
+                    if isinstance(current_id, str) or current_id is None:
+                        self.current_conversation_id = current_id
                     return
             if conversation_id_getter is None:
                 getter_method = getattr(conversation_manager, "get_conversation_id", None)
@@ -2512,10 +2547,12 @@ class ProviderManager:
                         current_id = None
                     else:
                         if current_id is not None:
-                            self.current_conversation_id = current_id
+                            if isinstance(current_id, str):
+                                self.current_conversation_id = current_id
                             return
         if conversation_id_getter is not None and not callable(conversation_id_getter):
-            self.current_conversation_id = conversation_id_getter
+            if isinstance(conversation_id_getter, str) or conversation_id_getter is None:
+                self.current_conversation_id = conversation_id_getter
 
     def set_current_conversation_id(self, conversation_id: str):
         """

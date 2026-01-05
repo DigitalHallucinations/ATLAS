@@ -89,7 +89,8 @@ class ModelManager:
             getter = getattr(self.config_manager, "get_cached_models", None)
             if callable(getter):
                 try:
-                    cached_models = getter()
+                    result = getter()
+                    cached_models = result if isinstance(result, dict) else {}
                 except Exception as exc:
                     self.logger.warning(
                         "Failed to load cached provider models from configuration: %s",
@@ -106,8 +107,8 @@ class ModelManager:
             for provider, models in cached_models.items():
                 if isinstance(models, list):
                     raw_models = list(models)
-                elif isinstance(models, (tuple, set)):
-                    raw_models = [str(entry) for entry in models]
+                elif isinstance(models, (tuple, set, frozenset)):
+                    raw_models = [str(entry) for entry in list(models)]
                 else:
                     raw_models = []
 
@@ -147,7 +148,7 @@ class ModelManager:
             self.current_provider = provider
             self.logger.info(f"Model set to {model_name} for provider {provider}")
 
-    def get_current_model(self) -> str:
+    def get_current_model(self) -> Optional[str]:
         """
         Get the current model being used.
 
@@ -157,7 +158,7 @@ class ModelManager:
         with self.lock:
             return self.current_model
 
-    def get_current_provider(self) -> str:
+    def get_current_provider(self) -> Optional[str]:
         """
         Get the current provider being used.
 
@@ -167,7 +168,7 @@ class ModelManager:
         with self.lock:
             return self.current_provider
 
-    def get_available_models(self, provider: str = None) -> Dict[str, List[str]]:
+    def get_available_models(self, provider: Optional[str] = None) -> Dict[str, List[str]]:
         """
         Get available models for a specific provider or all providers.
 
@@ -208,11 +209,12 @@ class ModelManager:
                         normalized.append(trimmed)
                         seen.add(trimmed)
 
-            persisted: List[str] | None = None
+            persisted: Optional[List[str]] = None
             setter = getattr(self.config_manager, "set_cached_models", None)
             if callable(setter):
                 try:
-                    persisted = setter(provider, normalized)
+                    result = setter(provider, normalized)
+                    persisted = result if isinstance(result, list) else None
                 except Exception as exc:
                     self.logger.warning(
                         "Failed to persist cached models for %s: %s", provider, exc
@@ -270,7 +272,7 @@ class ModelManager:
         # Return token limits for the specified model, or default values if not found
         return token_limits.get(model_name, (2000, 4000))
 
-    def get_default_model_for_provider(self, provider: str) -> str:
+    def get_default_model_for_provider(self, provider: str) -> Optional[str]:
         """
         Get the default model for a specific provider.
 
@@ -278,7 +280,7 @@ class ModelManager:
             provider (str): The name of the provider.
 
         Returns:
-            str: The default model name, or None if not available.
+            Optional[str]: The default model name, or None if not available.
         """
         with self.lock:
             if provider not in self.models or not self.models[provider]:
