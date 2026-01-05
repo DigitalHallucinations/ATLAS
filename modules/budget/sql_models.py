@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, cast
 
 from sqlalchemy import (
     Boolean,
@@ -69,23 +69,23 @@ class BudgetPolicyTable(BudgetBase):
 
     def to_domain(self) -> BudgetPolicy:
         """Convert to domain model."""
+        row = cast(Any, self)  # Runtime: columns resolve to values
         return BudgetPolicy(
-            id=self.id,
-            name=self.name,
-            description=self.description,
-            scope=BudgetScope(self.scope),
-            scope_id=self.scope_id,
-            period=BudgetPeriod(self.period),
-            limit_amount=Decimal(str(self.limit_amount)),
-            soft_limit_percent=self.soft_limit_percent,
-            action=LimitAction(self.action),
-            enabled=self.enabled,
-            priority=self.priority,
-            rollover_enabled=self.rollover_enabled,
-            rollover_max_percent=self.rollover_max_percent,
-            created_at=self.created_at,
-            updated_at=self.updated_at,
-            metadata=self.metadata_ or {},
+            id=row.id,
+            name=row.name,
+            scope=BudgetScope(row.scope),
+            scope_id=row.scope_id,
+            period=BudgetPeriod(row.period),
+            limit_amount=Decimal(str(row.limit_amount)),
+            soft_limit_percent=float(row.soft_limit_percent) / 100.0,
+            hard_limit_action=LimitAction(row.action),
+            enabled=row.enabled,
+            priority=row.priority,
+            rollover_enabled=row.rollover_enabled,
+            rollover_max_percent=float(row.rollover_max_percent) / 100.0,
+            created_at=row.created_at,
+            updated_at=row.updated_at,
+            metadata=dict(row.metadata_) if row.metadata_ else {},
         )
 
     @classmethod
@@ -94,17 +94,17 @@ class BudgetPolicyTable(BudgetBase):
         return cls(
             id=policy.id,
             name=policy.name,
-            description=policy.description,
+            description=None,  # Domain model doesn't have description
             scope=policy.scope.value,
             scope_id=policy.scope_id,
             period=policy.period.value,
             limit_amount=policy.limit_amount,
-            soft_limit_percent=policy.soft_limit_percent,
-            action=policy.action.value,
+            soft_limit_percent=int(policy.soft_limit_percent * 100),  # Store as int percentage
+            action=policy.hard_limit_action.value,
             enabled=policy.enabled,
             priority=policy.priority,
             rollover_enabled=policy.rollover_enabled,
-            rollover_max_percent=policy.rollover_max_percent,
+            rollover_max_percent=int(policy.rollover_max_percent * 100),  # Store as int percentage
             created_at=policy.created_at,
             updated_at=policy.updated_at,
             metadata_=policy.metadata or {},
@@ -139,22 +139,21 @@ class UsageRecordTable(BudgetBase):
 
     def to_domain(self) -> UsageRecord:
         """Convert to domain model."""
+        row = cast(Any, self)  # Runtime: columns resolve to values
         return UsageRecord(
-            id=self.id,
-            timestamp=self.timestamp,
-            provider=self.provider,
-            model=self.model,
-            operation_type=OperationType(self.operation_type),
-            input_tokens=self.input_tokens,
-            output_tokens=self.output_tokens,
-            cached_tokens=self.cached_tokens,
-            cost_usd=Decimal(str(self.cost_usd)),
-            user_id=self.user_id,
-            tenant_id=self.tenant_id,
-            session_id=self.session_id,
-            conversation_id=self.conversation_id,
-            request_id=self.request_id,
-            metadata=self.metadata_ or {},
+            id=row.id,
+            timestamp=row.timestamp,
+            provider=row.provider,
+            model=row.model,
+            operation_type=OperationType(row.operation_type),
+            input_tokens=row.input_tokens,
+            output_tokens=row.output_tokens,
+            cost_usd=Decimal(str(row.cost_usd)),
+            user_id=row.user_id,
+            tenant_id=row.tenant_id,
+            conversation_id=row.conversation_id,
+            request_id=row.request_id,
+            metadata=dict(row.metadata_) if row.metadata_ else {},
         )
 
     @classmethod
@@ -166,13 +165,13 @@ class UsageRecordTable(BudgetBase):
             provider=record.provider,
             model=record.model,
             operation_type=record.operation_type.value,
-            input_tokens=record.input_tokens,
-            output_tokens=record.output_tokens,
-            cached_tokens=record.cached_tokens,
+            input_tokens=record.input_tokens or 0,
+            output_tokens=record.output_tokens or 0,
+            cached_tokens=0,  # Domain model doesn't track cached tokens
             cost_usd=record.cost_usd,
             user_id=record.user_id,
             tenant_id=record.tenant_id,
-            session_id=record.session_id,
+            session_id=None,  # Domain model doesn't have session_id
             conversation_id=record.conversation_id,
             request_id=record.request_id,
             metadata_=record.metadata or {},
@@ -204,20 +203,21 @@ class BudgetAlertTable(BudgetBase):
 
     def to_domain(self) -> BudgetAlert:
         """Convert to domain model."""
+        row = cast(Any, self)  # Runtime: columns resolve to values
         return BudgetAlert(
-            id=self.id,
-            policy_id=self.policy_id,
-            trigger_type=AlertTriggerType(self.trigger_type),
-            severity=AlertSeverity(self.severity),
-            message=self.message,
-            current_spend=Decimal(str(self.current_spend)),
-            limit_amount=Decimal(str(self.limit_amount)),
-            threshold_percent=self.threshold_percent,
-            triggered_at=self.triggered_at,
-            acknowledged=self.acknowledged,
-            acknowledged_at=self.acknowledged_at,
-            acknowledged_by=self.acknowledged_by,
-            metadata=self.metadata_ or {},
+            id=row.id,
+            policy_id=row.policy_id,
+            trigger_type=AlertTriggerType(row.trigger_type),
+            severity=AlertSeverity(row.severity),
+            message=row.message,
+            current_spend=Decimal(str(row.current_spend)),
+            limit_amount=Decimal(str(row.limit_amount)),
+            threshold_percent=float(row.threshold_percent) / 100.0,
+            triggered_at=row.triggered_at,
+            acknowledged=row.acknowledged,
+            acknowledged_at=row.acknowledged_at,
+            acknowledged_by=row.acknowledged_by,
+            metadata=dict(row.metadata_) if row.metadata_ else {},
         )
 
     @classmethod
