@@ -375,3 +375,4 @@ def register_with_registry() -> None:
     register_provider("google_images", _create_google_provider)
     register_provider("gemini_images", _create_google_provider)
     register_provider("imagen", _create_google_provider)
+    register_provider("vertex_imagen", _create_google_provider)

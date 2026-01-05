@@ -20,6 +20,7 @@ This report captures backend and data-service risks, observed drift, and remedia
 | Scheduler retry semantics | Recent retry/backoff changes may diverge between scheduler defaults and documented behavior. | @backend-core | 2026-03-10 | Tracking | modules/orchestration/job_scheduler.py |
 | Persona schema/tool maps | Tool manifest updates may not fully reflect schema enforcement paths. | @persona-maintainers | 2026-03-05 | Tracking | modules/Personas/schema.json |
 | Conversation retention hooks | Repository retention callbacks may not align with configured TTLs and vector pipelines. | @data-eng | 2026-03-08 | Tracking | modules/conversation_store/repository.py |
+| Multi-provider image generation | 10 provider implementations with 15 registration names; async factory pattern. | @backend-core | 2026-01-04 | Resolved | modules/Providers/Media/ |
 
 ## Drift findings
 

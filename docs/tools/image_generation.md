@@ -41,12 +41,15 @@ The image generation system follows the same patterns as LLM providers:
 | Provider | Environment Variable | Models | Features |
 | --- | --- | --- | --- |
 | OpenAI | `OPENAI_API_KEY` | dall-e-2, dall-e-3, gpt-image-1 | Text-to-image, inpainting, variations |
-| Stability AI | `STABILITY_API_KEY` | stable-diffusion-xl, sd3, sd3.5-* | Text-to-image, inpainting, img2img |
+| Stability AI | `STABILITY_API_KEY` | stable-image-ultra, stable-image-core, sd3.5-*, sdxl | Text-to-image, inpainting, img2img |
 | FalAI | `FAL_KEY` | flux-pro, flux-schnell, flux-dev | Fast inference, LoRA support |
 | Google Imagen | `GOOGLE_API_KEY` | imagen-3, imagegeneration | Vertex AI integration |
-| Black Forest Labs | `BFL_API_KEY` | flux-1.1-pro, flux-1.1-ultra | High-quality generation |
-| XAI | `XAI_API_KEY` | grok-2-image | Grok-based generation |
+| Black Forest Labs | `BFL_API_KEY` | flux-1.1-pro, flux-1.1-ultra | High-quality FLUX generation |
+| XAI Aurora | `XAI_API_KEY` | grok-2-image | Grok-based generation |
 | Hugging Face | `HUGGINGFACE_API_KEY` | Various diffusion models | Inference API or local |
+| Replicate | `REPLICATE_API_TOKEN` | FLUX, SDXL, Kandinsky, many more | Open model aggregator |
+| Ideogram | `IDEOGRAM_API_KEY` | V_2, V_2_TURBO, V_1 | Text-in-image specialist |
+| Runway | `RUNWAY_API_KEY` | gen3a_turbo, gen2 | Gen-3 Alpha creative tools |
 
 ## Environment Variables
 
@@ -76,8 +79,14 @@ XAI_API_KEY=xai-...
 # Hugging Face
 HUGGINGFACE_API_KEY=hf_...
 
-# Replicate (alternative)
+# Replicate
 REPLICATE_API_TOKEN=r8_...
+
+# Ideogram
+IDEOGRAM_API_KEY=...
+
+# Runway
+RUNWAY_API_KEY=...
 ```
 
 ## Request Parameters
@@ -263,9 +272,31 @@ media:
 
 ### Black Forest Labs
 
-- High-quality Flux models
+- High-quality Flux models (FLUX.1 Pro, Ultra, Dev, Schnell)
 - Supports ultra-high resolution
 - Async polling for results
+- Direct API access (vs aggregators like FalAI)
+
+### Replicate
+
+- Access to thousands of open-source models
+- Supports FLUX, SDXL, Kandinsky, Playground, and more
+- Pay-per-second GPU pricing
+- Custom model versions via model:version format
+
+### Ideogram
+
+- Specialized in accurate text rendering within images
+- Ideal for logos, posters, and marketing materials
+- Magic prompt enhancement option
+- Multiple style types (realistic, design, anime, 3D)
+
+### Runway
+
+- Gen-3 Alpha cutting-edge generation
+- Text-to-image and image-to-image
+- Async task-based processing
+- Video generation capabilities (separate API)
 
 ## Error Handling
 

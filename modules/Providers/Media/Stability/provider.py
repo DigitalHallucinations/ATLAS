@@ -635,3 +635,4 @@ async def _create_provider(config_manager: "ConfigManager") -> StabilityAIProvid
 
 
 register_provider("stability_ai", _create_provider)
+register_provider("stability", _create_provider)  # Alias

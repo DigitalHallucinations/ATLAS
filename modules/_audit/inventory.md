@@ -24,6 +24,19 @@ source_of_truth: ./style-guide.md
 | modules/Personas/schema.json | @persona-maintainers | 2026-02-20 | Aligned | Schema validations reflect current persona tooling expectations. | 2026-05-20 | Re-run persona schema tests after manifest changes. |
 | modules/conversation_store/repository.py | @data-eng | 2026-02-20 | Needs review | Retention hooks and vector pipeline calls may diverge from current configs. | 2026-03-30 | Pair with Data/DB alignment items in [`alignment-report.md`](./alignment-report.md#current-risks). |
 | modules/job_store/service.py | @backend-core | 2026-02-20 | Aligned | Job lifecycle transitions match documented status machine. | 2026-05-01 | Reconfirm after task/job routing updates. |
+| modules/Providers/Media/base.py | @backend-core | 2026-01-04 | Aligned | Abstract base class for media providers; defines generate_image() and edit_image() contracts. | 2026-04-04 | Core abstraction for all image generation providers. |
+| modules/Providers/Media/manager.py | @backend-core | 2026-01-04 | Aligned | MediaProviderManager with 15 provider registrations; handles multi-provider orchestration. | 2026-04-04 | AVAILABLE_PROVIDERS list must stay aligned with provider implementations. |
+| modules/Providers/Media/registry.py | @backend-core | 2026-01-04 | Aligned | Global registry pattern with async factory functions for provider instantiation. | 2026-04-04 | Central registration point for all media providers. |
+| modules/Providers/Media/OpenAIImages/ | @backend-core | 2026-01-04 | Aligned | DALL-E 2/3 provider with quality, style, and size parameters. | 2026-04-04 | Registered as "openai" and "dall-e-3". |
+| modules/Providers/Media/HuggingFace/ | @backend-core | 2026-01-04 | Aligned | HuggingFace Inference API provider for SD, FLUX, and custom models. | 2026-04-04 | Registered as "huggingface". |
+| modules/Providers/Media/BlackForestLabs/ | @backend-core | 2026-01-04 | Aligned | FLUX.1 model family (schnell, dev, pro) with aspect ratio support. | 2026-04-04 | Registered as "black_forest_labs" and "flux". |
+| modules/Providers/Media/XAI/ | @backend-core | 2026-01-04 | Aligned | Grok image generation with Aurora model. | 2026-04-04 | Registered as "xai" and "grok". |
+| modules/Providers/Media/Stability/ | @backend-core | 2026-01-04 | Aligned | Stable Diffusion 3.x and legacy SD 1.x/SDXL support. | 2026-04-04 | Registered as "stability_ai" and "stability" (alias). |
+| modules/Providers/Media/Google/ | @backend-core | 2026-01-04 | Aligned | Imagen 3 via Vertex AI with safety settings. | 2026-04-04 | Registered as "google" and "vertex_imagen" (alias). |
+| modules/Providers/Media/FalAI/ | @backend-core | 2026-01-04 | Aligned | Fast inference for FLUX and custom LoRA models. | 2026-04-04 | Registered as "fal_ai". |
+| modules/Providers/Media/Replicate/ | @backend-core | 2026-01-04 | Aligned | Access to thousands of open-source models via Replicate API. | 2026-04-04 | Registered as "replicate"; supports FLUX, SDXL, Kandinsky, Playground. |
+| modules/Providers/Media/Ideogram/ | @backend-core | 2026-01-04 | Aligned | Text-in-image specialist with accurate typography and magic prompt. | 2026-04-04 | Registered as "ideogram"; V_2, V_2_TURBO models. |
+| modules/Providers/Media/Runway/ | @backend-core | 2026-01-04 | Aligned | Gen-3 Alpha creative generation with task-based async processing. | 2026-04-04 | Registered as "runway"; gen3a_turbo, gen2 models. |
 
 ## Legend
 

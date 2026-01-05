@@ -98,11 +98,16 @@ class MediaProviderManager:
     AVAILABLE_PROVIDERS = [
         "openai_images",
         "huggingface_images",
-        "stability",
+        "stability_ai",
+        "stability",  # Alias for stability_ai
         "xai_aurora",
         "vertex_imagen",
         "gemini_images",
+        "google_images",
+        "imagen",
         "fal",
+        "falai",
+        "black_forest_labs",
         "runway",
         "ideogram",
         "replicate",

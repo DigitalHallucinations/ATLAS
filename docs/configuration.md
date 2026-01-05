@@ -202,12 +202,15 @@ Review the [conversation store data model](conversation-store.md) for table-leve
 
 | Provider | Environment variable | Notes |
 | --- | --- | --- |
-| Stability AI | `STABILITY_API_KEY` | Stable Diffusion models via Stability API.【F:modules/Providers/Media/Stability/provider.py】 |
+| Stability AI | `STABILITY_API_KEY` | Stable Diffusion, SDXL, SD3.5 models.【F:modules/Providers/Media/Stability/provider.py】 |
 | FalAI | `FAL_KEY` | Flux and other fast inference models.【F:modules/Providers/Media/FalAI/provider.py】 |
 | Black Forest Labs | `BFL_API_KEY` | High-quality Flux 1.1 Pro/Ultra models.【F:modules/Providers/Media/BlackForestLabs/provider.py】 |
-| XAI Images | `XAI_API_KEY` | Grok-based image generation.【F:modules/Providers/Media/XAI/provider.py】 |
+| XAI Aurora | `XAI_API_KEY` | Grok-based image generation.【F:modules/Providers/Media/XAI/provider.py】 |
 | Google Imagen | `GOOGLE_API_KEY`, `GOOGLE_CLOUD_PROJECT` | Vertex AI Imagen models; requires project ID.【F:modules/Providers/Media/Google/provider.py】 |
-| Replicate | `REPLICATE_API_TOKEN` | Alternative backend for various diffusion models. |
+| Replicate | `REPLICATE_API_TOKEN` | Open model aggregator (FLUX, SDXL, Kandinsky, many more).【F:modules/Providers/Media/Replicate/provider.py】 |
+| Ideogram | `IDEOGRAM_API_KEY` | Text-in-image specialist with accurate typography.【F:modules/Providers/Media/Ideogram/provider.py】 |
+| Runway | `RUNWAY_API_KEY` | Gen-3 Alpha creative generation tools.【F:modules/Providers/Media/Runway/provider.py】 |
+| HuggingFace | `HUGGINGFACE_API_KEY` | Inference API for diffusion models.【F:modules/Providers/Media/HuggingFace/provider.py】 |
 
 See the [Image Generation Tools](tools/image_generation.md) guide for detailed usage and configuration.
 

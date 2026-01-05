@@ -92,6 +92,26 @@ Comprehensive RAG pipeline enhancement implementing state-of-the-art retrieval t
 
 - ✅ **Tenant context enforcement** – Credential and conversation lookups now reject missing tenant context when strict mode is enabled, and legacy tenantless auto-upgrades have been removed. A one-time helper (`scripts/migrations/tenantless_account_backfill.py`) migrates tenantless `users` and `user_credentials` rows before enabling strict tenancy.
 
+## Multi-provider image generation (2026-01-04)
+
+Comprehensive multi-provider image generation infrastructure with 10 provider implementations:
+
+- ✅ **Provider registry** – `modules/Providers/Media/registry.py` implements a global registry pattern with async factory functions for provider instantiation.
+- ✅ **Base abstractions** – `modules/Providers/Media/base.py` defines `MediaProvider` abstract base class with `generate_image()` and `edit_image()` methods, plus `ImageGenerationRequest`, `ImageGenerationResult`, and `EditImageRequest` dataclasses.
+- ✅ **Manager orchestration** – `modules/Providers/Media/manager.py` provides `MediaProviderManager` for multi-provider management with 15 registration names: openai, huggingface, black_forest_labs, xai, stability_ai, stability, google, vertex_imagen, fal_ai, replicate, ideogram, runway, dall-e-3, flux, grok.
+- ✅ **OpenAI provider** – DALL-E 2/3 support with quality, style, and size parameters.
+- ✅ **HuggingFace provider** – Access to Stable Diffusion, FLUX, and custom models via Inference API.
+- ✅ **Black Forest Labs provider** – FLUX.1 model family (schnell, dev, pro) with native aspect ratio support.
+- ✅ **XAI provider** – Grok image generation with Aurora model.
+- ✅ **Stability AI provider** – Stable Diffusion 3.x and legacy SD 1.x/SDXL; includes `stability` alias registration.
+- ✅ **Google provider** – Imagen 3 via Vertex AI; includes `vertex_imagen` alias registration.
+- ✅ **Fal.AI provider** – Fast inference for FLUX and custom LoRA models.
+- ✅ **Replicate provider** – Access to thousands of open-source models including FLUX, SDXL, Kandinsky, and Playground.
+- ✅ **Ideogram provider** – Text-in-image specialist with accurate typography rendering and magic prompt enhancement.
+- ✅ **Runway provider** – Gen-3 Alpha creative generation tools with task-based async processing.
+- ✅ **Tool integration** – `generate_image`, `edit_image`, `prompt_compiler`, and `clip_embeddings` tools in `modules/Tools/Base_Tools/`.
+- ✅ **Documentation** – `docs/tools/image_generation.md` covers all providers, configuration, and usage patterns; `docs/configuration.md` updated with environment variables.
+
 ## docs/user-accounts.md
 
 - ✅ **SQLite uplift guidance** – Documented the supported `migrate_sqlite_accounts` helper (`modules/user_accounts/sqlite_to_postgres_migration.py`) for moving credentials, lockouts, reset tokens, and login attempts from SQLite into the PostgreSQL conversation store used by current deployments.
