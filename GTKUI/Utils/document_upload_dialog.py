@@ -971,8 +971,11 @@ class DocumentUploadDialog(AtlasWindow):
         self._kb_dropdown.set_model(model)
         self._kb_dropdown.set_sensitive(True)
 
-        # Select first KB by default
-        if kbs:
+        # Apply pending selection or default to first KB
+        pending = getattr(self, "_pending_kb_selection", None)
+        if pending:
+            self._apply_pending_kb_selection()
+        elif kbs:
             self._kb_dropdown.set_selected(0)
             self._selected_kb_id = kbs[0].id
 
@@ -1240,6 +1243,34 @@ class DocumentUploadDialog(AtlasWindow):
     def _on_cancel(self, button: Gtk.Button) -> None:
         """Handle cancel button click."""
         self.close()
+
+    def set_selected_kb(self, kb_id: str) -> None:
+        """Pre-select a knowledge base by ID.
+
+        Call this method after construction to pre-select a specific KB
+        in the dropdown. If the KB has already been loaded, the selection
+        is applied immediately. Otherwise, it is deferred until loading
+        completes.
+
+        Args:
+            kb_id: The ID of the knowledge base to select.
+        """
+        self._pending_kb_selection = kb_id
+        self._apply_pending_kb_selection()
+
+    def _apply_pending_kb_selection(self) -> None:
+        """Apply pending KB selection if KBs are loaded."""
+        pending = getattr(self, "_pending_kb_selection", None)
+        if not pending or not self._knowledge_bases:
+            return
+
+        for idx, kb in enumerate(self._knowledge_bases):
+            if kb.id == pending:
+                self._kb_dropdown.set_selected(idx)
+                self._selected_kb_id = kb.id
+                self._pending_kb_selection = None
+                self._update_upload_button_state()
+                break
 
     def _show_error(self, message: str) -> None:
         """Show an error message."""
