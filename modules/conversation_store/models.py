@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import uuid
 import importlib.util
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+from uuid import UUID
 
 from sqlalchemy import (
     Boolean,
-    Column,
     DateTime,
     Float,
     ForeignKey,
@@ -18,10 +20,10 @@ from sqlalchemy import (
     UniqueConstraint,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB as _PG_JSONB  # type: ignore
-from sqlalchemy.dialects.postgresql import TSVECTOR as _PG_TSVECTOR  # type: ignore
-from sqlalchemy.dialects.postgresql import UUID as _PG_UUID  # type: ignore
-from sqlalchemy.orm import declarative_base, relationship
+from sqlalchemy.dialects.postgresql import JSONB as _PG_JSONB
+from sqlalchemy.dialects.postgresql import TSVECTOR as _PG_TSVECTOR
+from sqlalchemy.dialects.postgresql import UUID as _PG_UUID
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON, TypeDecorator
 
 # Lazy import for pgvector - only required when using PostgreSQL with vector columns
@@ -37,13 +39,17 @@ def _get_pgvector():
                 "pgvector is required for PostgreSQL vector support. Install with "
                 "`pip install pgvector psycopg[binary]` to enable PostgreSQL vector columns."
             )
-        from pgvector.sqlalchemy import Vector as PGVector  # type: ignore
+        from pgvector.sqlalchemy import Vector as PGVector
         _PGVector = PGVector
     return _PGVector
 
 from modules.store_common.model_utils import generate_uuid, utcnow
 
-Base = declarative_base()
+
+class Base(DeclarativeBase):
+    """Base class for all SQLAlchemy models."""
+
+    pass
 
 
 class PortableJSON(TypeDecorator):
@@ -55,7 +61,7 @@ class PortableJSON(TypeDecorator):
     _json_impl = JSON()
     _jsonb_impl = _PG_JSONB()
 
-    def load_dialect_impl(self, dialect):  # type: ignore[override]
+    def load_dialect_impl(self, dialect):
         if dialect.name == "postgresql":
             return dialect.type_descriptor(self._jsonb_impl)
         return dialect.type_descriptor(self._json_impl)
@@ -67,12 +73,12 @@ class GUID(TypeDecorator):
     impl = String(36)
     cache_ok = True
 
-    def load_dialect_impl(self, dialect):  # type: ignore[override]
+    def load_dialect_impl(self, dialect):
         if dialect.name == "postgresql":
             return dialect.type_descriptor(_PG_UUID(as_uuid=True))
         return dialect.type_descriptor(String(36))
 
-    def process_bind_param(self, value, dialect):  # type: ignore[override]
+    def process_bind_param(self, value, dialect):
         if value is None:
             return None
         if dialect.name == "postgresql":
@@ -81,7 +87,7 @@ class GUID(TypeDecorator):
             return str(value)
         return str(uuid.UUID(str(value)))
 
-    def process_result_value(self, value, dialect):  # type: ignore[override]
+    def process_result_value(self, value, dialect):
         if value is None:
             return None
         if isinstance(value, uuid.UUID):
@@ -95,7 +101,7 @@ class TextSearchVector(TypeDecorator):
     impl = Text
     cache_ok = True
 
-    def load_dialect_impl(self, dialect):  # type: ignore[override]
+    def load_dialect_impl(self, dialect):
         if dialect.name == "postgresql":
             return dialect.type_descriptor(_PG_TSVECTOR())
         return dialect.type_descriptor(Text())
@@ -107,20 +113,20 @@ class EmbeddingVector(TypeDecorator):
     impl = JSON
     cache_ok = True
 
-    def load_dialect_impl(self, dialect):  # type: ignore[override]
+    def load_dialect_impl(self, dialect):
         if dialect.name == "postgresql":
             PGVector = _get_pgvector()
             return dialect.type_descriptor(PGVector())
         return dialect.type_descriptor(JSON())
 
-    def process_bind_param(self, value, dialect):  # type: ignore[override]
+    def process_bind_param(self, value, dialect):
         if value is None:
             return None
         if isinstance(value, (list, tuple)):
             return [float(item) for item in value]
         return value
 
-    def process_result_value(self, value, dialect):  # type: ignore[override]
+    def process_result_value(self, value, dialect):
         if value is None:
             return None
         if isinstance(value, (list, tuple)):
@@ -131,18 +137,18 @@ class EmbeddingVector(TypeDecorator):
 class User(Base):
     __tablename__ = "users"
 
-    id = Column(GUID(), primary_key=True, default=generate_uuid)
-    external_id = Column(String(255), unique=False, nullable=True)
-    tenant_id = Column(String(255), nullable=True, index=True)
-    display_name = Column(String(255), nullable=True)
-    meta = Column("metadata", PortableJSON(), nullable=False, default=dict)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
-    updated_at = Column(
+    id: Mapped[UUID] = mapped_column(GUID(), primary_key=True, default=generate_uuid)
+    external_id: Mapped[Optional[str]] = mapped_column(String(255), unique=False, nullable=True)
+    tenant_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
+    display_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    meta: Mapped[Dict[str, Any]] = mapped_column("metadata", PortableJSON(), nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
     )
 
-    sessions = relationship("Session", back_populates="user", cascade="all, delete-orphan")
-    credentials = relationship(
+    sessions: Mapped[List["Session"]] = relationship("Session", back_populates="user", cascade="all, delete-orphan")
+    credentials: Mapped[Optional["UserCredential"]] = relationship(
         "UserCredential",
         back_populates="user",
         cascade="all, delete-orphan",
@@ -164,29 +170,29 @@ class User(Base):
 class UserCredential(Base):
     __tablename__ = "user_credentials"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(GUID(), ForeignKey("users.id", ondelete="SET NULL"))
-    tenant_id = Column(String(255), nullable=True, index=True)
-    username = Column(String(255), nullable=False)
-    password_hash = Column(String(512), nullable=False)
-    email = Column(String(320), nullable=False)
-    name = Column(String(255), nullable=True)
-    dob = Column(String(32), nullable=True)
-    last_login = Column(DateTime(timezone=True), nullable=True)
-    failed_attempts = Column(PortableJSON(), nullable=False, default=list)
-    lockout_until = Column(DateTime(timezone=True), nullable=True)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
-    updated_at = Column(
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[Optional[UUID]] = mapped_column(GUID(), ForeignKey("users.id", ondelete="SET NULL"))
+    tenant_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
+    username: Mapped[str] = mapped_column(String(255), nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(512), nullable=False)
+    email: Mapped[str] = mapped_column(String(320), nullable=False)
+    name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    dob: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    last_login: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    failed_attempts: Mapped[List[Any]] = mapped_column(PortableJSON(), nullable=False, default=list)
+    lockout_until: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
     )
 
-    user = relationship("User", back_populates="credentials")
-    login_attempts = relationship(
+    user: Mapped[Optional["User"]] = relationship("User", back_populates="credentials")
+    login_attempts: Mapped[List["UserLoginAttempt"]] = relationship(
         "UserLoginAttempt",
         back_populates="credential",
         cascade="all, delete-orphan",
     )
-    reset_token = relationship(
+    reset_token: Mapped[Optional["PasswordResetToken"]] = relationship(
         "PasswordResetToken",
         back_populates="credential",
         cascade="all, delete-orphan",
@@ -218,50 +224,50 @@ class UserCredential(Base):
 class UserLoginAttempt(Base):
     __tablename__ = "user_login_attempts"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    credential_id = Column(
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    credential_id: Mapped[Optional[int]] = mapped_column(
         Integer,
         ForeignKey("user_credentials.id", ondelete="SET NULL"),
         nullable=True,
     )
-    username = Column(String(255), nullable=True, index=True)
-    attempted_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
-    successful = Column(Boolean, nullable=False, default=False)
-    reason = Column(String(255), nullable=True)
+    username: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
+    attempted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+    successful: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    reason: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
-    credential = relationship("UserCredential", back_populates="login_attempts")
+    credential: Mapped[Optional["UserCredential"]] = relationship("UserCredential", back_populates="login_attempts")
 
 
 class PasswordResetToken(Base):
     __tablename__ = "password_reset_tokens"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    credential_id = Column(
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    credential_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("user_credentials.id", ondelete="CASCADE"),
         unique=True,
         nullable=False,
     )
-    username = Column(String(255), nullable=False, unique=True)
-    token_hash = Column(String(128), nullable=False)
-    expires_at = Column(DateTime(timezone=True), nullable=False)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
+    username: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    token_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
 
-    credential = relationship("UserCredential", back_populates="reset_token")
+    credential: Mapped["UserCredential"] = relationship("UserCredential", back_populates="reset_token")
 
 
 class Session(Base):
     __tablename__ = "sessions"
 
-    id = Column(GUID(), primary_key=True, default=generate_uuid)
-    external_id = Column(String(255), unique=True, nullable=True)
-    user_id = Column(GUID(), ForeignKey("users.id", ondelete="SET NULL"))
-    meta = Column("metadata", PortableJSON(), nullable=False, default=dict)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
-    expires_at = Column(DateTime(timezone=True), nullable=True)
+    id: Mapped[UUID] = mapped_column(GUID(), primary_key=True, default=generate_uuid)
+    external_id: Mapped[Optional[str]] = mapped_column(String(255), unique=True, nullable=True)
+    user_id: Mapped[Optional[UUID]] = mapped_column(GUID(), ForeignKey("users.id", ondelete="SET NULL"))
+    meta: Mapped[Dict[str, Any]] = mapped_column("metadata", PortableJSON(), nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    user = relationship("User", back_populates="sessions")
-    conversations = relationship(
+    user: Mapped[Optional["User"]] = relationship("User", back_populates="sessions")
+    conversations: Mapped[List["Conversation"]] = relationship(
         "Conversation", back_populates="session", cascade="all, delete-orphan"
     )
 
@@ -270,16 +276,16 @@ class Session(Base):
 class Conversation(Base):
     __tablename__ = "conversations"
 
-    id = Column(GUID(), primary_key=True, default=generate_uuid)
-    session_id = Column(GUID(), ForeignKey("sessions.id", ondelete="SET NULL"))
-    title = Column(String(255), nullable=True)
-    tenant_id = Column(String(255), nullable=False, index=True)
-    meta = Column("metadata", PortableJSON(), nullable=False, default=dict)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
-    archived_at = Column(DateTime(timezone=True), nullable=True)
+    id: Mapped[UUID] = mapped_column(GUID(), primary_key=True, default=generate_uuid)
+    session_id: Mapped[Optional[UUID]] = mapped_column(GUID(), ForeignKey("sessions.id", ondelete="SET NULL"))
+    title: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    meta: Mapped[Dict[str, Any]] = mapped_column("metadata", PortableJSON(), nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+    archived_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    session = relationship("Session", back_populates="conversations")
-    messages = relationship(
+    session: Mapped[Optional["Session"]] = relationship("Session", back_populates="conversations")
+    messages: Mapped[List["Message"]] = relationship(
         "Message", back_populates="conversation", cascade="all, delete-orphan"
     )
 
@@ -292,45 +298,45 @@ class Conversation(Base):
 class Message(Base):
     __tablename__ = "messages"
 
-    id = Column(GUID(), primary_key=True, default=generate_uuid)
-    conversation_id = Column(
+    id: Mapped[UUID] = mapped_column(GUID(), primary_key=True, default=generate_uuid)
+    conversation_id: Mapped[UUID] = mapped_column(
         GUID(), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False
     )
-    tenant_id = Column(String(255), nullable=False, index=True)
-    user_id = Column(GUID(), ForeignKey("users.id", ondelete="SET NULL"))
-    role = Column(String(32), nullable=False)
-    message_type = Column(
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    user_id: Mapped[Optional[UUID]] = mapped_column(GUID(), ForeignKey("users.id", ondelete="SET NULL"))
+    role: Mapped[str] = mapped_column(String(32), nullable=False)
+    message_type: Mapped[str] = mapped_column(
         String(32),
         nullable=False,
         default="text",
         server_default="text",
     )
-    status = Column(
+    status: Mapped[str] = mapped_column(
         String(32),
         nullable=False,
         default="sent",
         server_default="sent",
     )
-    content = Column(PortableJSON(), nullable=False)
-    meta = Column("metadata", PortableJSON(), nullable=False, default=dict)
-    extra = Column(PortableJSON(), nullable=False, default=dict)
-    client_message_id = Column(String(255), nullable=True)
-    message_text_tsv = Column(TextSearchVector(), nullable=True)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
-    updated_at = Column(
+    content: Mapped[Any] = mapped_column(PortableJSON(), nullable=False)
+    meta: Mapped[Dict[str, Any]] = mapped_column("metadata", PortableJSON(), nullable=False, default=dict)
+    extra: Mapped[Dict[str, Any]] = mapped_column(PortableJSON(), nullable=False, default=dict)
+    client_message_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    message_text_tsv: Mapped[Optional[Any]] = mapped_column(TextSearchVector(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
     )
-    deleted_at = Column(DateTime(timezone=True), nullable=True)
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    conversation = relationship("Conversation", back_populates="messages")
-    user = relationship("User")
-    assets = relationship(
+    conversation: Mapped["Conversation"] = relationship("Conversation", back_populates="messages")
+    user: Mapped[Optional["User"]] = relationship("User")
+    assets: Mapped[List["MessageAsset"]] = relationship(
         "MessageAsset", back_populates="message", cascade="all, delete-orphan"
     )
-    vectors = relationship(
+    vectors: Mapped[List["MessageVector"]] = relationship(
         "MessageVector", back_populates="message", cascade="all, delete-orphan"
     )
-    events = relationship(
+    events: Mapped[List["MessageEvent"]] = relationship(
         "MessageEvent", back_populates="message", cascade="all, delete-orphan"
     )
 
@@ -360,29 +366,29 @@ class Message(Base):
 class EpisodicMemory(Base):
     __tablename__ = "episodic_memories"
 
-    id = Column(GUID(), primary_key=True, default=generate_uuid)
-    tenant_id = Column(String(255), nullable=False, index=True)
-    conversation_id = Column(
+    id: Mapped[UUID] = mapped_column(GUID(), primary_key=True, default=generate_uuid)
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    conversation_id: Mapped[Optional[UUID]] = mapped_column(
         GUID(), ForeignKey("conversations.id", ondelete="SET NULL"), nullable=True
     )
-    message_id = Column(
+    message_id: Mapped[Optional[UUID]] = mapped_column(
         GUID(), ForeignKey("messages.id", ondelete="SET NULL"), nullable=True
     )
-    user_id = Column(GUID(), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    title = Column(String(255), nullable=True)
-    content = Column(PortableJSON(), nullable=False)
-    tags = Column(PortableJSON(), nullable=False, default=list)
-    meta = Column("metadata", PortableJSON(), nullable=False, default=dict)
-    occurred_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
-    expires_at = Column(DateTime(timezone=True), nullable=True)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
-    updated_at = Column(
+    user_id: Mapped[Optional[UUID]] = mapped_column(GUID(), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    title: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    content: Mapped[Any] = mapped_column(PortableJSON(), nullable=False)
+    tags: Mapped[List[Any]] = mapped_column(PortableJSON(), nullable=False, default=list)
+    meta: Mapped[Dict[str, Any]] = mapped_column("metadata", PortableJSON(), nullable=False, default=dict)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
     )
 
-    conversation = relationship("Conversation")
-    message = relationship("Message")
-    user = relationship("User")
+    conversation: Mapped[Optional["Conversation"]] = relationship("Conversation")
+    message: Mapped[Optional["Message"]] = relationship("Message")
+    user: Mapped[Optional["User"]] = relationship("User")
 
     __table_args__ = (
         Index("ix_episodic_memories_tenant_occurred_at", "tenant_id", "occurred_at"),
@@ -394,20 +400,20 @@ class EpisodicMemory(Base):
 class MessageAsset(Base):
     __tablename__ = "message_assets"
 
-    id = Column(GUID(), primary_key=True, default=generate_uuid)
-    conversation_id = Column(
+    id: Mapped[UUID] = mapped_column(GUID(), primary_key=True, default=generate_uuid)
+    conversation_id: Mapped[UUID] = mapped_column(
         GUID(), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False
     )
-    message_id = Column(
+    message_id: Mapped[UUID] = mapped_column(
         GUID(), ForeignKey("messages.id", ondelete="CASCADE"), nullable=False
     )
-    tenant_id = Column(String(255), nullable=False, index=True)
-    asset_type = Column(String(64), nullable=False)
-    uri = Column(Text, nullable=True)
-    meta = Column("metadata", PortableJSON(), nullable=False, default=dict)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    asset_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    uri: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    meta: Mapped[Dict[str, Any]] = mapped_column("metadata", PortableJSON(), nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
 
-    message = relationship("Message", back_populates="assets")
+    message: Mapped["Message"] = relationship("Message", back_populates="assets")
 
     __table_args__ = (
         Index(
@@ -427,28 +433,28 @@ class MessageAsset(Base):
 class MessageVector(Base):
     __tablename__ = "message_vectors"
 
-    id = Column(GUID(), primary_key=True, default=generate_uuid)
-    conversation_id = Column(
+    id: Mapped[UUID] = mapped_column(GUID(), primary_key=True, default=generate_uuid)
+    conversation_id: Mapped[UUID] = mapped_column(
         GUID(), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False
     )
-    message_id = Column(
+    message_id: Mapped[UUID] = mapped_column(
         GUID(), ForeignKey("messages.id", ondelete="CASCADE"), nullable=False
     )
-    tenant_id = Column(String(255), nullable=False, index=True)
-    provider = Column(String(128), nullable=True)
-    vector_key = Column(String(255), nullable=False, unique=True)
-    embedding = Column(EmbeddingVector(), nullable=True)
-    embedding_model = Column(String(128), nullable=True)
-    embedding_model_version = Column(String(64), nullable=True)
-    embedding_checksum = Column(String(128), nullable=True)
-    dimensions = Column(Integer, nullable=True)
-    meta = Column("metadata", PortableJSON(), nullable=False, default=dict)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
-    updated_at = Column(
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    provider: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    vector_key: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    embedding: Mapped[Optional[Any]] = mapped_column(EmbeddingVector(), nullable=True)
+    embedding_model: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    embedding_model_version: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    embedding_checksum: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    dimensions: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    meta: Mapped[Dict[str, Any]] = mapped_column("metadata", PortableJSON(), nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
     )
 
-    message = relationship("Message", back_populates="vectors")
+    message: Mapped["Message"] = relationship("Message", back_populates="vectors")
 
     __table_args__ = (
         UniqueConstraint(
@@ -480,19 +486,19 @@ class MessageVector(Base):
 class MessageEvent(Base):
     __tablename__ = "message_events"
 
-    id = Column(GUID(), primary_key=True, default=generate_uuid)
-    conversation_id = Column(
+    id: Mapped[UUID] = mapped_column(GUID(), primary_key=True, default=generate_uuid)
+    conversation_id: Mapped[UUID] = mapped_column(
         GUID(), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False
     )
-    message_id = Column(
+    message_id: Mapped[UUID] = mapped_column(
         GUID(), ForeignKey("messages.id", ondelete="CASCADE"), nullable=False
     )
-    tenant_id = Column(String(255), nullable=False, index=True)
-    event_type = Column(String(64), nullable=False)
-    meta = Column("metadata", PortableJSON(), nullable=False, default=dict)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    event_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    meta: Mapped[Dict[str, Any]] = mapped_column("metadata", PortableJSON(), nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
 
-    message = relationship("Message", back_populates="events")
+    message: Mapped["Message"] = relationship("Message", back_populates="events")
 
     __table_args__ = (
         Index(
@@ -511,24 +517,24 @@ class MessageEvent(Base):
 class GraphNode(Base):
     __tablename__ = "memory_graph_nodes"
 
-    id = Column(GUID(), primary_key=True, default=generate_uuid)
-    tenant_id = Column(String(255), nullable=False, index=True)
-    node_key = Column(String(255), nullable=False)
-    label = Column(String(255), nullable=True)
-    node_type = Column(String(64), nullable=True)
-    meta = Column("metadata", PortableJSON(), nullable=False, default=dict)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
-    updated_at = Column(
+    id: Mapped[UUID] = mapped_column(GUID(), primary_key=True, default=generate_uuid)
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    node_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    label: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    node_type: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    meta: Mapped[Dict[str, Any]] = mapped_column("metadata", PortableJSON(), nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
     )
 
-    outgoing_edges = relationship(
+    outgoing_edges: Mapped[List["GraphEdge"]] = relationship(
         "GraphEdge",
         back_populates="source",
         cascade="all, delete-orphan",
         foreign_keys="GraphEdge.source_id",
     )
-    incoming_edges = relationship(
+    incoming_edges: Mapped[List["GraphEdge"]] = relationship(
         "GraphEdge",
         back_populates="target",
         cascade="all, delete-orphan",
@@ -552,33 +558,33 @@ class GraphNode(Base):
 class GraphEdge(Base):
     __tablename__ = "memory_graph_edges"
 
-    id = Column(GUID(), primary_key=True, default=generate_uuid)
-    tenant_id = Column(String(255), nullable=False, index=True)
-    edge_key = Column(String(255), nullable=True)
-    source_id = Column(
+    id: Mapped[UUID] = mapped_column(GUID(), primary_key=True, default=generate_uuid)
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    edge_key: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    source_id: Mapped[UUID] = mapped_column(
         GUID(),
         ForeignKey("memory_graph_nodes.id", ondelete="CASCADE"),
         nullable=False,
     )
-    target_id = Column(
+    target_id: Mapped[UUID] = mapped_column(
         GUID(),
         ForeignKey("memory_graph_nodes.id", ondelete="CASCADE"),
         nullable=False,
     )
-    edge_type = Column(String(64), nullable=True)
-    weight = Column(Float, nullable=True)
-    meta = Column("metadata", PortableJSON(), nullable=False, default=dict)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
-    updated_at = Column(
+    edge_type: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    weight: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    meta: Mapped[Dict[str, Any]] = mapped_column("metadata", PortableJSON(), nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
     )
 
-    source = relationship(
+    source: Mapped["GraphNode"] = relationship(
         "GraphNode",
         back_populates="outgoing_edges",
         foreign_keys=[source_id],
     )
-    target = relationship(
+    target: Mapped["GraphNode"] = relationship(
         "GraphNode",
         back_populates="incoming_edges",
         foreign_keys=[target_id],

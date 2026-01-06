@@ -441,7 +441,7 @@
                 "type.personal_assistant.calendar_write_enabled"
             ]
         },
-        "description": "Interact with the Debian 12 on-device calendar to list, search, inspect, and manage events.",
+        "description": "Interact with the Debian 12 on-device calendar to list, search, inspect, and manage events. Supports multiple calendar sources including ICS files, Google Calendar, and Microsoft Outlook.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -453,9 +453,10 @@
                         "search",
                         "create",
                         "update",
-                        "delete"
+                        "delete",
+                        "list_calendars"
                     ],
-                    "description": "Calendar operation to perform."
+                    "description": "Calendar operation to perform. Use 'list_calendars' to get all configured calendar sources."
                 },
                 "event_id": {
                     "type": "string",

@@ -14,6 +14,7 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import GLib, Gtk
 
 from GTKUI.Budget_manager import BudgetManagement
+from GTKUI.Calendar_manager import CalendarManagement
 from GTKUI.Chat.chat_page import ChatPage
 from GTKUI.Chat.conversation_history_page import ConversationHistoryPage
 from GTKUI.Docs.docs_page import DocsPage
@@ -52,6 +53,7 @@ class MainWindow(AtlasWindow):
         self.task_management = TaskManagement(self.ATLAS, self)
         self.job_management = JobManagement(self.ATLAS, self)
         self.budget_management = BudgetManagement(self.ATLAS, self)
+        self.calendar_management = CalendarManagement(self.ATLAS, self)
         self.tool_management.on_open_in_persona = self._open_tool_in_persona
         self.skill_management.on_open_in_persona = self._open_skill_in_persona
 
@@ -86,6 +88,7 @@ class MainWindow(AtlasWindow):
             "tasks": self.task_management.get_embeddable_widget,
             "jobs": self.job_management.get_embeddable_widget,
             "budget": self.budget_management.get_embeddable_widget,
+            "calendar": self.calendar_management.get_embeddable_widget,
             "skills": self.skill_management.get_embeddable_widget,
             "speech": self._build_speech_settings_page,
             "settings": self._build_backup_settings_page,
@@ -195,6 +198,16 @@ class MainWindow(AtlasWindow):
         page = self._open_or_focus_page("budget", "Budget")
         if page is not None:
             self.sidebar.set_active_item("budget")
+
+    def show_calendar_workspace(self, selected_date: str | None = None) -> None:
+        if not self._ensure_initialized():
+            return
+
+        page = self._open_or_focus_page("calendar", "Calendar")
+        if page is not None:
+            self.sidebar.set_active_item("calendar")
+            if selected_date and hasattr(self.calendar_management, "select_date"):
+                self.calendar_management.select_date(selected_date)
 
     def create_new_job(self) -> None:
         if not self._ensure_initialized():
@@ -728,6 +741,7 @@ class _NavigationSidebar(Gtk.Box):
         self.skill_management = main_window.skill_management
         self.task_management = main_window.task_management
         self.job_management = main_window.job_management
+        self.calendar_management = main_window.calendar_management
 
         self.set_margin_top(4)
         self.set_margin_bottom(4)
@@ -805,6 +819,12 @@ class _NavigationSidebar(Gtk.Box):
             "Budget",
             self.main_window.show_budget_workspace,
             tooltip="Budget Manager",
+        )
+        self._create_nav_item(
+            "calendar",
+            "Calendar",
+            self.main_window.show_calendar_workspace,
+            tooltip="Calendar Manager",
         )
         self._create_nav_item(
             "skills",

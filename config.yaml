@@ -143,3 +143,87 @@ budget_policies: []
   #   limit_amount: 500.00
   #   soft_limit_percent: 80
   #   action: warn
+
+# Calendar configuration - Multi-calendar support
+calendars:
+  # Default calendar for write operations when none specified
+  default_calendar: null  # e.g., "personal"
+
+  # Query all backends in parallel for better performance
+  parallel_queries: true
+
+  # Timeout (seconds) for backend queries
+  query_timeout: 30.0
+
+  # Merge duplicate events appearing in multiple calendars
+  merge_duplicates: false
+
+  # Calendar sources - each entry is a named calendar
+  sources: {}
+    # Example configurations:
+    #
+    # personal:
+    #   type: ics
+    #   path: ~/.local/share/calendars/personal.ics
+    #   write_enabled: true
+    #   sync_mode: on-demand  # realtime | on-demand | read-only | daily | manual
+    #   color: "#4285f4"
+    #   display_name: "Personal Calendar"
+    #
+    # work:
+    #   type: google
+    #   account: user@company.com
+    #   calendar_id: primary
+    #   write_enabled: true
+    #   sync_mode: realtime
+    #   color: "#ea4335"
+    #   display_name: "Work Calendar"
+    #
+    # family:
+    #   type: caldav
+    #   url: https://nextcloud.example.com/remote.php/dav/calendars/user/family
+    #   username: user
+    #   password_key: nextcloud_calendar_password  # Key in secrets store
+    #   write_enabled: true
+    #   sync_mode: on-demand
+    #   color: "#34a853"
+    #
+    # holidays:
+    #   type: ics
+    #   url: https://calendar.google.com/calendar/ical/en.usa%23holiday%40group.v.calendar.google.com/public/basic.ics
+    #   write_enabled: false
+    #   sync_mode: daily
+    #   color: "#fbbc04"
+    #   display_name: "US Holidays"
+
+# Master Calendar settings - internal calendar database
+calendar:
+  # Enable master calendar feature
+  enabled: true
+
+  # Database backend: postgresql | sqlite
+  database: postgresql
+
+  # Default settings
+  default_category: personal
+  default_reminder_minutes: 15
+  default_view: month  # month | week | day | agenda
+
+  # Work hours (for busy/free detection)
+  work_hours:
+    start: "09:00"
+    end: "17:00"
+    days: [1, 2, 3, 4, 5]  # Monday=1 through Friday=5
+    timezone: null  # null uses system timezone
+
+  # Sync settings for external calendar sources
+  sync:
+    auto_sync: true
+    sync_interval_minutes: 15
+    conflict_resolution: ask  # ask | local_wins | remote_wins | newest_wins
+
+  # Holidays auto-population
+  holidays:
+    enabled: true
+    country: US
+    regions: []  # Optional: state-specific holidays

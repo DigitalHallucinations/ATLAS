@@ -1,5 +1,6 @@
 """Configuration manager and helper sections for ATLAS."""
 
+from .calendar import CalendarConfigSection
 from .config_manager import ConfigManager
 from .core import (
     ConfigCore,
@@ -41,6 +42,7 @@ from .storage import StorageArchitecture, PerformanceMode, PERFORMANCE_PRESETS
 from .ui_config import UIConfig
 
 __all__ = [
+    "CalendarConfigSection",
     "ConfigManager",
     "ConfigCore",
     "ProviderConfigMixin",

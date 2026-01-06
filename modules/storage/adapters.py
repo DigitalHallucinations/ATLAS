@@ -262,6 +262,17 @@ class DomainStoreFactory:
             self._job_repo = create_job_repository(self._storage_manager)
         return self._job_repo
 
+    def get_calendar_repository(self):
+        """
+        Get or create the calendar repository.
+
+        Returns:
+            CalendarStoreRepository instance.
+        """
+        if not hasattr(self, "_calendar_repo") or self._calendar_repo is None:
+            self._calendar_repo = create_calendar_repository(self._storage_manager)
+        return self._calendar_repo
+
     def get_kv_store(self):
         """
         Get or create a KV store.
@@ -308,3 +319,28 @@ def create_budget_store(
         session_factory=session_factory,
         engine=engine,
     )
+
+
+def create_calendar_repository(
+    storage_manager: "StorageManager",
+):
+    """
+    Create a CalendarStoreRepository backed by StorageManager.
+
+    Args:
+        storage_manager: The initialized StorageManager instance.
+
+    Returns:
+        CalendarStoreRepository instance.
+
+    Raises:
+        RuntimeError: If StorageManager is not initialized.
+    """
+    from modules.calendar_store import CalendarStoreRepository
+
+    if not storage_manager.is_initialized:
+        raise RuntimeError("StorageManager must be initialized before creating repositories")
+
+    session_factory = storage_manager.get_session_factory()
+
+    return CalendarStoreRepository(session_factory)

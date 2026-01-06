@@ -47,6 +47,7 @@ from .adapters import (
     create_conversation_repository,
     create_task_repository,
     create_job_repository,
+    create_calendar_repository,
     create_kv_store,
 )
 from .compat import (
@@ -77,6 +78,7 @@ __all__ = [
     "create_conversation_repository",
     "create_task_repository",
     "create_job_repository",
+    "create_calendar_repository",
     "create_kv_store",
     # Config Converters
     "storage_architecture_to_settings",

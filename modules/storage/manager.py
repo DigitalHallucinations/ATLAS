@@ -172,6 +172,7 @@ class StorageManager:
     _conversation_store: Optional[Any] = field(default=None, init=False, repr=False)
     _task_store: Optional[Any] = field(default=None, init=False, repr=False)
     _job_store: Optional[Any] = field(default=None, init=False, repr=False)
+    _calendar_store: Optional[Any] = field(default=None, init=False, repr=False)
     _kv_store: Optional[Any] = field(default=None, init=False, repr=False)
     _image_store: Optional[Any] = field(default=None, init=False, repr=False)
 
@@ -587,6 +588,28 @@ class StorageManager:
         return ImageArtifactRepository(settings=self.settings)
 
     @property
+    def calendars(self) -> "CalendarStoreRepository":
+        """Get the calendar store repository.
+
+        Lazily initializes on first access.
+        Used for managing calendar categories, events, and sync state.
+        """
+        if self._calendar_store is None:
+            self._calendar_store = self._create_calendar_store()
+        return self._calendar_store
+
+    def _create_calendar_store(self) -> Any:
+        """Create the calendar store repository."""
+        if not self._initialized:
+            raise RuntimeError("StorageManager not initialized")
+
+        from modules.calendar_store import CalendarStoreRepository
+
+        return CalendarStoreRepository(
+            self._sql_pool.session_factory,
+        )
+
+    @property
     def vectors(self) -> Optional[VectorProvider]:
         """Get the vector store provider.
 
@@ -679,6 +702,16 @@ class StorageManager:
         except Exception as exc:
             logger.error(f"Failed to create job schema: {exc}")
             results["jobs"] = False
+
+        # Calendar store schema
+        try:
+            from modules.calendar_store.models import ensure_calendar_schema
+
+            await asyncio.to_thread(ensure_calendar_schema, self._sql_pool.engine)
+            results["calendars"] = True
+        except Exception as exc:
+            logger.error(f"Failed to create calendar schema: {exc}")
+            results["calendars"] = False
 
         # Vector store (pgvector extension)
         if self._vector_provider is not None and self.settings.vectors.backend == VectorBackendType.PGVECTOR:

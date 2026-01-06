@@ -1,24 +1,54 @@
 """Async interface for Debian 12 calendar access.
 
-This module provides a normalized wrapper around the Debian 12 calendar
-backends.  It currently supports reading local ICS stores and can be
-extended to speak to the desktop DBus interface.  The tool exposes three
-operations that the assistant runtime can call via tool manifests:
+This module provides a normalized wrapper around calendar backends with support
+for multiple calendar sources. It supports both legacy single-backend mode
+and the new multi-calendar system with unified queries across multiple backends.
 
-``list``
-    Return upcoming events within an optional time window.
+Supported backends:
+    - ICS: Local ICS file stores
+    - DBus: Debian 12 desktop calendar service
+    - Google: Google Calendar API (requires google-auth)
+    - Outlook: Microsoft 365/Outlook (requires msal)
+    - CalDAV: CalDAV servers like Nextcloud, Fastmail (future)
 
-``detail``
-    Return a single event by identifier.
+Operations:
+    ``list``
+        Return upcoming events within an optional time window.
 
-``search``
-    Perform a text search across the available events.
+    ``detail``
+        Return a single event by identifier.
+
+    ``search``
+        Perform a text search across the available events.
+
+    ``create``
+        Create a new calendar event.
+
+    ``update``
+        Update an existing calendar event.
+
+    ``delete``
+        Delete a calendar event.
+
+    ``list_calendars``
+        List all configured calendar sources.
 
 The implementation is intentionally defensive so the assistant can surface
-clear error messages when calendar access has not been configured.  All
-configuration is resolved through :class:`ATLAS.config.ConfigManager`,
-allowing installations to point at a custom Debian 12 calendar path or
-account identifier without code changes.
+clear error messages when calendar access has not been configured. All
+configuration is resolved through :class:`ATLAS.config.ConfigManager`.
+
+Multi-calendar configuration example::
+
+    calendars:
+      default_calendar: personal
+      sources:
+        personal:
+          type: ics
+          path: ~/.local/share/calendars/personal.ics
+        work:
+          type: google
+          credentials_path: ~/.config/atlas/google_oauth.json
+          calendar_id: primary
 """
 
 from __future__ import annotations
@@ -35,6 +65,7 @@ from typing import (
     Callable,
     Dict,
     Iterable,
+    Iterator,
     List,
     Mapping,
     MutableMapping,
@@ -1185,7 +1216,7 @@ class ICSCalendarBackend(_CalendarWriteHelpers, CalendarBackend):
         return "BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//ATLAS//EN\nEND:VCALENDAR\n"
 
     @contextlib.contextmanager
-    def _exclusive_lock(self, handle: Any) -> Iterable[None]:
+    def _exclusive_lock(self, handle: Any) -> Iterator[None]:
         try:
             import fcntl
 
@@ -1196,7 +1227,7 @@ class ICSCalendarBackend(_CalendarWriteHelpers, CalendarBackend):
                 fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
             return
         except Exception:  # pragma: no cover - fallback for non-posix
-            yield
+            yield 
 
     def _format_datetime(
         self, field: str, value: Optional[_dt.datetime], all_day: bool
@@ -1285,7 +1316,13 @@ class ICSCalendarBackend(_CalendarWriteHelpers, CalendarBackend):
 
 
 class Debian12CalendarTool:
-    """Facade responsible for resolving configuration and executing operations."""
+    """Facade responsible for resolving configuration and executing operations.
+
+    This tool supports both the legacy single-backend mode and the new
+    multi-calendar system. When a `calendars` section is present in
+    configuration, it uses the CalendarProviderRegistry and CompositeCalendarBackend
+    to aggregate multiple calendar sources.
+    """
 
     DEFAULT_LOOKAHEAD_DAYS = 30
     WRITE_OPERATIONS = {"create", "update", "delete"}
@@ -1303,6 +1340,48 @@ class Debian12CalendarTool:
         self._unset = getattr(config_manager, "UNSET", object())
         self._dbus_client = dbus_client
         self._backend = backend or self._build_backend()
+        self._registry: Optional[Any] = None  # Set if multi-calendar mode
+
+    async def list_calendars(self) -> List[Dict[str, Any]]:
+        """List all configured calendar sources.
+
+        Returns:
+            List of calendar info dictionaries with keys:
+            - name: Calendar identifier
+            - display_name: Human-readable name
+            - type: Backend type (ics, google, outlook, etc.)
+            - write_enabled: Whether writes are allowed
+            - is_default: Whether this is the default calendar
+            - color: Calendar display color
+        """
+        if self._registry is None:
+            # Legacy mode - return info about single backend
+            backend_type = str(self._get_config("DEBIAN12_CALENDAR_BACKEND") or "ics").strip().lower()
+            return [{
+                "name": "default",
+                "display_name": "Default Calendar",
+                "type": backend_type,
+                "write_enabled": True,
+                "is_default": True,
+                "color": "#3584e4",
+            }]
+
+        # Multi-calendar mode
+        calendars: List[Dict[str, Any]] = []
+        providers = self._registry.list_providers()
+        default_name = self._registry.default_calendar_name
+
+        for name, info in providers.items():
+            calendars.append({
+                "name": name,
+                "display_name": info.get("display_name", name),
+                "type": info.get("type", "unknown"),
+                "write_enabled": info.get("write_enabled", False),
+                "is_default": name == default_name,
+                "color": info.get("color", "#3584e4"),
+            })
+
+        return calendars
 
     async def list_events(
         self,
@@ -1525,6 +1604,8 @@ class Debian12CalendarTool:
                 event_id=kwargs.get("event_id", ""),
                 calendar=kwargs.get("calendar"),
             )
+        if op == "list_calendars":
+            return await self.list_calendars()
 
         raise ValueError(f"Unsupported Debian 12 calendar operation '{operation}'")
 
@@ -1533,6 +1614,65 @@ class Debian12CalendarTool:
     # ------------------------------------------------------------------
 
     def _build_backend(self) -> CalendarBackend:
+        """Build the calendar backend.
+
+        Tries multi-calendar system first if `calendars` section exists in
+        config. Falls back to legacy single-backend mode otherwise.
+        """
+        # Check for multi-calendar configuration
+        calendars_config = self._get_config("calendars")
+        if calendars_config and isinstance(calendars_config, dict):
+            sources = calendars_config.get("sources", {})
+            if sources:
+                return self._build_composite_backend(calendars_config)
+
+        # Legacy single-backend mode
+        return self._build_legacy_backend()
+
+    def _build_composite_backend(self, calendars_config: dict) -> CalendarBackend:
+        """Build a composite backend from multi-calendar configuration."""
+        try:
+            from .calendar import (
+                create_registry_with_defaults,
+                CalendarsGlobalConfig,
+                CompositeCalendarBackend,
+            )
+
+            registry = create_registry_with_defaults()
+            global_config = CalendarsGlobalConfig.from_dict(calendars_config)
+
+            # Load calendars synchronously - they'll be initialized on first use
+            import asyncio
+            try:
+                loop = asyncio.get_running_loop()
+                # We're in an async context - schedule for later
+                asyncio.ensure_future(registry.load_from_config(global_config))
+            except RuntimeError:
+                # No running loop - run synchronously
+                asyncio.run(registry.load_from_config(global_config))
+
+            self._registry = registry
+            logger.info(
+                "Initialized multi-calendar system with %d calendars",
+                len(calendars_config.get("sources", {})),
+            )
+            return CompositeCalendarBackend(registry)  # type: ignore[return-value]
+
+        except ImportError as exc:
+            logger.warning(
+                "Multi-calendar system not available; falling back to legacy: %s",
+                exc,
+            )
+            return self._build_legacy_backend()
+        except Exception as exc:
+            logger.error(
+                "Failed to initialize multi-calendar system; falling back to legacy: %s",
+                exc,
+            )
+            return self._build_legacy_backend()
+
+    def _build_legacy_backend(self) -> CalendarBackend:
+        """Build legacy single-calendar backend."""
         backend_kind = str(self._get_config("DEBIAN12_CALENDAR_BACKEND") or "").strip().lower()
         timezone = self._resolve_timezone()
 
