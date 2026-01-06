@@ -169,6 +169,10 @@ class CohereEmbeddingProvider(EmbeddingProvider):
     def max_input_tokens(self) -> Optional[int]:
         return self._model_config.get("max_tokens")
 
+    @property
+    def is_initialized(self) -> bool:
+        return self._initialized
+
     async def initialize(self) -> None:
         """Initialize the Cohere client."""
         if self._initialized:

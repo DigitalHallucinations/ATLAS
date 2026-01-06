@@ -26,6 +26,7 @@ from enum import Enum
 from typing import (
     Any,
     Callable,
+    Coroutine,
     Dict,
     List,
     Optional,
@@ -33,6 +34,7 @@ from typing import (
     TYPE_CHECKING,
     Tuple,
     Union,
+    cast,
 )
 
 from modules.logging.logger import setup_logger
@@ -329,11 +331,15 @@ class CrossEncoderReranker(Reranker):
         if not results:
             return []
 
+        model = self._model
+        if model is None:
+            raise RuntimeError("Model not initialized")
+
         # Prepare pairs for scoring
         pairs = [(query, r.chunk.content) for r in results]
 
         def _score() -> List[float]:
-            return self._model.predict(pairs).tolist()
+            return model.predict(pairs).tolist()
 
         scores = await asyncio.to_thread(_score)
 
@@ -434,10 +440,14 @@ class CohereReranker(Reranker):
         if not results:
             return []
 
+        client = self._client
+        if client is None:
+            raise RuntimeError("Cohere client not initialized")
+
         documents = [r.chunk.content for r in results]
 
         def _rerank() -> Any:
-            return self._client.rerank(
+            return client.rerank(
                 model=self._model,
                 query=query,
                 documents=documents,
@@ -722,12 +732,15 @@ class RAGRetriever:
         # Execute both searches in parallel
         retrieval_start = datetime.utcnow()
 
-        dense_task = self._knowledge_store.search(search_query)
+        dense_task: Coroutine[Any, Any, List["SearchResult"]] = self._knowledge_store.search(search_query)
 
         # Check if knowledge store supports lexical search
         lexical_search = getattr(self._knowledge_store, "search_lexical", None)
         if lexical_search and callable(lexical_search):
-            lexical_task = lexical_search(search_query)
+            lexical_task = cast(
+                Coroutine[Any, Any, List["SearchResult"]],
+                lexical_search(search_query)
+            )
             dense_results, lexical_results = await asyncio.gather(
                 dense_task, lexical_task
             )

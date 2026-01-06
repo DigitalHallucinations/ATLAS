@@ -48,13 +48,13 @@ class PortableArray(PortableJSON):
 
     cache_ok = True
 
-    def load_dialect_impl(self, dialect):  # type: ignore[override]
+    def load_dialect_impl(self, dialect):
         if dialect.name == "postgresql":
             return dialect.type_descriptor(_PG_ARRAY(String))
         # Fall back to JSON for other dialects
         return super().load_dialect_impl(dialect)
 
-    def process_bind_param(self, value, dialect):  # type: ignore[override]
+    def process_bind_param(self, value, dialect):
         if value is None:
             return []
         if dialect.name == "postgresql":
@@ -62,7 +62,7 @@ class PortableArray(PortableJSON):
         # For non-PostgreSQL, store as JSON
         return list(value) if value else []
 
-    def process_result_value(self, value, dialect):  # type: ignore[override]
+    def process_result_value(self, value, dialect):
         if value is None:
             return []
         return list(value)

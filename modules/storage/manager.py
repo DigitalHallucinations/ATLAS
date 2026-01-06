@@ -41,8 +41,11 @@ if TYPE_CHECKING:
     from sqlalchemy.engine import Engine
     from sqlalchemy.orm import sessionmaker
 
+    from modules.calendar_store import CalendarStoreRepository
     from modules.conversation_store import ConversationStoreRepository
     from modules.job_store.repository import JobStoreRepository
+    from modules.storage.adapters import DomainStoreFactory
+    from modules.storage.images.repository import ImageArtifactRepository
     from modules.task_store import TaskStoreRepository
 
 logger = setup_logger(__name__)
@@ -83,7 +86,7 @@ async def get_storage_manager(
 
     async with _storage_manager_lock:
         if _storage_manager_instance is None:
-            _storage_manager_instance = StorageManager(settings=settings)
+            _storage_manager_instance = StorageManager(settings=settings or StorageSettings())
 
         if not _storage_manager_instance.is_initialized:
             await _storage_manager_instance.initialize()
@@ -460,9 +463,11 @@ class StorageManager:
 
         Lazily initializes on first access.
         """
-        if self._conversation_store is None:
-            self._conversation_store = self._create_conversation_store()
-        return self._conversation_store
+        store = self._conversation_store
+        if store is None:
+            store = self._create_conversation_store()
+            self._conversation_store = store
+        return store
 
     def _create_conversation_store(self) -> Any:
         """Create the conversation store repository."""
@@ -477,6 +482,9 @@ class StorageManager:
                 client=self._mongo_pool.client,
             )
         else:
+            if self._sql_pool is None:
+                raise RuntimeError("SQL pool not initialized")
+
             from modules.conversation_store import ConversationStoreRepository
 
             return ConversationStoreRepository(
@@ -494,20 +502,24 @@ class StorageManager:
 
         Lazily initializes on first access.
         """
-        if self._task_store is None:
-            self._task_store = self._create_task_store()
-        return self._task_store
+        store = self._task_store
+        if store is None:
+            store = self._create_task_store()
+            self._task_store = store
+        return store
 
     def _create_task_store(self) -> Any:
         """Create the task store repository."""
         if not self._initialized:
             raise RuntimeError("StorageManager not initialized")
 
+        if self._sql_pool is None:
+            raise RuntimeError("SQL pool not initialized")
+
         from modules.task_store.repository import TaskStoreRepository
 
         return TaskStoreRepository(
             self._sql_pool.session_factory,
-            require_tenant_context=self.settings.require_tenant_context,
         )
 
     @property
@@ -516,9 +528,11 @@ class StorageManager:
 
         Lazily initializes on first access.
         """
-        if self._job_store is None:
-            self._job_store = self._create_job_store()
-        return self._job_store
+        store = self._job_store
+        if store is None:
+            store = self._create_job_store()
+            self._job_store = store
+        return store
 
     def _create_job_store(self) -> Any:
         """Create the job store repository."""
@@ -528,16 +542,18 @@ class StorageManager:
         if self.settings.use_mongo_for_jobs and self._mongo_pool is not None:
             from modules.job_store.mongo_repository import MongoJobStoreRepository
 
-            return MongoJobStoreRepository(
+            return MongoJobStoreRepository.from_database(
                 self._mongo_pool.database,
-                require_tenant_context=self.settings.require_tenant_context,
+                client=self._mongo_pool.client,
             )
         else:
+            if self._sql_pool is None:
+                raise RuntimeError("SQL pool not initialized")
+
             from modules.job_store.repository import JobStoreRepository
 
             return JobStoreRepository(
                 self._sql_pool.session_factory,
-                require_tenant_context=self.settings.require_tenant_context,
             )
 
     @property
@@ -555,20 +571,30 @@ class StorageManager:
         if not self._initialized:
             raise RuntimeError("StorageManager not initialized")
 
-        from modules.Tools.Base_Tools.kv_store import KeyValueStoreService
+        if self._sql_pool is None:
+            raise RuntimeError("SQL pool not initialized")
+
+        from modules.Tools.Base_Tools.kv_store import (
+            KeyValueStoreService,
+            PostgresKeyValueStoreAdapter,
+            SQLiteKeyValueStoreAdapter,
+        )
 
         # Determine which adapter to use based on SQL dialect
         if self.settings.sql.dialect == SQLDialect.POSTGRESQL:
-            adapter_name = "postgres"
+            adapter = PostgresKeyValueStoreAdapter(
+                engine=self._sql_pool.engine,
+                namespace_quota_bytes=self.settings.kv.namespace_quota_bytes,
+                global_quota_bytes=self.settings.kv.global_quota_bytes,
+            )
         else:
-            adapter_name = "sqlite"
+            adapter = SQLiteKeyValueStoreAdapter(
+                engine=self._sql_pool.engine,
+                namespace_quota_bytes=self.settings.kv.namespace_quota_bytes,
+                global_quota_bytes=self.settings.kv.global_quota_bytes,
+            )
 
-        return KeyValueStoreService(
-            adapter_name=adapter_name,
-            engine=self._sql_pool.engine,
-            namespace_quota_bytes=self.settings.kv.namespace_quota_bytes,
-            global_quota_bytes=self.settings.kv.global_quota_bytes,
-        )
+        return KeyValueStoreService(adapter=adapter)
 
     @property
     def images(self) -> "ImageArtifactRepository":
@@ -577,9 +603,11 @@ class StorageManager:
         Lazily initializes on first access.
         Used for storing generated images with metadata.
         """
-        if self._image_store is None:
-            self._image_store = self._create_image_store()
-        return self._image_store
+        store = self._image_store
+        if store is None:
+            store = self._create_image_store()
+            self._image_store = store
+        return store
 
     def _create_image_store(self) -> Any:
         """Create the image artifact repository."""
@@ -594,14 +622,19 @@ class StorageManager:
         Lazily initializes on first access.
         Used for managing calendar categories, events, and sync state.
         """
-        if self._calendar_store is None:
-            self._calendar_store = self._create_calendar_store()
-        return self._calendar_store
+        store = self._calendar_store
+        if store is None:
+            store = self._create_calendar_store()
+            self._calendar_store = store
+        return store
 
     def _create_calendar_store(self) -> Any:
         """Create the calendar store repository."""
         if not self._initialized:
             raise RuntimeError("StorageManager not initialized")
+
+        if self._sql_pool is None:
+            raise RuntimeError("SQL pool not initialized")
 
         from modules.calendar_store import CalendarStoreRepository
 
@@ -672,6 +705,9 @@ class StorageManager:
         """
         if not self._initialized:
             raise RuntimeError("StorageManager not initialized")
+
+        if self._sql_pool is None:
+            raise RuntimeError("SQL pool not initialized")
 
         results: Dict[str, bool] = {}
 

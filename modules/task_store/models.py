@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import enum
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TYPE_CHECKING, Tuple, cast
 from uuid import UUID
 
 from sqlalchemy import (
@@ -14,6 +14,7 @@ from sqlalchemy import (
     Index,
     Integer,
     String,
+    Table,
     Text,
     UniqueConstraint,
     inspect,
@@ -24,6 +25,9 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from modules.conversation_store.models import Base as ConversationBase
 from modules.conversation_store.models import GUID, PortableJSON
 from modules.store_common.model_utils import generate_uuid, utcnow
+
+if TYPE_CHECKING:
+    from modules.conversation_store.models import Conversation, Session, User
 
 Base = ConversationBase
 class TaskStatus(str, enum.Enum):
@@ -195,12 +199,12 @@ class TaskEvent(Base):
 
 
 try:
-    _TASK_TABLES = (
+    _TASK_TABLES: Tuple[Table, ...] = cast(Tuple[Table, ...], (
         Task.__table__,
         TaskAssignment.__table__,
         TaskDependency.__table__,
         TaskEvent.__table__,
-    )
+    ))
 except AttributeError:  # pragma: no cover - minimal test stubs without SQLAlchemy
     _TASK_TABLES = ()
 

@@ -12,7 +12,6 @@ from typing import Any, Dict, Optional, cast
 
 from sqlalchemy import (
     Boolean,
-    Column,
     DateTime,
     Index,
     Integer,
@@ -22,7 +21,7 @@ from sqlalchemy import (
     func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from .models import (
     AlertSeverity,
@@ -36,8 +35,11 @@ from .models import (
     UsageRecord,
 )
 
-# Use a separate Base to avoid coupling with conversation_store
-BudgetBase = declarative_base()
+
+class BudgetBase(DeclarativeBase):
+    """Base class for budget SQLAlchemy models."""
+
+    pass
 
 
 class BudgetPolicyTable(BudgetBase):
@@ -45,22 +47,22 @@ class BudgetPolicyTable(BudgetBase):
 
     __tablename__ = "budget_policies"
 
-    id = Column(String(36), primary_key=True)
-    name = Column(String(255), nullable=False)
-    description = Column(Text, nullable=True)
-    scope = Column(String(32), nullable=False, default="global")
-    scope_id = Column(String(255), nullable=True)
-    period = Column(String(32), nullable=False, default="monthly")
-    limit_amount = Column(Numeric(20, 8), nullable=False)
-    soft_limit_percent = Column(Integer, nullable=False, default=80)
-    action = Column(String(32), nullable=False, default="warn")
-    enabled = Column(Boolean, nullable=False, default=True)
-    priority = Column(Integer, nullable=False, default=0)
-    rollover_enabled = Column(Boolean, nullable=False, default=False)
-    rollover_max_percent = Column(Integer, nullable=False, default=100)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=func.now())
-    updated_at = Column(DateTime(timezone=True), nullable=False, default=func.now())
-    metadata_ = Column("metadata", JSONB, nullable=True)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    scope: Mapped[str] = mapped_column(String(32), nullable=False, default="global")
+    scope_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    period: Mapped[str] = mapped_column(String(32), nullable=False, default="monthly")
+    limit_amount: Mapped[Decimal] = mapped_column(Numeric(20, 8), nullable=False)
+    soft_limit_percent: Mapped[int] = mapped_column(Integer, nullable=False, default=80)
+    action: Mapped[str] = mapped_column(String(32), nullable=False, default="warn")
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    rollover_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    rollover_max_percent: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=func.now())
+    metadata_: Mapped[Optional[Dict[str, Any]]] = mapped_column("metadata", JSONB, nullable=True)
 
     __table_args__ = (
         Index("ix_budget_policies_scope", "scope", "scope_id"),
@@ -116,21 +118,21 @@ class UsageRecordTable(BudgetBase):
 
     __tablename__ = "budget_usage_records"
 
-    id = Column(String(36), primary_key=True)
-    timestamp = Column(DateTime(timezone=True), nullable=False, index=True)
-    provider = Column(String(64), nullable=False, index=True)
-    model = Column(String(128), nullable=False)
-    operation_type = Column(String(32), nullable=False, default="inference")
-    input_tokens = Column(Integer, nullable=False, default=0)
-    output_tokens = Column(Integer, nullable=False, default=0)
-    cached_tokens = Column(Integer, nullable=False, default=0)
-    cost_usd = Column(Numeric(20, 10), nullable=False)
-    user_id = Column(String(255), nullable=True, index=True)
-    tenant_id = Column(String(255), nullable=True, index=True)
-    session_id = Column(String(255), nullable=True)
-    conversation_id = Column(String(255), nullable=True)
-    request_id = Column(String(255), nullable=True)
-    metadata_ = Column("metadata", JSONB, nullable=True)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    provider: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    model: Mapped[str] = mapped_column(String(128), nullable=False)
+    operation_type: Mapped[str] = mapped_column(String(32), nullable=False, default="inference")
+    input_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    output_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cached_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cost_usd: Mapped[Decimal] = mapped_column(Numeric(20, 10), nullable=False)
+    user_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
+    tenant_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
+    session_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    conversation_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    request_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    metadata_: Mapped[Optional[Dict[str, Any]]] = mapped_column("metadata", JSONB, nullable=True)
 
     __table_args__ = (
         Index("ix_budget_usage_timestamp_range", "timestamp", "provider"),
@@ -183,19 +185,19 @@ class BudgetAlertTable(BudgetBase):
 
     __tablename__ = "budget_alerts"
 
-    id = Column(String(36), primary_key=True)
-    policy_id = Column(String(36), nullable=False, index=True)
-    trigger_type = Column(String(32), nullable=False)
-    severity = Column(String(16), nullable=False, index=True)
-    message = Column(Text, nullable=False)
-    current_spend = Column(Numeric(20, 8), nullable=False)
-    limit_amount = Column(Numeric(20, 8), nullable=False)
-    threshold_percent = Column(Integer, nullable=False)
-    triggered_at = Column(DateTime(timezone=True), nullable=False, index=True)
-    acknowledged = Column(Boolean, nullable=False, default=False, index=True)
-    acknowledged_at = Column(DateTime(timezone=True), nullable=True)
-    acknowledged_by = Column(String(255), nullable=True)
-    metadata_ = Column("metadata", JSONB, nullable=True)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    policy_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    trigger_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    severity: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    current_spend: Mapped[Decimal] = mapped_column(Numeric(20, 8), nullable=False)
+    limit_amount: Mapped[Decimal] = mapped_column(Numeric(20, 8), nullable=False)
+    threshold_percent: Mapped[int] = mapped_column(Integer, nullable=False)
+    triggered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    acknowledged: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, index=True)
+    acknowledged_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    acknowledged_by: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    metadata_: Mapped[Optional[Dict[str, Any]]] = mapped_column("metadata", JSONB, nullable=True)
 
     __table_args__ = (
         Index("ix_budget_alerts_active", "acknowledged", "triggered_at"),
@@ -245,13 +247,13 @@ class BudgetRolloverTable(BudgetBase):
 
     __tablename__ = "budget_rollovers"
 
-    id = Column(String(36), primary_key=True)
-    policy_id = Column(String(36), nullable=False, unique=True, index=True)
-    amount = Column(Numeric(20, 8), nullable=False)
-    period_start = Column(DateTime(timezone=True), nullable=False)
-    period_end = Column(DateTime(timezone=True), nullable=False)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=func.now())
-    updated_at = Column(DateTime(timezone=True), nullable=False, default=func.now())
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    policy_id: Mapped[str] = mapped_column(String(36), nullable=False, unique=True, index=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(20, 8), nullable=False)
+    period_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    period_end: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=func.now())
 
 
 def create_budget_schema(engine, *, logger=None) -> None:

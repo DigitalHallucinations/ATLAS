@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import enum
-from typing import Any
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+from uuid import UUID
 
 from sqlalchemy import (
-    Column,
     DateTime,
     Enum,
     ForeignKey,
@@ -18,7 +19,7 @@ from sqlalchemy import (
     inspect,
 )
 from sqlalchemy.engine import Engine
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from modules.conversation_store.models import Base as ConversationBase
 from modules.conversation_store.models import GUID, PortableJSON
@@ -27,7 +28,7 @@ from modules.store_common.model_utils import generate_uuid, utcnow
 try:  # pragma: no cover - optional dependency for task relationships
     from modules.task_store.models import Task as _Task  # noqa: F401
 except Exception:  # pragma: no cover - fallback when task store unavailable
-    _Task = None  # type: ignore[assignment]
+    _Task = None
 
 
 Base = ConversationBase
@@ -78,53 +79,53 @@ class Job(Base):
         Index("ix_jobs_owner_status", "owner_id", "status"),
     )
 
-    id = Column(GUID(), primary_key=True, default=generate_uuid)
-    name = Column(String(255), nullable=False)
-    description = Column(Text, nullable=True)
-    status = Column(
+    id: Mapped[UUID] = mapped_column(GUID(), primary_key=True, default=generate_uuid)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    status: Mapped[JobStatus] = mapped_column(
         Enum(JobStatus, name="job_status", validate_strings=True),
         nullable=False,
         default=JobStatus.DRAFT,
     )
-    owner_id = Column(GUID(), ForeignKey("users.id", ondelete="SET NULL"))
-    conversation_id = Column(
+    owner_id: Mapped[Optional[UUID]] = mapped_column(GUID(), ForeignKey("users.id", ondelete="SET NULL"))
+    conversation_id: Mapped[Optional[UUID]] = mapped_column(
         GUID(), ForeignKey("conversations.id", ondelete="SET NULL")
     )
-    tenant_id = Column(String(255), nullable=False, index=True)
-    meta = Column("metadata", PortableJSON(), nullable=False, default=dict)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
-    updated_at = Column(
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    meta: Mapped[Dict[str, Any]] = mapped_column("metadata", PortableJSON(), nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
     )
 
-    owner = relationship("User", foreign_keys=[owner_id])
-    conversation = relationship("Conversation", foreign_keys=[conversation_id])
-    runs = relationship(
+    owner: Mapped[Optional["User"]] = relationship("User", foreign_keys=[owner_id])
+    conversation: Mapped[Optional["Conversation"]] = relationship("Conversation", foreign_keys=[conversation_id])
+    runs: Mapped[List["JobRun"]] = relationship(
         "JobRun",
         back_populates="job",
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
-    tasks = relationship(
+    tasks: Mapped[List["JobTaskLink"]] = relationship(
         "JobTaskLink",
         back_populates="job",
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
-    assignments = relationship(
+    assignments: Mapped[List["JobAssignment"]] = relationship(
         "JobAssignment",
         back_populates="job",
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
-    schedule = relationship(
+    schedule: Mapped[Optional["JobSchedule"]] = relationship(
         "JobSchedule",
         back_populates="job",
         cascade="all, delete-orphan",
         passive_deletes=True,
         uselist=False,
     )
-    events = relationship(
+    events: Mapped[List["JobEvent"]] = relationship(
         "JobEvent",
         back_populates="job",
         cascade="all, delete-orphan",
@@ -139,23 +140,23 @@ class JobRun(Base):
         Index("ix_job_runs_job_started", "job_id", "started_at"),
     )
 
-    id = Column(GUID(), primary_key=True, default=generate_uuid)
-    job_id = Column(GUID(), ForeignKey("jobs.id", ondelete="CASCADE"))
-    run_number = Column(Integer, nullable=False, default=1)
-    status = Column(
+    id: Mapped[UUID] = mapped_column(GUID(), primary_key=True, default=generate_uuid)
+    job_id: Mapped[Optional[UUID]] = mapped_column(GUID(), ForeignKey("jobs.id", ondelete="CASCADE"))
+    run_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    status: Mapped[JobRunStatus] = mapped_column(
         Enum(JobRunStatus, name="job_run_status", validate_strings=True),
         nullable=False,
         default=JobRunStatus.SCHEDULED,
     )
-    started_at = Column(DateTime(timezone=True), nullable=True)
-    finished_at = Column(DateTime(timezone=True), nullable=True)
-    meta = Column("metadata", PortableJSON(), nullable=False, default=dict)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
-    updated_at = Column(
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    meta: Mapped[Dict[str, Any]] = mapped_column("metadata", PortableJSON(), nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
     )
 
-    job = relationship("Job", back_populates="runs", foreign_keys=[job_id])
+    job: Mapped[Optional["Job"]] = relationship("Job", back_populates="runs", foreign_keys=[job_id])
 
 
 class JobTaskLink(Base):
@@ -165,15 +166,15 @@ class JobTaskLink(Base):
         Index("ix_job_task_links_task", "task_id"),
     )
 
-    id = Column(GUID(), primary_key=True, default=generate_uuid)
-    job_id = Column(GUID(), ForeignKey("jobs.id", ondelete="CASCADE"))
-    task_id = Column(GUID(), ForeignKey("tasks.id", ondelete="CASCADE"))
-    relationship_type = Column(String(64), nullable=False, default="relates_to")
-    meta = Column("metadata", PortableJSON(), nullable=False, default=dict)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
+    id: Mapped[UUID] = mapped_column(GUID(), primary_key=True, default=generate_uuid)
+    job_id: Mapped[Optional[UUID]] = mapped_column(GUID(), ForeignKey("jobs.id", ondelete="CASCADE"))
+    task_id: Mapped[Optional[UUID]] = mapped_column(GUID(), ForeignKey("tasks.id", ondelete="CASCADE"))
+    relationship_type: Mapped[str] = mapped_column(String(64), nullable=False, default="relates_to")
+    meta: Mapped[Dict[str, Any]] = mapped_column("metadata", PortableJSON(), nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
 
-    job = relationship("Job", back_populates="tasks", foreign_keys=[job_id])
-    task = relationship("Task", foreign_keys=[task_id])
+    job: Mapped[Optional["Job"]] = relationship("Job", back_populates="tasks", foreign_keys=[job_id])
+    task: Mapped[Optional["Task"]] = relationship("Task", foreign_keys=[task_id])
 
 
 class JobAssignment(Base):
@@ -185,23 +186,23 @@ class JobAssignment(Base):
         Index("ix_job_assignments_status", "job_id", "status"),
     )
 
-    id = Column(GUID(), primary_key=True, default=generate_uuid)
-    job_id = Column(GUID(), ForeignKey("jobs.id", ondelete="CASCADE"))
-    assignee_id = Column(GUID(), ForeignKey("users.id", ondelete="SET NULL"))
-    role = Column(String(64), nullable=False, default="participant")
-    status = Column(
+    id: Mapped[UUID] = mapped_column(GUID(), primary_key=True, default=generate_uuid)
+    job_id: Mapped[Optional[UUID]] = mapped_column(GUID(), ForeignKey("jobs.id", ondelete="CASCADE"))
+    assignee_id: Mapped[Optional[UUID]] = mapped_column(GUID(), ForeignKey("users.id", ondelete="SET NULL"))
+    role: Mapped[str] = mapped_column(String(64), nullable=False, default="participant")
+    status: Mapped[JobAssignmentStatus] = mapped_column(
         Enum(JobAssignmentStatus, name="job_assignment_status", validate_strings=True),
         nullable=False,
         default=JobAssignmentStatus.PENDING,
     )
-    meta = Column("metadata", PortableJSON(), nullable=False, default=dict)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
-    updated_at = Column(
+    meta: Mapped[Dict[str, Any]] = mapped_column("metadata", PortableJSON(), nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
     )
 
-    job = relationship("Job", back_populates="assignments", foreign_keys=[job_id])
-    assignee = relationship("User", foreign_keys=[assignee_id])
+    job: Mapped[Optional["Job"]] = relationship("Job", back_populates="assignments", foreign_keys=[job_id])
+    assignee: Mapped[Optional["User"]] = relationship("User", foreign_keys=[assignee_id])
 
 
 class JobSchedule(Base):
@@ -210,19 +211,19 @@ class JobSchedule(Base):
         UniqueConstraint("job_id", name="uq_job_schedule_unique"),
     )
 
-    id = Column(GUID(), primary_key=True, default=generate_uuid)
-    job_id = Column(GUID(), ForeignKey("jobs.id", ondelete="CASCADE"))
-    schedule_type = Column(String(64), nullable=False, default="cron")
-    expression = Column(String(255), nullable=False)
-    timezone = Column(String(64), nullable=False, default="UTC")
-    next_run_at = Column(DateTime(timezone=True), nullable=True)
-    meta = Column("metadata", PortableJSON(), nullable=False, default=dict)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
-    updated_at = Column(
+    id: Mapped[UUID] = mapped_column(GUID(), primary_key=True, default=generate_uuid)
+    job_id: Mapped[Optional[UUID]] = mapped_column(GUID(), ForeignKey("jobs.id", ondelete="CASCADE"))
+    schedule_type: Mapped[str] = mapped_column(String(64), nullable=False, default="cron")
+    expression: Mapped[str] = mapped_column(String(255), nullable=False)
+    timezone: Mapped[str] = mapped_column(String(64), nullable=False, default="UTC")
+    next_run_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    meta: Mapped[Dict[str, Any]] = mapped_column("metadata", PortableJSON(), nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
     )
 
-    job = relationship("Job", back_populates="schedule", foreign_keys=[job_id])
+    job: Mapped[Optional["Job"]] = relationship("Job", back_populates="schedule", foreign_keys=[job_id])
 
 
 class JobEvent(Base):
@@ -231,20 +232,20 @@ class JobEvent(Base):
         Index("ix_job_events_job_created", "job_id", "created_at"),
     )
 
-    id = Column(GUID(), primary_key=True, default=generate_uuid)
-    job_id = Column(GUID(), ForeignKey("jobs.id", ondelete="CASCADE"))
-    event_type = Column(
+    id: Mapped[UUID] = mapped_column(GUID(), primary_key=True, default=generate_uuid)
+    job_id: Mapped[Optional[UUID]] = mapped_column(GUID(), ForeignKey("jobs.id", ondelete="CASCADE"))
+    event_type: Mapped[JobEventType] = mapped_column(
         Enum(JobEventType, name="job_event_type", validate_strings=True),
         nullable=False,
     )
-    triggered_by_id = Column(GUID(), ForeignKey("users.id", ondelete="SET NULL"))
-    session_id = Column(GUID(), ForeignKey("sessions.id", ondelete="SET NULL"))
-    payload = Column(PortableJSON(), nullable=False, default=dict)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
+    triggered_by_id: Mapped[Optional[UUID]] = mapped_column(GUID(), ForeignKey("users.id", ondelete="SET NULL"))
+    session_id: Mapped[Optional[UUID]] = mapped_column(GUID(), ForeignKey("sessions.id", ondelete="SET NULL"))
+    payload: Mapped[Dict[str, Any]] = mapped_column(PortableJSON(), nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
 
-    job = relationship("Job", back_populates="events", foreign_keys=[job_id])
-    triggered_by = relationship("User", foreign_keys=[triggered_by_id])
-    session = relationship("Session", foreign_keys=[session_id])
+    job: Mapped[Optional["Job"]] = relationship("Job", back_populates="events", foreign_keys=[job_id])
+    triggered_by: Mapped[Optional["User"]] = relationship("User", foreign_keys=[triggered_by_id])
+    session: Mapped[Optional["Session"]] = relationship("Session", foreign_keys=[session_id])
 
 
 try:

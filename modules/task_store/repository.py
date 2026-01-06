@@ -354,6 +354,8 @@ class TaskStoreRepository(BaseStoreRepository):
             if not context.get("status_changed"):
                 return []
             status_before = context.get("status_before")
+            if status_before is None:
+                return []
             return [
                 TaskEvent(
                     task_id=record.id,

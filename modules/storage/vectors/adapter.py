@@ -141,6 +141,7 @@ class VectorProviderAdapter:
         return QueryResponse(
             namespace=namespace,
             matches=tuple(matches),
+            top_k=top_k,
         )
 
     async def delete_namespace(self, namespace: str) -> Any:  # DeleteResponse
@@ -158,6 +159,7 @@ class VectorProviderAdapter:
 
         return DeleteResponse(
             namespace=namespace,
+            removed_ids=(),
             deleted=deleted,
         )
 

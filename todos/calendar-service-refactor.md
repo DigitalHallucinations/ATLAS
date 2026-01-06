@@ -10,6 +10,7 @@
 ## Overview
 
 Refactor the calendar system to introduce a proper service layer (`CalendarService`) that:
+
 1. Moves business logic from GTK UI to backend
 2. Provides unified API for UI, agents, tools, and jobs
 3. Enables cross-system integration (jobs ↔ tasks ↔ calendar)
@@ -19,7 +20,7 @@ Refactor the calendar system to introduce a proper service layer (`CalendarServi
 
 ## Architecture
 
-```
+```Text
 ┌─────────────────────────────────────────────────────────────────────┐
 │                         CalendarService                              │
 │                    (core/services/calendar.py)                       │
@@ -136,6 +137,7 @@ Refactor the calendar system to introduce a proper service layer (`CalendarServi
 ### Phase 5: Job Integration
 
 - [ ] **5.1** Add event-job linking table to calendar schema:
+  
   ```sql
   calendar_event_job_links (
       event_id UUID REFERENCES calendar_events(id),
@@ -144,6 +146,7 @@ Refactor the calendar system to introduce a proper service layer (`CalendarServi
       created_at TIMESTAMP
   )
   ```
+
 - [ ] **5.2** Add linking methods to CalendarService:
   - [ ] `link_event_to_job(event_id, job_id, link_type)`
   - [ ] `unlink_event_from_job(event_id, job_id)`
@@ -161,6 +164,7 @@ Refactor the calendar system to introduce a proper service layer (`CalendarServi
 ### Phase 6: Task Integration
 
 - [ ] **6.1** Add event-task linking table to calendar schema:
+  
   ```sql
   calendar_event_task_links (
       event_id UUID REFERENCES calendar_events(id),
@@ -169,6 +173,7 @@ Refactor the calendar system to introduce a proper service layer (`CalendarServi
       created_at TIMESTAMP
   )
   ```
+
 - [ ] **6.2** Add linking methods to CalendarService:
   - [ ] `link_event_to_task(event_id, task_id, link_type)`
   - [ ] `unlink_event_from_task(event_id, task_id)`
@@ -216,7 +221,7 @@ Refactor the calendar system to introduce a proper service layer (`CalendarServi
 ## Files to Create
 
 | File | Purpose |
-|------|---------|
+| ---- | ------- |
 | `core/services/calendar.py` | Main CalendarService class |
 | `modules/calendar_store/models.py` | Add job/task link tables |
 | `modules/calendar_store/dataclasses.py` | Add link dataclasses |
@@ -227,7 +232,7 @@ Refactor the calendar system to introduce a proper service layer (`CalendarServi
 ## Files to Modify
 
 | File | Changes |
-|------|---------|
+| ---- | ------- |
 | `core/services/__init__.py` | Export CalendarService |
 | `core/ATLAS.py` | Add calendar_service property |
 | `GTKUI/Calendar_manager/event_dialog.py` | Use service instead of repository |

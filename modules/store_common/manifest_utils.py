@@ -7,7 +7,7 @@ import logging
 import sys
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Dict, Iterable, Iterator, List, Mapping, Optional, Tuple
+from typing import Any, Dict, Iterable, Iterator, List, Mapping, Optional, Tuple, cast
 
 
 __all__ = [
@@ -172,10 +172,11 @@ def ensure_yaml_stub() -> None:
         __import__("yaml")
     except (ModuleNotFoundError, ImportError):
         if "yaml" not in sys.modules:
-            sys.modules["yaml"] = SimpleNamespace(
+            # Use cast to satisfy type checker - this is intentional monkey-patching
+            sys.modules["yaml"] = cast(Any, SimpleNamespace(
                 safe_load=lambda *_args, **_kwargs: {},
                 dump=lambda *_args, **_kwargs: None,
-            )
+            ))
 
 
 ensure_yaml_stub()
@@ -206,7 +207,7 @@ def resolve_app_root(config_manager=None, *, logger: Optional[logging.Logger] = 
         getter = getattr(config_manager, "get_app_root", None)
         if callable(getter):
             try:
-                root = getter()
+                root = cast(Optional[str], getter())
                 candidate = _validate_app_root(root)
                 if candidate is not None:
                     return candidate
@@ -220,7 +221,7 @@ def resolve_app_root(config_manager=None, *, logger: Optional[logging.Logger] = 
             manager = config_manager or _ConfigManager()
             getter = getattr(manager, "get_app_root", None)
             if callable(getter):
-                candidate = _validate_app_root(getter())
+                candidate = _validate_app_root(cast(Optional[str], getter()))
                 if candidate is not None:
                     return candidate
         except Exception:  # pragma: no cover - defensive guard

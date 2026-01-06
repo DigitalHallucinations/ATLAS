@@ -57,8 +57,12 @@ class SQLiteBackend:
         if self.is_memory:
             return True
 
+        db_path = self._db_path
+        if db_path is None:
+            return True
+
         def _ensure() -> bool:
-            path = Path(self._db_path)
+            path = Path(db_path)
             path.parent.mkdir(parents=True, exist_ok=True)
             return True
 
@@ -145,9 +149,13 @@ class SQLiteBackend:
         if self.is_memory:
             return 0
 
+        db_path = self._db_path
+        if db_path is None:
+            return 0
+
         def _get_size() -> int:
             try:
-                return os.path.getsize(self._db_path)
+                return os.path.getsize(db_path)
             except OSError:
                 return 0
 

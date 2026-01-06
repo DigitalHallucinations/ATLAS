@@ -116,10 +116,11 @@ class SQLPool:
                 session.add(entity)
                 # commits on exit, rolls back on exception
         """
-        if not self._initialized:
+        if not self._initialized or self._session_factory is None:
             raise RuntimeError("SQL pool not initialized. Call initialize() first.")
 
-        session = await asyncio.to_thread(self._session_factory)
+        factory = self._session_factory
+        session = await asyncio.to_thread(factory)
         try:
             yield session
             await asyncio.to_thread(session.commit)
@@ -134,12 +135,14 @@ class SQLPool:
         if not self._initialized or self._engine is None:
             return False
 
+        engine = self._engine
+
         try:
 
             def _check() -> bool:
                 from sqlalchemy import text
 
-                with self._engine.connect() as conn:
+                with engine.connect() as conn:
                     conn.execute(text("SELECT 1"))
                 return True
 
@@ -199,8 +202,9 @@ class MongoPool:
         url = self.settings.get_url()
         client_kwargs = self.settings.get_client_kwargs()
 
-        self._client = MongoClient(url, **client_kwargs)
-        self._database = self._client[self.settings.database]
+        client = MongoClient(url, **client_kwargs)
+        self._client = client
+        self._database = client[self.settings.database]
 
     async def shutdown(self) -> None:
         """Close the MongoDB client and clean up connections."""
@@ -245,10 +249,12 @@ class MongoPool:
         if not self._initialized or self._client is None:
             return False
 
+        client = self._client
+
         try:
 
             def _check() -> bool:
-                self._client.admin.command("ping")
+                client.admin.command("ping")
                 return True
 
             return await asyncio.wait_for(

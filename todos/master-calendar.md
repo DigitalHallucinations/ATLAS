@@ -5,10 +5,10 @@
 > **Target**: Core calendar infrastructure for ATLAS  
 > **Last Updated**: 2026-01-06
 
-### Implementation Progress
+## Implementation Progress
 
 | Phase | Description | Status |
-|-------|-------------|--------|
+| ----- | ----------- | ------ |
 | Phase 1 | Core Infrastructure (Schema, Models, CRUD) | ✅ Complete |
 | Phase 2 | Category Features (GTK Panel) | ✅ Complete |
 | Phase 3 | Event Features (Recurrence) | ✅ Complete |

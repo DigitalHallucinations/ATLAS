@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
+from enum import Enum
 from typing import Any, Callable, Mapping, Optional, Tuple, Type, TypeVar
 
 from modules.Tools.tool_event_system import publish_bus_event
 
-StatusT = TypeVar("StatusT")
+StatusT = TypeVar("StatusT", bound=Enum)
 
 
 def coerce_enum_value(value: Any, enum_type: Type[StatusT]) -> StatusT:

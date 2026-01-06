@@ -388,6 +388,8 @@ class PostgresKnowledgeStore(KnowledgeStore):
                     },
                 )
                 row = result.fetchone()
+                if row is None:
+                    raise IngestionError("Failed to create knowledge base - no row returned")
                 conn.commit()
                 return {
                     "id": str(row[0]),
@@ -647,6 +649,8 @@ class PostgresKnowledgeStore(KnowledgeStore):
                     },
                 )
                 row = result.fetchone()
+                if row is None:
+                    raise IngestionError("Failed to create document - no row returned")
                 conn.commit()
                 return {
                     "id": str(row[0]),
@@ -716,14 +720,13 @@ class PostgresKnowledgeStore(KnowledgeStore):
         if not self._text_splitter:
             raise IngestionError("No text splitter configured")
 
-        # Split document into chunks
-        chunks = self._text_splitter.split_text(
+        # Split document into chunks - use create_chunks to get Chunk objects with metadata
+        raw_chunks = self._text_splitter.create_chunks(
             doc.content or "",
-            chunk_size=kb.chunk_size,
-            chunk_overlap=kb.chunk_overlap,
+            source_id=doc.id,
         )
 
-        if not chunks:
+        if not raw_chunks:
             logger.warning(f"No chunks generated for document: {doc.id}")
             await self._update_document_status(doc.id, DocumentStatus.INDEXED)
             return
@@ -733,30 +736,30 @@ class PostgresKnowledgeStore(KnowledgeStore):
         if auto_embed and self._embedding_provider:
             await self._embedding_provider.initialize()
             result = await self._embedding_provider.embed_batch(
-                [c.content for c in chunks]
+                [c.text for c in raw_chunks]
             )
-            embeddings = result.embeddings
+            embeddings = result.vectors
 
         # Store chunks
         chunk_records = []
-        for i, chunk in enumerate(chunks):
+        for i, chunk in enumerate(raw_chunks):
             chunk_id = str(uuid.uuid4())
             embedding = embeddings[i] if embeddings else None
             chunk_records.append({
                 "id": chunk_id,
                 "document_id": doc.id,
                 "knowledge_base_id": doc.knowledge_base_id,
-                "content": chunk.content,
+                "content": chunk.text,
                 "embedding": embedding,
                 "chunk_index": i,
-                "token_count": chunk.token_count,
+                "token_count": len(chunk.text.split()),  # Approximate
                 "start_char": chunk.metadata.start_char,
                 "end_char": chunk.metadata.end_char,
-                "start_line": chunk.metadata.start_line,
-                "end_line": chunk.metadata.end_line,
-                "section": chunk.metadata.section,
-                "language": chunk.metadata.language,
-                "metadata": chunk.metadata.extra,
+                "start_line": None,  # Not tracked by base chunker
+                "end_line": None,
+                "section": None,
+                "language": None,
+                "metadata": {},
             })
 
         await self._insert_chunks(chunk_records)
@@ -765,8 +768,8 @@ class PostgresKnowledgeStore(KnowledgeStore):
         await self._update_document_after_chunking(
             doc.id,
             doc.knowledge_base_id,
-            len(chunks),
-            sum(c.token_count for c in chunks),
+            len(raw_chunks),
+            sum(len(c.text.split()) for c in raw_chunks),
         )
 
     async def _process_hierarchical_chunks(
@@ -810,7 +813,7 @@ class PostgresKnowledgeStore(KnowledgeStore):
         if auto_embed and self._embedding_provider and child_contents:
             await self._embedding_provider.initialize()
             result_embed = await self._embedding_provider.embed_batch(child_contents)
-            embeddings = result_embed.embeddings
+            embeddings = result_embed.vectors
         
         # Build chunk records - parents first, then children
         chunk_records: List[Dict[str, Any]] = []

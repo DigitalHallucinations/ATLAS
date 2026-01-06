@@ -212,6 +212,10 @@ class HuggingFaceEmbeddingProvider(EmbeddingProvider):
     def max_input_tokens(self) -> Optional[int]:
         return self._max_tokens
 
+    @property
+    def is_initialized(self) -> bool:
+        return self._initialized
+
     async def initialize(self) -> None:
         """Initialize the sentence-transformers model."""
         if self._initialized:
@@ -254,6 +258,8 @@ class HuggingFaceEmbeddingProvider(EmbeddingProvider):
             self._model = await loop.run_in_executor(None, load_model)
 
             # Update dimension from actual model
+            if self._model is None:
+                raise EmbeddingProviderError("Failed to load model")
             self._dimension = self._model.get_sentence_embedding_dimension()
 
             self._executor = ThreadPoolExecutor(max_workers=self._max_workers)
@@ -311,10 +317,14 @@ class HuggingFaceEmbeddingProvider(EmbeddingProvider):
         if not self._initialized:
             await self.initialize()
 
+        model = self._model
+        if model is None:
+            raise EmbeddingProviderError("Model not initialized")
+
         prepared_text = self._prepare_text(text, input_type)
 
         def encode() -> List[float]:
-            embedding = self._model.encode(
+            embedding = model.encode(
                 prepared_text,
                 normalize_embeddings=self._normalize,
                 show_progress_bar=False,
@@ -354,8 +364,12 @@ class HuggingFaceEmbeddingProvider(EmbeddingProvider):
 
         prepared_texts = [self._prepare_text(t, input_type) for t in texts]
 
+        model = self._model
+        if model is None:
+            raise EmbeddingProviderError("Model not initialized")
+
         def encode_batch() -> List[List[float]]:
-            embeddings = self._model.encode(
+            embeddings = model.encode(
                 prepared_texts,
                 normalize_embeddings=self._normalize,
                 show_progress_bar=self._show_progress,

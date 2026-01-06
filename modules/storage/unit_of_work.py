@@ -130,7 +130,8 @@ class UnitOfWork:
             try:
                 # Execute SQL operations
                 if self.sql_session is not None and self._sql_operations:
-                    await asyncio.to_thread(self._execute_sql_operations)
+                    session = self.sql_session
+                    await asyncio.to_thread(self._execute_sql_operations, session)
 
                 # Commit SQL session
                 if self.sql_session is not None:
@@ -147,10 +148,10 @@ class UnitOfWork:
                 await self._rollback_internal(exc)
                 raise
 
-    def _execute_sql_operations(self) -> None:
+    def _execute_sql_operations(self, session: "Session") -> None:
         """Execute all registered SQL operations."""
         for operation in self._sql_operations:
-            operation(self.sql_session)
+            operation(session)
 
     async def rollback(self) -> None:
         """Rollback all pending operations."""

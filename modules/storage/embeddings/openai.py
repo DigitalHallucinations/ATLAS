@@ -167,6 +167,10 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
     def max_input_tokens(self) -> Optional[int]:
         return self._model_config.get("max_tokens")
 
+    @property
+    def is_initialized(self) -> bool:
+        return self._initialized
+
     async def initialize(self) -> None:
         """Initialize the OpenAI client."""
         if self._initialized:
@@ -312,6 +316,11 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
 
     async def _do_embed(self, texts: List[str]) -> BatchEmbeddingResult:
         """Perform the actual embedding API call."""
+        if self._client is None:
+            raise EmbeddingProviderError("OpenAI client not initialized")
+
+        client = self._client
+
         try:
             # Build request kwargs
             kwargs: Dict[str, Any] = {
@@ -326,7 +335,7 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
             ):
                 kwargs["dimensions"] = self._requested_dimensions
 
-            response = await self._client.embeddings.create(**kwargs)
+            response = await client.embeddings.create(**kwargs)
 
             embeddings: List[EmbeddingResult] = []
             for i, item in enumerate(response.data):
@@ -354,13 +363,16 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
             if "rate" in error_message and "limit" in error_message:
                 # Try to extract retry-after from error
                 retry_after = None
-                if hasattr(exc, "response") and hasattr(exc.response, "headers"):
-                    retry_str = exc.response.headers.get("retry-after")
-                    if retry_str:
-                        try:
-                            retry_after = float(retry_str)
-                        except ValueError:
-                            pass
+                response = getattr(exc, "response", None)
+                if response is not None:
+                    headers = getattr(response, "headers", None)
+                    if headers is not None:
+                        retry_str = headers.get("retry-after")
+                        if retry_str:
+                            try:
+                                retry_after = float(retry_str)
+                            except ValueError:
+                                pass
                 raise EmbeddingRateLimitError(
                     f"OpenAI rate limit exceeded: {exc}",
                     retry_after=retry_after,

@@ -524,6 +524,7 @@ class KnowledgeStore(ABC):
         metadata: Optional[Dict[str, Any]] = None,
         auto_chunk: bool = True,
         auto_embed: bool = True,
+        hierarchical_chunker: Optional[Any] = None,
     ) -> KnowledgeDocument:
         """Add a document to a knowledge base.
 
@@ -536,6 +537,7 @@ class KnowledgeStore(ABC):
             metadata: Document metadata.
             auto_chunk: Whether to automatically chunk the document.
             auto_embed: Whether to automatically generate embeddings.
+            hierarchical_chunker: Optional hierarchical chunker for parent-child chunking.
 
         Returns:
             The created document.

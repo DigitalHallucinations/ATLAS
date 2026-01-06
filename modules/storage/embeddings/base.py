@@ -169,6 +169,12 @@ class EmbeddingProvider(ABC):
         """Maximum tokens per input text (None if unlimited)."""
         return None
 
+    @property
+    @abstractmethod
+    def is_initialized(self) -> bool:
+        """Check if the provider has been initialized."""
+        ...
+
     @abstractmethod
     async def initialize(self) -> None:
         """Initialize the embedding provider (load model, verify API key, etc.)."""

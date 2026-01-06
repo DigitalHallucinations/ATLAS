@@ -59,11 +59,22 @@ numpy
 # Document parsing dependencies
 # ======================================
 
+# PDF parsing
+pypdf
+pdfplumber
 pdfminer.six
+
+# Office documents
 python-docx
+
+# HTML/Web content
 beautifulsoup4
+
+# Image processing
 Pillow
 pytesseract
+
+# Markdown
 markdown
 
 # =====================================
@@ -138,6 +149,32 @@ replicate
 
 # Hybrid search (BM25 lexical retrieval)
 rank-bm25
+
+# Cohere API (embeddings and reranking)
+cohere
+
+# =====================================
+# Database backends
+# =====================================
+
+# MongoDB support
+pymongo
+
+# PostgreSQL vector extension
+pgvector
+
+# Redis for caching and message streams
+redis
+
+# =====================================
+# Machine learning utilities
+# =====================================
+
+# Dimensionality reduction and ML utilities
+scikit-learn
+
+# Natural language processing
+nltk
 
 # Observability (optional - install for production monitoring)
 # opentelemetry-sdk
