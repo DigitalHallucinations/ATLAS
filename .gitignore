@@ -95,9 +95,9 @@ coverage.xml
 # ===================
 *.mp3
 *output.wav
-assets/SCOUT/tts_mp3/*
-assets/user/sst_output/*
-assets/user/sst_whisper/*
+data/audio/tts_output/*
+data/audio/stt_output/*
+data/audio/stt_whisper/*
 
 # ===================
 # Generated Documentation

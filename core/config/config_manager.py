@@ -292,7 +292,7 @@ class ConfigManager(ProviderConfigMixin, PersistenceConfigMixin, ConfigCore):
         )
         self.config.setdefault(
             'SPEECH_CACHE_DIR',
-            os.path.join(app_root, 'assets', 'SCOUT', 'tts_mp3')
+            os.path.join(app_root, 'data', 'audio', 'tts_output')
         )
         # Ensure the model_cache directory exists
         os.makedirs(self.config['MODEL_CACHE_DIR'], exist_ok=True)

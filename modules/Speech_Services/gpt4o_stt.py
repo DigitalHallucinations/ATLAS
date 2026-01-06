@@ -50,7 +50,7 @@ class GPT4oSTT:
         self.stream = None
         self.audio_file: Optional[str] = None
         self.last_audio_path: Optional[str] = None
-        self.output_dir = os.path.join("assets", "user", "sst_output")
+        self.output_dir = os.path.join("data", "audio", "stt_output")
 
         import openai
         self.openai = openai

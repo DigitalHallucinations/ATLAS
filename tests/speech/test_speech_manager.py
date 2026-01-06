@@ -1172,7 +1172,7 @@ def test_google_stt_transcribe_returns_friendly_message_for_missing_file():
 
     google_stt = GoogleSTT()
     missing_filename = "missing_test_audio_file.wav"
-    missing_path = os.path.join("assets/user/sst_output", missing_filename)
+    missing_path = os.path.join("data/audio/stt_output", missing_filename)
 
     if os.path.exists(missing_path):
         os.remove(missing_path)

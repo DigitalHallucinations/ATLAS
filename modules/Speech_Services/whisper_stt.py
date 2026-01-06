@@ -143,7 +143,7 @@ class WhisperSTT:
         """
         Saves recorded audio to a file.
         """
-        output_dir = os.path.join("assets", "user", "sst_whisper")
+        output_dir = os.path.join("data", "audio", "stt_whisper")
         os.makedirs(output_dir, exist_ok=True)
         output_file = os.path.join(output_dir, filename)
         if self.frames:

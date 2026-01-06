@@ -35,7 +35,7 @@ for the current audio engine, playback, and mixer guidance used in production.
   writes the audio response to a temporary MP3, and reuses the shared playback
   helper to stream the file.【F:modules/Speech_Services/Google_tts.py†L1-L64】【F:modules/Speech_Services/Google_tts.py†L69-L108】
 * **Google STT** records audio from `sounddevice`, stores samples under
-  `assets/user/sst_output`, and submits them to Cloud Speech-to-Text before
+  `data/audio/stt_output`, and submits them to Cloud Speech-to-Text before
   cleaning up the captured file.【F:modules/Speech_Services/Google_stt.py†L1-L77】【F:modules/Speech_Services/Google_stt.py†L80-L123】
 * **OpenAI GPT-4o providers** cover both synthesis and transcription: the TTS
   wrapper streams audio from the async OpenAI SDK while the STT helper manages

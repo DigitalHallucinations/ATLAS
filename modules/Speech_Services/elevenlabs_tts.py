@@ -332,7 +332,7 @@ class ElevenLabsTTS(BaseTTS):
                     )
             if not app_root:
                 app_root = os.getcwd()
-            config_dir = os.path.join(app_root, 'assets', 'SCOUT', 'tts_mp3')
+            config_dir = os.path.join(app_root, 'data', 'audio', 'tts_output')
 
         return config_dir
 

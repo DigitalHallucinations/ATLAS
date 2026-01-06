@@ -58,7 +58,7 @@ class GoogleSTT:
 
     def save_recording(self, filename='output.wav'):
         logger.debug("Saving recording")
-        output_dir = 'assets/user/sst_output'
+        output_dir = 'data/audio/stt_output'
         os.makedirs(output_dir, exist_ok=True)  
         output_file = os.path.join(output_dir, filename)
 
@@ -71,7 +71,7 @@ class GoogleSTT:
 
     def transcribe(self, audio_file):
         logger.debug("Transcribing file %s", audio_file)
-        audio_file_path = os.path.join('assets/user/sst_output', audio_file)
+        audio_file_path = os.path.join('data/audio/stt_output', audio_file)
 
         if not os.path.exists(audio_file_path):
             logger.error(f"Audio file not found: {audio_file_path}")
