@@ -6,6 +6,7 @@ Displays a month grid with date cells, event indicators, and navigation.
 from __future__ import annotations
 
 import calendar
+import asyncio
 import logging
 from datetime import date, datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -284,14 +285,8 @@ class CalendarMonthView(Gtk.Box):
 
     def _init_repository(self) -> None:
         """Initialize the calendar repository."""
-        try:
-            from modules.calendar_store import CalendarStoreRepository
-
-            session_factory = self._get_session_factory()
-            if session_factory:
-                self._repo = CalendarStoreRepository(session_factory)
-        except Exception as e:
-            logger.debug("Could not initialize calendar repository: %s", e)
+        # Service is accessed directly from ATLAS when needed
+        pass
 
     def _get_session_factory(self) -> Any:
         """Get session factory from ATLAS or config."""

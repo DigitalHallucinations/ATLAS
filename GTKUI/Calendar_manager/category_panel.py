@@ -6,7 +6,7 @@ visibility toggles, color indicators, and management actions.
 
 from __future__ import annotations
 
-import logging
+import asyncio\nimport logging
 from typing import Any, Callable, Dict, List, Optional
 
 import gi

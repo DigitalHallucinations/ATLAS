@@ -57,6 +57,8 @@ from core.services.tooling import ToolingService
 from core.services.conversations import ConversationService
 from core.services.providers import ProviderService
 from core.services.speech import SpeechService
+from core.services.calendar import CalendarEventService, CalendarPermissionChecker, CalendarEventValidator, ReminderService
+from core.services.common import Actor, create_domain_event_publisher
 
 # Lazy import for StorageManager to avoid circular imports
 _storage_manager_module = None
@@ -108,6 +110,8 @@ class ATLAS:
         self.server = AtlasServer(config_manager=self.config_manager)
         self.conversation_repository: ConversationStoreRepository | None = None
         self.conversation_service: ConversationService | None = None
+        self._calendar_service: CalendarEventService | None = None
+        self._reminder_service: ReminderService | None = None
 
         # StorageManager is the primary storage orchestrator
         self._storage_manager: Any = None
@@ -977,8 +981,75 @@ class ATLAS:
             finally:
                 self._storage_manager = None
 
+    
     @property
-    def storage_manager(self) -> Any:
+    def calendar_service(self) -> CalendarEventService:
+        """Get the calendar event service, creating it if needed."""
+        if self._calendar_service is None:
+            if self._storage_manager is None:
+                raise RuntimeError("ATLAS not initialized. Call initialize() first.")
+            
+            # Create calendar service with dependencies
+            calendar_repo = self._storage_manager.calendar
+            permission_checker = CalendarPermissionChecker()
+            validator = CalendarEventValidator()
+            event_publisher = create_domain_event_publisher(self.message_bus)
+            
+            self._calendar_service = CalendarEventService(
+                repository=calendar_repo,
+                permission_checker=permission_checker,
+                validator=validator,
+                event_publisher=event_publisher,
+                default_conflict_resolution="skip"
+            )
+        return self._calendar_service
+    
+    @property
+    def reminder_service(self) -> ReminderService:
+        """Get the reminder service, creating it if needed."""
+        if self._reminder_service is None:
+            if self._storage_manager is None:
+                raise RuntimeError("ATLAS not initialized. Call initialize() first.")
+            
+            # Create reminder service with dependencies 
+            calendar_repo = self._storage_manager.calendar
+            permission_checker = CalendarPermissionChecker()
+            event_publisher = create_domain_event_publisher(self.message_bus)
+            
+            # Note: NotificationService would be injected here once available
+            from core.services.calendar.reminder_service import DummyNotificationService
+            notification_service = DummyNotificationService()
+            
+            self._reminder_service = ReminderService(
+                repository=calendar_repo,
+                notification_service=notification_service,
+                permission_checker=permission_checker,
+                event_publisher=event_publisher
+            )
+        return self._reminder_service
+    
+    def get_current_actor(self) -> Actor:
+        """Get an Actor for the current user context."""
+        try:
+            username, display_name = self._ensure_user_identity()
+            user_roles = self._resolve_active_user_roles()
+            permissions = set(user_roles) | {"user"}  # Base user permission plus roles
+            
+            return Actor(
+                type="user",
+                id=username,
+                tenant_id=self.tenant_id,
+                permissions=permissions
+            )
+        except Exception as e:
+            # Fallback actor for unauthenticated contexts
+            self.logger.warning(f"Could not resolve current user, using anonymous actor: {e}")
+            return Actor(
+                type="system",
+                id="anonymous",
+                tenant_id=self.tenant_id,
+                permissions={"user"}
+            )
         """
         Access the unified StorageManager instance.
 

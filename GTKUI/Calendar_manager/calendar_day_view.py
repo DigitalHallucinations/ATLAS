@@ -5,6 +5,7 @@ Displays a single day view with hourly timeline and event positioning.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import date, datetime, time, timedelta
 from typing import Any, Callable, Dict, List, Optional
@@ -341,21 +342,8 @@ class CalendarDayView(Gtk.Box):
 
     def _init_repository(self) -> None:
         """Initialize calendar repository."""
-        try:
-            from modules.calendar_store import CalendarStoreRepository
-
-            session_factory = self._get_session_factory()
-            if session_factory:
-                self._repo = CalendarStoreRepository(session_factory)
-        except Exception as e:
-            logger.debug("Could not initialize repository: %s", e)
-
-    def _get_session_factory(self) -> Any:
-        """Get session factory."""
-        if self._atlas and hasattr(self._atlas, "services"):
-            if "db_session" in self._atlas.services:
-                return self._atlas.services["db_session"]
-        return None
+        # Service is accessed directly from ATLAS when needed
+        pass
 
     def _load_events(self) -> None:
         """Load events for current day."""
@@ -367,38 +355,63 @@ class CalendarDayView(Gtk.Box):
         while child := self._events_container.get_first_child():
             self._events_container.remove(child)
 
-        if not self._repo:
-            return
+        async def fetch_and_display():
+            if not self._atlas:
+                return
+                
+            try:
+                service = self._atlas.calendar_service
+                actor = self._atlas.get_current_actor()
+                
+                start_dt = datetime.combine(self._view_date, time.min)
+                end_dt = datetime.combine(self._view_date + timedelta(days=1), time.min)
 
-        try:
-            start_dt = datetime.combine(self._view_date, time.min)
-            end_dt = datetime.combine(self._view_date + timedelta(days=1), time.min)
+                result = await service.get_events_in_range(
+                    actor,
+                    start_time=start_dt,
+                    end_time=end_dt
+                )
+                
+                if not result.is_success:
+                    logger.warning(f"Failed to load events: {result.error}")
+                    return
+                
+                events = result.data
 
-            events = self._repo.list_events(start=start_dt, end=end_dt)
+                # Convert to dict format for compatibility
+                event_dicts = []
+                for event in events:
+                    event_dict = {
+                        "id": str(event.event_id),
+                        "title": event.title,
+                        "start_time": event.start_time,
+                        "end_time": event.end_time,
+                        "is_all_day": event.all_day,
+                        "category_id": str(event.category_id) if event.category_id else None,
+                        "color": "#4285F4"  # Default color
+                    }
+                    event_dicts.append(event_dict)
 
-            # Add category colors
-            for event in events:
-                cat_id = event.get("category_id")
-                if cat_id:
-                    cat = self._repo.get_category(cat_id)
-                    if cat:
-                        event["color"] = cat.get("color", "#4285F4")
+                # Separate all-day and timed events
+                all_day_events = [e for e in event_dicts if e.get("is_all_day")]
+                timed_events = [e for e in event_dicts if not e.get("is_all_day")]
 
-            # Separate all-day and timed events
-            all_day_events = [e for e in events if e.get("is_all_day")]
-            timed_events = [e for e in events if not e.get("is_all_day")]
+                # Update UI on main thread
+                def update_ui():
+                    # Render all-day events
+                    for event in all_day_events:
+                        bar = AllDayEventBar(event, self._on_event_clicked)
+                        self._all_day_box.append(bar)
 
-            # Render all-day events
-            for event in all_day_events:
-                bar = AllDayEventBar(event, self._on_event_clicked)
-                self._all_day_box.append(bar)
-
-            # Render timed events
-            # Calculate column width for overlapping events
-            self._position_timed_events(timed_events)
-
-        except Exception as e:
-            logger.warning("Failed to load day events: %s", e)
+                    # Render timed events
+                    self._position_timed_events(timed_events)
+                
+                GLib.idle_add(update_ui)
+                
+            except Exception as e:
+                logger.error(f"Error loading events: {e}")
+        
+        asyncio.create_task(fetch_and_display())
 
     def _position_timed_events(self, events: List[Dict[str, Any]]) -> None:
         """Position timed events, handling overlaps."""

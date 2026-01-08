@@ -1,6 +1,6 @@
 # Calendar Services
 
-> **Status**: 📋 Planning  
+> **Status**: � In Progress (Phase 1 Complete)  
 > **Priority**: High  
 > **Complexity**: High  
 > **Effort**: 1-2 weeks  
@@ -29,7 +29,7 @@ These services will:
 ## Architectural Decisions
 
 | Decision | Choice | Rationale |
-|----------|--------|-----------|
+| -------- | ------ | ---------- |
 | Service structure | Split into 3 services | Narrower responsibilities, easier testing |
 | Reminder handling | Separate ReminderService | Independent scheduling concerns |
 | Timezone conversion | Service layer | Repository stores UTC; service converts |
@@ -41,23 +41,23 @@ These services will:
 
 ## Phases
 
-### Phase 1: CalendarEventService Foundation
+### Phase 1: CalendarEventService Foundation ✅
 
-- [ ] **1.1** Create `core/services/calendar/` package structure
-- [ ] **1.2** Define protocols and types
-- [ ] **1.3** Implement `CalendarPermissionChecker`
-- [ ] **1.4** Implement `CalendarEventService`
-- [ ] **1.5** Add validation logic (moved from UI)
-- [ ] **1.6** Export from `core/services/__init__.py`
-- [ ] **1.7** Write unit tests
+- [x] **1.1** Create `core/services/calendar/` package structure
+- [x] **1.2** Define protocols and types
+- [x] **1.3** Implement `CalendarPermissionChecker`
+- [x] **1.4** Implement `CalendarEventService`
+- [x] **1.5** Add validation logic (moved from UI)
+- [x] **1.6** Export from `core/services/__init__.py`
+- [x] **1.7** Write unit tests (68 tests passing)
 
-### Phase 2: Move Business Logic from UI
+### Phase 2: Move Business Logic from UI ✅
 
-- [ ] **2.1** Identify all direct repository access in GTKUI/Calendar_manager/
-- [ ] **2.2** Move validation logic from UI to service
-- [ ] **2.3** Update UI components to use CalendarEventService
-- [ ] **2.4** Remove direct repository imports from UI files
-- [ ] **2.5** Subscribe UI to MessageBus events for reactive updates
+- [x] **2.1** Identify all direct repository access in GTKUI/Calendar_manager/
+- [x] **2.2** Move validation logic from UI to service  
+- [x] **2.3** Update UI components to use CalendarEventService
+- [x] **2.4** Remove direct repository imports from UI files
+- [x] **2.5** Subscribe UI to MessageBus events for reactive updates (async patterns added)
 
 ### Phase 3: ReminderService
 
@@ -108,7 +108,7 @@ These services will:
 ## MessageBus Events
 
 | Event Type | Payload | Emitted By |
-|------------|---------|------------|
+| ---------- | ------- | ---------- |
 | `calendar.event.created` | `CalendarEventChanged` | CalendarEventService |
 | `calendar.event.updated` | `CalendarEventChanged` | CalendarEventService |
 | `calendar.event.deleted` | `CalendarEventChanged` | CalendarEventService |
@@ -124,7 +124,7 @@ These services will:
 ## Files to Create
 
 | File | Purpose |
-|------|---------|
+| ---- | ------- |
 | `core/services/calendar/__init__.py` | Package exports |
 | `core/services/calendar/types.py` | Protocols, dataclasses, result types |
 | `core/services/calendar/permissions.py` | CalendarPermissionChecker |
@@ -140,7 +140,7 @@ These services will:
 ## Files to Modify
 
 | File | Changes |
-|------|---------|
+| ---- | ------- |
 | `core/services/__init__.py` | Export calendar services |
 | `core/ATLAS.py` | Add service properties |
 | `config.yaml` | Add agent calendar permissions |
@@ -151,9 +151,9 @@ These services will:
 
 ## Files to Delete
 
-| File | Reason |
-|------|--------|
-| `modules/Tools/Base_Tools/debian12_calendar.py` | Replaced by CalendarEventService |
+| File                                            | Reason                             |
+| ----------------------------------------------- | ---------------------------------- |
+| `modules/Tools/Base_Tools/debian12_calendar.py` | Replaced by CalendarEventService   |
 
 ---
 
@@ -186,7 +186,7 @@ These services will:
 ## Open Questions
 
 | Question | Options | Decision |
-|----------|---------|----------|
+| -------- | ------- | -------- |
 | Should reminders support custom notification channels? | System only / Pluggable channels | TBD |
 | How to handle sync conflicts with job-linked events? | Auto-resolve / User choice / Job priority | TBD |
 | Should agent calendar writes require user approval? | Always / Configurable / Never | TBD |

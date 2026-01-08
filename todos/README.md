@@ -8,9 +8,9 @@ This directory contains all planning documents for ATLAS development, organized 
 
 ## Quick Navigation
 
-### 🏗️ Architecture & Foundation
+### ✅ Completed Phases
 
-- [00-foundation/](00-foundation/) - Core patterns, common types, base infrastructure
+- [completed/00-foundation/](completed/00-foundation/) - ✅ **COMPLETED** Core patterns, common types, base infrastructure
 
 ### 📅 Domain Services
 
@@ -26,6 +26,7 @@ This directory contains all planning documents for ATLAS development, organized 
 - [10-speech/](10-speech/) - Speech services (TTS/STT)
 - [11-analytics/](11-analytics/) - Analytics and metrics
 - [12-storage/](12-storage/) - File storage service
+- [13-content-editing/](13-content-editing/) - **NEW** SOTA content editing platform with AI-powered tools
 
 ### 🧠 SOTA Agent Capabilities
 

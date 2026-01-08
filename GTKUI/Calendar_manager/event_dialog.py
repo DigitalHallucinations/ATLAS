@@ -6,6 +6,7 @@ with support for recurrence rules, reminders, and category assignment.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, date, time, timedelta
 from typing import Any, Dict, List, Optional
@@ -435,41 +436,47 @@ class EventDialog(Gtk.Dialog):
 
     def _load_categories(self) -> None:
         """Load categories for the dropdown."""
-        try:
-            from modules.calendar_store import CalendarStoreRepository
+        async def fetch_categories():
+            try:
+                if not self.ATLAS:
+                    return []
+                
+                service = self.ATLAS.calendar_service
+                actor = self.ATLAS.get_current_actor()
+                result = await service.list_categories(actor)
+                
+                if result.is_success:
+                    return [
+                        {"id": str(c.id), "name": c.name, "color": c.color, "icon": c.icon}
+                        for c in result.data
+                    ]
+                else:
+                    logger.warning(f"Failed to load categories: {result.error}")
+                    return []
+            except Exception as exc:
+                logger.warning(f"Failed to load categories: {exc}")
+                return []
+        
+        async def update_ui():
+            self._categories = await fetch_categories()
+            
+            # Populate dropdown
+            model = Gtk.StringList()
+            default_idx = 0
 
-            session_factory = self._get_session_factory()
-            if session_factory:
-                repo = CalendarStoreRepository(session_factory)
-                self._categories = [
-                    {"id": str(c.id), "name": c.name, "color": c.color, "icon": c.icon}
-                    for c in repo.list_categories(visible_only=False)
-                ]
-        except Exception as exc:
-            logger.warning("Failed to load categories: %s", exc)
-            self._categories = []
+            for idx, cat in enumerate(self._categories):
+                icon = cat.get("icon", "")
+                label = f"{icon} {cat['name']}" if icon else cat["name"]
+                model.append(label)
 
-        # Populate dropdown
-        model = Gtk.StringList()
-        default_idx = 0
+                if self._default_category_id and cat["id"] == self._default_category_id:
+                    default_idx = idx
 
-        for idx, cat in enumerate(self._categories):
-            icon = cat.get("icon", "")
-            label = f"{icon} {cat['name']}" if icon else cat["name"]
-            model.append(label)
-
-            if self._default_category_id and cat["id"] == self._default_category_id:
-                default_idx = idx
-
-        if self._category_dropdown:
-            self._category_dropdown.set_model(model)
-            self._category_dropdown.set_selected(default_idx)
-
-    def _get_session_factory(self):
-        """Get database session factory from ATLAS services."""
-        if self.ATLAS and hasattr(self.ATLAS, "services"):
-            return self.ATLAS.services.get("db_session_factory")
-        return None
+            if self._category_dropdown:
+                self._category_dropdown.set_model(model)
+                self._category_dropdown.set_selected(default_idx)
+        
+        asyncio.create_task(update_ui())
 
     def _populate_from_event(self, event: Dict[str, Any]) -> None:
         """Populate form fields from existing event data."""

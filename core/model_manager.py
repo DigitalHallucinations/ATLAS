@@ -1,5 +1,3 @@
-# ATLAS/model_manager.py
-
 import threading
 import types
 from typing import Dict, List, Optional, Tuple

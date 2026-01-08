@@ -365,21 +365,70 @@ class CalendarWeekView(Gtk.Box):
 
     def _init_repository(self) -> None:
         """Initialize the calendar repository."""
-        try:
-            from modules.calendar_store import CalendarStoreRepository
+        # Service is accessed directly from ATLAS when needed
+        pass
 
-            session_factory = self._get_session_factory()
-            if session_factory:
-                self._repo = CalendarStoreRepository(session_factory)
-        except Exception as e:
-            logger.debug("Could not initialize calendar repository: %s", e)
+    def _load_events(self) -> None:
+        """Load events for the visible week."""
+        async def fetch_and_display():
+            if not self._atlas:
+                return
+                
+            try:
+                service = self._atlas.calendar_service
+                actor = self._atlas.get_current_actor()
+                
+                start_dt = datetime.combine(self._week_start, time.min)
+                end_dt = datetime.combine(self._week_start + timedelta(days=7), time.min)
 
-    def _get_session_factory(self) -> Any:
-        """Get session factory from ATLAS or config."""
-        if self._atlas and hasattr(self._atlas, "services"):
-            if "db_session" in self._atlas.services:
-                return self._atlas.services["db_session"]
-        return None
+                result = await service.get_events_in_range(
+                    actor,
+                    start_time=start_dt,
+                    end_time=end_dt
+                )
+                
+                if not result.is_success:
+                    logger.warning(f"Failed to load events: {result.error}")
+                    return
+                
+                events = result.data
+
+                # Group by date
+                events_by_date: Dict[date, List[Any]] = {}
+                for event in events:
+                    start_time = event.start_time
+                    if isinstance(start_time, datetime):
+                        event_date = start_time.date()
+                    else:
+                        continue
+
+                    if event_date not in events_by_date:
+                        events_by_date[event_date] = []
+
+                    # Convert to dict format for compatibility
+                    event_dict = {
+                        "id": str(event.event_id),
+                        "title": event.title,
+                        "start_time": event.start_time,
+                        "end_time": event.end_time,
+                        "is_all_day": event.all_day,
+                        "category_id": str(event.category_id) if event.category_id else None,
+                        "color": "#4285F4"  # Default color, category colors handled elsewhere
+                    }
+                    events_by_date[event_date].append(event_dict)
+
+                # Update columns on main thread
+                def update_columns():
+                    for col_date, column in self._day_columns.items():
+                        events = events_by_date.get(col_date, [])
+                        column.set_events(events)
+                
+                GLib.idle_add(update_columns)
+                
+            except Exception as e:
+                logger.error(f"Error loading events: {e}")
+        
+        asyncio.create_task(fetch_and_display())
 
     def _populate_columns(self) -> None:
         """Populate the week columns."""
@@ -412,46 +461,6 @@ class CalendarWeekView(Gtk.Box):
 
         # Load events
         self._load_events()
-
-    def _load_events(self) -> None:
-        """Load events for the visible week."""
-        if not self._repo:
-            return
-
-        try:
-            start_dt = datetime.combine(self._week_start, time.min)
-            end_dt = datetime.combine(self._week_start + timedelta(days=7), time.min)
-
-            events = self._repo.list_events(start=start_dt, end=end_dt)
-
-            # Group by date
-            events_by_date: Dict[date, List[Dict[str, Any]]] = {}
-            for event in events:
-                start_time = event.get("start_time")
-                if isinstance(start_time, datetime):
-                    event_date = start_time.date()
-                else:
-                    continue
-
-                if event_date not in events_by_date:
-                    events_by_date[event_date] = []
-
-                # Get category color
-                cat_id = event.get("category_id")
-                if cat_id:
-                    cat = self._repo.get_category(cat_id)
-                    if cat:
-                        event["color"] = cat.get("color", "#4285F4")
-
-                events_by_date[event_date].append(event)
-
-            # Update columns
-            for col_date, column in self._day_columns.items():
-                events = events_by_date.get(col_date, [])
-                column.set_events(events)
-
-        except Exception as e:
-            logger.warning("Failed to load week events: %s", e)
 
     def _navigate(self, delta_weeks: int) -> None:
         """Navigate by delta weeks."""

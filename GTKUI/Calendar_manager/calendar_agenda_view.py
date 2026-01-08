@@ -5,6 +5,7 @@ Displays events in a scrollable list grouped by date.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import date, datetime, time, timedelta
 from typing import Any, Callable, Dict, List, Optional
@@ -298,14 +299,8 @@ class CalendarAgendaView(Gtk.Box):
 
     def _init_repository(self) -> None:
         """Initialize repository."""
-        try:
-            from modules.calendar_store import CalendarStoreRepository
-
-            session_factory = self._get_session_factory()
-            if session_factory:
-                self._repo = CalendarStoreRepository(session_factory)
-        except Exception as e:
-            logger.debug("Could not initialize repository: %s", e)
+        # Service is accessed directly from ATLAS when needed
+        pass
 
     def _get_session_factory(self) -> Any:
         """Get session factory."""
