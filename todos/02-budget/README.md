@@ -21,7 +21,7 @@ Split `modules/budget/manager.py` (1338 lines) into three focused services:
 ## Architectural Decisions
 
 | Decision | Choice | Rationale |
-|----------|--------|-----------|
+| -------- | ------ | --------- |
 | Service structure | Split into 3 services | Current manager is too large (1338 lines) |
 | Facade pattern | Optional BudgetManager facade | Backwards compatibility if needed |
 | Alert evaluation | Background task | Don't block operations on alert checks |
@@ -93,7 +93,7 @@ Split `modules/budget/manager.py` (1338 lines) into three focused services:
 ## MessageBus Events
 
 | Event Type | Payload | Emitted By |
-|------------|---------|------------|
+| ---------- | ------- | ---------- |
 | `budget.policy_created` | `BudgetPolicyEvent` | BudgetPolicyService |
 | `budget.policy_updated` | `BudgetPolicyEvent` | BudgetPolicyService |
 | `budget.policy_deleted` | `BudgetPolicyEvent` | BudgetPolicyService |
@@ -109,7 +109,7 @@ Split `modules/budget/manager.py` (1338 lines) into three focused services:
 ## Files to Create
 
 | File | Purpose |
-|------|---------|
+| ---- | ------- |
 | `core/services/budget/__init__.py` | Package exports |
 | `core/services/budget/types.py` | Dataclasses, events |
 | `core/services/budget/permissions.py` | BudgetPermissionChecker |
@@ -124,7 +124,7 @@ Split `modules/budget/manager.py` (1338 lines) into three focused services:
 ## Files to Modify
 
 | File | Changes |
-|------|---------|
+| ---- | ------- |
 | `core/services/__init__.py` | Export budget services |
 | `core/ATLAS.py` | Add budget service properties |
 | `modules/budget/manager.py` | Deprecate, delegate to services |
@@ -156,8 +156,8 @@ Split `modules/budget/manager.py` (1338 lines) into three focused services:
 ## Open Questions
 
 | Question | Options | Decision |
-|----------|---------|----------|
-| Should budget checks block LLM calls? | Block / Warn only / Configurable | TBD |
-| Alert evaluation frequency? | 1 min / 5 min / On usage only | TBD |
-| Support for budget rollover? | Yes with config / No | TBD |
-| Multi-tenant budget isolation? | Strict / Shared pools | TBD |
+| -------- | ------- | -------- |
+| Should budget checks block LLM calls? | Block / Warn only / Configurable | **Configurable** - per-policy `hard_limit_action` with defaults and notifications |
+| Alert evaluation frequency? | 1 min / 5 min / On usage only | **On usage only** for Phase 1; background evaluation in Phase 3 |
+| Support for budget rollover? | Yes with config / No | **Yes with config** - preserve existing `rollover_enabled` / `rollover_max_percent` |
+| Multi-tenant budget isolation? | Strict / Shared pools | **Strict by default** - `BudgetPermissionChecker` enforces `policy.scope_id == actor.tenant_id` |

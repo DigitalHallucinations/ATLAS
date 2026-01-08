@@ -1,6 +1,6 @@
 # ATLAS Todo Index
 
-> **Last Updated**: 2026-01-07
+> **Last Updated**: 2026-01-08
 
 This directory contains all planning documents for ATLAS development, organized by domain.
 
@@ -39,6 +39,11 @@ This directory contains all planning documents for ATLAS development, organized 
 
 - [30-observability/](30-observability/) - Telemetry, tracing, metrics
 - [31-mcp/](31-mcp/) - Model Context Protocol integration
+
+### 🔐 Security
+
+- [32-authentication/](32-authentication/) - **NEW** Argon2id, MFA (TOTP/WebAuthn), sessions, OAuth2/OIDC federation
+- [33-security/](33-security/) - **NEW** Crypto services, secrets management, agentic AI security, RBAC/policy engine
 
 ### 📋 Cleanup & Documentation
 
@@ -83,7 +88,12 @@ This directory contains all planning documents for ATLAS development, organized 
 2. `22-guardrails/` - Safety layer
 3. `23-planning/` - Agent enhancement
 
-### Phase 5: Finalization (Week 11-12)
+### Phase 5: Security Hardening (Week 11-13)
+
+1. `32-authentication/` - MFA, session management, federation
+2. `33-security/` - Crypto, secrets, agentic security, RBAC
+
+### Phase 6: Finalization (Week 13-14)
 
 1. `30-observability/` - Telemetry consolidation
 2. `31-mcp/` - External tool protocol
@@ -114,9 +124,11 @@ This directory contains all planning documents for ATLAS development, organized 
 | 23-planning | Medium | 4-5 days |
 | 30-observability | Low | 2-3 days |
 | 31-mcp | Medium | 3-4 days |
+| 32-authentication | High | 1-2 weeks |
+| 33-security | High | 2-3 weeks |
 | 99-cleanup | Low | 2-3 days |
 
-**Total Estimated**: 10-14 weeks
+**Total Estimated**: 14-18 weeks
 
 ---
 

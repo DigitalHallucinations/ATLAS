@@ -4,6 +4,7 @@ High-level service facades that coordinate multiple subsystems:
 - RAGService: Retrieval-Augmented Generation pipeline
 - CalendarEventService: Calendar event management
 - NotificationService: Notification delivery
+- BudgetPolicyService: Budget policy management and enforcement
 - ConversationService: Conversation management (future)
 - ProviderService: LLM provider orchestration (future)
 
@@ -14,6 +15,23 @@ from core.services.rag import RAGService, RAGServiceStatus
 
 # Calendar services
 from core.services.calendar import CalendarEventService, CalendarPermissionChecker
+
+# Budget services
+from core.services.budget import (
+    BudgetPolicyService,
+    BudgetPermissionChecker,
+    BudgetPolicyCreated,
+    BudgetPolicyUpdated,
+    BudgetPolicyDeleted,
+    BudgetCheckRequest,
+    BudgetCheckResponse,
+    BudgetPolicyCreate,
+    BudgetPolicyUpdate,
+    BudgetError,
+    BudgetPolicyNotFoundError,
+    BudgetExceededError,
+    BudgetValidationError,
+)
 
 # Notification services
 from core.services.notifications import (
@@ -53,6 +71,21 @@ __all__ = [
     # Calendar services
     "CalendarEventService",
     "CalendarPermissionChecker",
+    
+    # Budget services
+    "BudgetPolicyService",
+    "BudgetPermissionChecker",
+    "BudgetPolicyCreated",
+    "BudgetPolicyUpdated",
+    "BudgetPolicyDeleted",
+    "BudgetCheckRequest",
+    "BudgetCheckResponse",
+    "BudgetPolicyCreate",
+    "BudgetPolicyUpdate",
+    "BudgetError",
+    "BudgetPolicyNotFoundError",
+    "BudgetExceededError",
+    "BudgetValidationError",
     
     # Notification services
     "NotificationService",

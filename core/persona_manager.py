@@ -4,7 +4,7 @@ import os
 import json
 import copy
 from collections.abc import Iterable as IterableABC, Mapping as MappingABC
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 from modules.user_accounts.user_data_manager import UserDataManager
 from core.config import ConfigManager
 from modules.logging.logger import setup_logger
@@ -50,10 +50,10 @@ class PersonaManager:
         self.user_data_manager = UserDataManager(self.user)
         self.persona_base_path = os.path.join(os.path.dirname(__file__), '..', 'modules', 'Personas')
         self.persona_names: List[str] = self.load_persona_names(self.persona_base_path)
-        self.personas: Dict[str, dict] = {}  # Cache for loaded personas
+        self.personas: Dict[str, Any] = {}  # Cache for loaded personas
         self.default_persona_name = "ATLAS"
         self.current_persona = None
-        self.current_system_prompt = None
+        self.current_system_prompt: Optional[str] = None
         self._tool_metadata_cache: Optional[Tuple[List[str], Dict[str, Any]]] = None
         self._skill_metadata_cache: Optional[Tuple[List[str], Dict[str, Any]]] = None
 
@@ -112,7 +112,7 @@ class PersonaManager:
             self._skill_metadata_cache = (order, lookup)
         return self._skill_metadata_cache
 
-    def load_persona(self, persona_name: str) -> Optional[dict]:
+    def load_persona(self, persona_name: str) -> Optional[Any]:
         """
         Load a single persona from its respective folder.
 
@@ -120,7 +120,7 @@ class PersonaManager:
             persona_name (str): The name of the persona to load.
 
         Returns:
-            dict: The loaded persona data, or None if loading fails.
+            The loaded persona data, or None if loading fails.
         """
         if persona_name in self.personas:  # Check cache first
             self.logger.debug("Persona '%s' retrieved from cache.", persona_name)
@@ -1024,14 +1024,17 @@ class PersonaManager:
             self.set_provider_defaults(current_name, provider_name, model_name),
             "Failed to update provider defaults.",
         )
-        _apply_result(
-            self.set_speech_defaults(
-                current_name,
-                speech.get('Speech_provider'),
-                speech.get('voice'),
-            ),
-            "Failed to update speech defaults.",
-        )
+        speech_provider = speech.get('Speech_provider')
+        voice = speech.get('voice')
+        if speech_provider is not None and voice is not None:
+            _apply_result(
+                self.set_speech_defaults(
+                    current_name,
+                    speech_provider,
+                    voice,
+                ),
+                "Failed to update speech defaults.",
+            )
 
         if tools is not None:
             _apply_result(
@@ -1068,4 +1071,4 @@ class PersonaManager:
 
     def get_current_persona_prompt(self) -> str:
         """Returns the current persona's system prompt."""
-        return self.current_system_prompt
+        return self.current_system_prompt or ""

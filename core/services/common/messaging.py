@@ -57,6 +57,18 @@ DOMAIN_EVENT_CHANNELS: Dict[str, str] = {
     "skill.completed": SKILL_ACTIVITY.name,
     "skill.failed": SKILL_ACTIVITY.name,
     
+    # Budget events
+    "budget.policy_created": BLACKBOARD_EVENT.name,
+    "budget.policy_updated": BLACKBOARD_EVENT.name,
+    "budget.policy_deleted": BLACKBOARD_EVENT.name,
+    "budget.check_requested": BLACKBOARD_EVENT.name,
+    "budget.usage_recorded": BLACKBOARD_EVENT.name,
+    "budget.threshold_reached": BLACKBOARD_EVENT.name,
+    "budget.alert_triggered": BLACKBOARD_EVENT.name,
+    "budget.alert_acknowledged": BLACKBOARD_EVENT.name,
+    "budget.limit_exceeded": BLACKBOARD_EVENT.name,
+    "budget.approaching_limit": BLACKBOARD_EVENT.name,
+    
     # Generic service events (default to blackboard channel)
     "entity.created": BLACKBOARD_EVENT.name,
     "entity.updated": BLACKBOARD_EVENT.name,
