@@ -3,6 +3,7 @@
 High-level service facades that coordinate multiple subsystems:
 - RAGService: Retrieval-Augmented Generation pipeline
 - CalendarEventService: Calendar event management
+- NotificationService: Notification delivery
 - ConversationService: Conversation management (future)
 - ProviderService: LLM provider orchestration (future)
 
@@ -13,6 +14,14 @@ from core.services.rag import RAGService, RAGServiceStatus
 
 # Calendar services
 from core.services.calendar import CalendarEventService, CalendarPermissionChecker
+
+# Notification services
+from core.services.notifications import (
+    NotificationService,
+    DesktopNotificationService,
+    DummyNotificationService,
+    CompositeNotificationService,
+)
 
 # Re-export common service types for convenient access
 from core.services.common import (
@@ -44,6 +53,12 @@ __all__ = [
     # Calendar services
     "CalendarEventService",
     "CalendarPermissionChecker",
+    
+    # Notification services
+    "NotificationService",
+    "DesktopNotificationService",
+    "DummyNotificationService",
+    "CompositeNotificationService",
     
     # Common types (most frequently used)
     "OperationResult",

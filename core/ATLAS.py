@@ -1016,9 +1016,19 @@ class ATLAS:
             permission_checker = CalendarPermissionChecker()
             event_publisher = create_domain_event_publisher(self.message_bus)
             
-            # Note: NotificationService would be injected here once available
-            from core.services.calendar.reminder_service import DummyNotificationService
-            notification_service = DummyNotificationService()
+            # Use real notification service with fallback to dummy
+            from core.services.notifications import (
+                DesktopNotificationService,
+                DummyNotificationService,
+            )
+            try:
+                notification_service = DesktopNotificationService(
+                    app_name="ATLAS",
+                    use_fallback=True,  # Fall back to notify-send if Gio unavailable
+                )
+            except Exception as e:
+                self.logger.warning(f"Desktop notifications unavailable: {e}")
+                notification_service = DummyNotificationService()
             
             self._reminder_service = ReminderService(
                 repository=calendar_repo,

@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
-from datetime import datetime
-from typing import Any, Dict, List, Optional
+from datetime import datetime, timezone
+from typing import Any, Callable, Dict, List, Optional
 
 import gi
 
@@ -12,6 +13,27 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import GLib, Gtk
 
 logger = logging.getLogger(__name__)
+
+
+def _run_async(coro: Any, callback: Optional[Callable[[Any], None]] = None) -> None:
+    """Run an async coroutine from GTK context."""
+    def run():
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            result = loop.run_until_complete(coro)
+            if callback:
+                GLib.idle_add(callback, result)
+        except Exception as e:
+            logger.error("Async operation failed: %s", e)
+            if callback:
+                GLib.idle_add(callback, e)
+        finally:
+            loop.close()
+    
+    import threading
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
 
 
 class SyncStatusPanel(Gtk.Box):
@@ -23,6 +45,8 @@ class SyncStatusPanel(Gtk.Box):
         self._parent = parent_window
         self._status_data: Dict[str, dict] = {}
         self._row_widgets: Dict[str, Dict[str, Gtk.Widget]] = {}
+        self._sync_service: Optional[Any] = None
+        self._event_subscriptions: List[Any] = []
 
         self.set_margin_top(12)
         self.set_margin_bottom(12)
@@ -30,6 +54,8 @@ class SyncStatusPanel(Gtk.Box):
         self.set_margin_end(12)
 
         self._build_ui()
+        self._setup_sync_service()
+        self._subscribe_to_events()
         self._load_status()
 
     def _build_ui(self) -> None:
@@ -101,8 +127,213 @@ class SyncStatusPanel(Gtk.Box):
         error_scroll.set_child(self._error_list)
         self.append(error_scroll)
 
+    def _setup_sync_service(self) -> None:
+        """Set up CalendarSyncService if available."""
+        try:
+            # Try to get sync service from ATLAS
+            if hasattr(self.ATLAS, "calendar_sync_service"):
+                self._sync_service = self.ATLAS.calendar_sync_service
+                logger.debug("Using ATLAS calendar sync service")
+            elif hasattr(self.ATLAS, "services") and hasattr(self.ATLAS.services, "calendar_sync"):
+                self._sync_service = self.ATLAS.services.calendar_sync
+                logger.debug("Using ATLAS services calendar sync")
+            else:
+                # Try to create one if we have a repository
+                self._try_create_sync_service()
+        except Exception as e:
+            logger.warning("Could not set up sync service: %s", e)
+            self._sync_service = None
+
+    def _try_create_sync_service(self) -> None:
+        """Attempt to create a sync service from available components."""
+        try:
+            from core.services.calendar import create_sync_service
+            
+            # Get repository from ATLAS or calendar store
+            repository = None
+            if hasattr(self.ATLAS, "calendar_repository"):
+                repository = self.ATLAS.calendar_repository
+            elif hasattr(self.ATLAS, "modules"):
+                calendar_store = self.ATLAS.modules.get("calendar_store")
+                if calendar_store and hasattr(calendar_store, "repository"):
+                    repository = calendar_store.repository
+                    
+            if repository:
+                self._sync_service = create_sync_service(repository=repository)
+                logger.info("Created CalendarSyncService")
+        except ImportError:
+            logger.debug("CalendarSyncService not available")
+        except Exception as e:
+            logger.debug("Could not create sync service: %s", e)
+
+    def _subscribe_to_events(self) -> None:
+        """Subscribe to sync domain events for reactive updates."""
+        if not hasattr(self.ATLAS, "message_bus"):
+            return
+            
+        try:
+            # Subscribe to sync events
+            self._event_subscriptions.append(
+                self.ATLAS.message_bus.subscribe(
+                    "CalendarSyncCompleted",
+                    self._on_sync_event
+                )
+            )
+            self._event_subscriptions.append(
+                self.ATLAS.message_bus.subscribe(
+                    "CalendarSyncFailed",
+                    self._on_sync_event
+                )
+            )
+            self._event_subscriptions.append(
+                self.ATLAS.message_bus.subscribe(
+                    "CalendarSyncProgress",
+                    self._on_sync_progress_event
+                )
+            )
+            logger.debug("Subscribed to sync events")
+        except Exception as e:
+            logger.warning("Could not subscribe to sync events: %s", e)
+
+    def _on_sync_event(self, event: Any) -> None:
+        """Handle sync completed or failed events."""
+        GLib.idle_add(self._load_status)
+
+    def _on_sync_progress_event(self, event: Any) -> None:
+        """Handle sync progress events."""
+        # Update progress indicator if available
+        try:
+            sync_id = getattr(event, "sync_id", None)
+            if sync_id and sync_id in self._row_widgets:
+                widgets = self._row_widgets[sync_id]
+                percent = getattr(event, "percent", 0)
+                # Could update a progress bar here
+                logger.debug("Sync %s progress: %.0f%%", sync_id, percent)
+        except Exception as e:
+            logger.debug("Error handling progress event: %s", e)
+
     def _load_status(self) -> None:
-        """Load sync status from registry."""
+        """Load sync status from service or fallback to registry."""
+        # Try using CalendarSyncService first
+        if self._sync_service:
+            self._load_status_from_service()
+        else:
+            self._load_status_from_registry()
+
+    def _load_status_from_service(self) -> None:
+        """Load sync status using CalendarSyncService."""
+        try:
+            from core.services.common import Actor
+            
+            # Get actor from ATLAS context
+            actor = self._get_current_actor()
+            
+            async def fetch_providers():
+                result = await self._sync_service.list_providers(actor)
+                return result
+            
+            def on_providers_loaded(result):
+                if isinstance(result, Exception):
+                    logger.error("Failed to load providers: %s", result)
+                    self._show_empty_state(f"Error: {result}")
+                    return
+                    
+                if not result.success:
+                    logger.error("Failed to load providers: %s", result.error)
+                    self._show_empty_state(f"Error: {result.error}")
+                    return
+                
+                providers = result.value or []
+                self._status_data = {}
+                
+                for provider_info in providers:
+                    name = provider_info.provider_type
+                    self._status_data[name] = {
+                        "display_name": provider_info.display_name,
+                        "backend_type": provider_info.provider_type,
+                        "write_enabled": not getattr(provider_info, "read_only", True),
+                        "last_sync": None,  # Will be updated from sync history
+                        "sync_error": None,
+                        "event_count": 0,
+                        "supports_push": provider_info.supports_push,
+                        "supports_incremental": provider_info.supports_incremental,
+                    }
+                
+                self._update_display()
+                # Also fetch sync history for last sync times
+                self._fetch_sync_history()
+            
+            _run_async(fetch_providers(), on_providers_loaded)
+            
+        except Exception as e:
+            logger.error("Failed to load status from service: %s", e)
+            self._load_status_from_registry()
+
+    def _fetch_sync_history(self) -> None:
+        """Fetch recent sync history to get last sync times."""
+        if not self._sync_service:
+            return
+            
+        try:
+            actor = self._get_current_actor()
+            
+            async def fetch_history():
+                result = await self._sync_service.get_sync_history(actor, limit=20)
+                return result
+            
+            def on_history_loaded(result):
+                if isinstance(result, Exception) or not result.success:
+                    return
+                    
+                history = result.value or []
+                # Update status_data with last sync times
+                for sync_result in history:
+                    provider = sync_result.provider_type
+                    if provider in self._status_data:
+                        existing_sync = self._status_data[provider].get("last_sync")
+                        if existing_sync is None or (
+                            sync_result.completed_at and 
+                            sync_result.completed_at > existing_sync
+                        ):
+                            self._status_data[provider]["last_sync"] = sync_result.completed_at
+                            if sync_result.status.value == "failed":
+                                self._status_data[provider]["sync_error"] = (
+                                    sync_result.errors[0] if sync_result.errors else "Unknown error"
+                                )
+                            else:
+                                self._status_data[provider]["sync_error"] = None
+                
+                self._update_display()
+            
+            _run_async(fetch_history(), on_history_loaded)
+            
+        except Exception as e:
+            logger.debug("Could not fetch sync history: %s", e)
+
+    def _get_current_actor(self) -> Any:
+        """Get the current actor for service calls."""
+        from core.services.common import Actor
+        
+        # Try to get user from ATLAS context
+        actor_id = "system"
+        tenant_id = "default"
+        
+        if hasattr(self.ATLAS, "current_user"):
+            user = self.ATLAS.current_user
+            if hasattr(user, "id"):
+                actor_id = str(user.id)
+            if hasattr(user, "tenant_id"):
+                tenant_id = str(user.tenant_id)
+        
+        return Actor(
+            type="user",
+            id=actor_id,
+            tenant_id=tenant_id,
+            permissions=["calendar:sync", "calendar:read"],
+        )
+
+    def _load_status_from_registry(self) -> None:
+        """Fallback: Load sync status from CalendarProviderRegistry."""
         try:
             from modules.Tools.Base_Tools.calendar import CalendarProviderRegistry
 
@@ -351,6 +582,49 @@ class SyncStatusPanel(Gtk.Box):
         button.set_sensitive(False)
         button.set_icon_name("content-loading-symbolic")
 
+        # Try using sync service first
+        if self._sync_service:
+            self._sync_with_service(name, button)
+        else:
+            self._sync_with_registry(name, button)
+
+    def _sync_with_service(self, name: str, button: Gtk.Button) -> None:
+        """Sync using CalendarSyncService."""
+        try:
+            from core.services.calendar import SyncConfiguration, SyncDirection
+            
+            actor = self._get_current_actor()
+            
+            # Create sync configuration
+            config = SyncConfiguration(
+                provider_type=name,
+                account_name=name,
+                calendar_id="default",
+                config={},
+                direction=SyncDirection.IMPORT,
+            )
+            
+            async def do_sync():
+                result = await self._sync_service.start_sync(actor, config)
+                return result
+            
+            def on_sync_result(result):
+                if isinstance(result, Exception):
+                    GLib.idle_add(self._sync_complete, name, str(result))
+                elif result.success:
+                    GLib.idle_add(self._sync_complete, name, None)
+                else:
+                    GLib.idle_add(self._sync_complete, name, result.error)
+            
+            _run_async(do_sync(), on_sync_result)
+            
+        except Exception as e:
+            logger.error("Service sync failed for %s: %s", name, e)
+            # Fall back to registry sync
+            self._sync_with_registry(name, button)
+
+    def _sync_with_registry(self, name: str, button: Gtk.Button) -> None:
+        """Fallback: Sync using CalendarProviderRegistry."""
         def do_sync():
             try:
                 from modules.Tools.Base_Tools.calendar import CalendarProviderRegistry
@@ -385,12 +659,12 @@ class SyncStatusPanel(Gtk.Box):
             if error:
                 self._status_data[name]["sync_error"] = error
             else:
-                self._status_data[name]["last_sync"] = datetime.now()
+                self._status_data[name]["last_sync"] = datetime.now(timezone.utc)
                 self._status_data[name]["sync_error"] = None
 
         self._update_display()
 
-        # Notify via message bus
+        # Notify via message bus (domain events are already published by service)
         if hasattr(self.ATLAS, "message_bus"):
             self.ATLAS.message_bus.publish(
                 "CALENDAR_SYNC",
@@ -401,6 +675,47 @@ class SyncStatusPanel(Gtk.Box):
         """Handle sync all button click."""
         button.set_sensitive(False)
 
+        # Try using sync service first
+        if self._sync_service:
+            self._sync_all_with_service(button)
+        else:
+            self._sync_all_with_registry(button)
+
+    def _sync_all_with_service(self, button: Gtk.Button) -> None:
+        """Sync all calendars using CalendarSyncService."""
+        try:
+            from core.services.calendar import SyncConfiguration, SyncDirection
+            
+            actor = self._get_current_actor()
+            
+            async def do_sync_all():
+                results = []
+                for name in self._status_data.keys():
+                    config = SyncConfiguration(
+                        provider_type=name,
+                        account_name=name,
+                        calendar_id="default",
+                        config={},
+                        direction=SyncDirection.IMPORT,
+                    )
+                    try:
+                        result = await self._sync_service.start_sync(actor, config)
+                        results.append((name, result))
+                    except Exception as e:
+                        logger.error("Failed to sync %s: %s", name, e)
+                return results
+            
+            def on_all_complete(results):
+                GLib.idle_add(self._sync_all_complete, button)
+            
+            _run_async(do_sync_all(), on_all_complete)
+            
+        except Exception as e:
+            logger.error("Service sync all failed: %s", e)
+            self._sync_all_with_registry(button)
+
+    def _sync_all_with_registry(self, button: Gtk.Button) -> None:
+        """Fallback: Sync all using CalendarProviderRegistry."""
         def do_sync_all():
             try:
                 from modules.Tools.Base_Tools.calendar import CalendarProviderRegistry

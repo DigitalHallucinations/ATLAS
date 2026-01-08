@@ -33,6 +33,13 @@ from .models import (
     CalendarSyncStateModel,
     ensure_calendar_schema,
 )
+from .link_models import (
+    JobEventLink,
+    TaskEventLink,
+    LinkType,
+    SyncBehavior,
+    ensure_link_schema,
+)
 from .dataclasses import (
     Attendee,
     CalendarReminder,
@@ -270,6 +277,7 @@ class CalendarStoreRepository(BaseStoreRepository):
 
     def _ensure_additional_schema(self, engine: Any) -> None:
         ensure_calendar_schema(engine)
+        ensure_link_schema(engine)
 
     # ========================================================================
     # Category operations
@@ -1158,6 +1166,346 @@ class CalendarStoreRepository(BaseStoreRepository):
             session.refresh(state)
             return _serialize_sync_state(state)
 
+    # ========================================================================
+    # Job/Task Link operations
+    # ========================================================================
+
+    def create_job_link(
+        self,
+        *,
+        event_id: Any,
+        job_id: Any,
+        link_type: LinkType = LinkType.AUTO_CREATED,
+        sync_behavior: SyncBehavior = SyncBehavior.FROM_SOURCE,
+        notes: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        created_by: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Create a link between a calendar event and a job.
+
+        Parameters
+        ----------
+        event_id
+            The calendar event ID
+        job_id
+            The job ID
+        link_type
+            Type of link relationship
+        sync_behavior
+            How changes should propagate
+        notes
+            Optional description of the link
+        metadata
+            Additional link metadata
+        created_by
+            User ID or 'system' who created the link
+
+        Returns
+        -------
+        Serialized link dictionary
+        """
+        event_uuid = _coerce_uuid(event_id)
+        job_uuid = _coerce_uuid(job_id)
+
+        if event_uuid is None:
+            raise EventNotFoundError("Invalid event identifier")
+
+        with self._session_scope() as session:
+            # Verify event exists
+            event = session.get(CalendarEventModel, event_uuid)
+            if event is None:
+                raise EventNotFoundError(f"Event {event_id} not found")
+
+            link = JobEventLink(
+                event_id=event_uuid,
+                job_id=job_uuid,
+                link_type=link_type,
+                sync_behavior=sync_behavior,
+                notes=notes,
+                meta=metadata or {},
+                created_by=created_by,
+            )
+            session.add(link)
+            session.flush()
+            session.refresh(link)
+            return _serialize_job_link(link)
+
+    def create_task_link(
+        self,
+        *,
+        event_id: Any,
+        task_id: Any,
+        link_type: LinkType = LinkType.AUTO_CREATED,
+        sync_behavior: SyncBehavior = SyncBehavior.FROM_SOURCE,
+        notes: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        created_by: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Create a link between a calendar event and a task.
+
+        Parameters
+        ----------
+        event_id
+            The calendar event ID
+        task_id
+            The task ID
+        link_type
+            Type of link relationship
+        sync_behavior
+            How changes should propagate
+        notes
+            Optional description of the link
+        metadata
+            Additional link metadata
+        created_by
+            User ID or 'system' who created the link
+
+        Returns
+        -------
+        Serialized link dictionary
+        """
+        event_uuid = _coerce_uuid(event_id)
+        task_uuid = _coerce_uuid(task_id)
+
+        if event_uuid is None:
+            raise EventNotFoundError("Invalid event identifier")
+
+        with self._session_scope() as session:
+            # Verify event exists
+            event = session.get(CalendarEventModel, event_uuid)
+            if event is None:
+                raise EventNotFoundError(f"Event {event_id} not found")
+
+            link = TaskEventLink(
+                event_id=event_uuid,
+                task_id=task_uuid,
+                link_type=link_type,
+                sync_behavior=sync_behavior,
+                notes=notes,
+                meta=metadata or {},
+                created_by=created_by,
+            )
+            session.add(link)
+            session.flush()
+            session.refresh(link)
+            return _serialize_task_link(link)
+
+    def get_job_links_for_event(self, event_id: Any) -> List[Dict[str, Any]]:
+        """Get all job links for a calendar event."""
+        event_uuid = _coerce_uuid(event_id)
+        if event_uuid is None:
+            return []
+
+        with self._session_scope() as session:
+            links = (
+                session.query(JobEventLink)
+                .filter(JobEventLink.event_id == event_uuid)
+                .all()
+            )
+            return [_serialize_job_link(link) for link in links]
+
+    def get_task_links_for_event(self, event_id: Any) -> List[Dict[str, Any]]:
+        """Get all task links for a calendar event."""
+        event_uuid = _coerce_uuid(event_id)
+        if event_uuid is None:
+            return []
+
+        with self._session_scope() as session:
+            links = (
+                session.query(TaskEventLink)
+                .filter(TaskEventLink.event_id == event_uuid)
+                .all()
+            )
+            return [_serialize_task_link(link) for link in links]
+
+    def get_events_for_job(self, job_id: Any) -> List[Dict[str, Any]]:
+        """Get all calendar events linked to a job."""
+        job_uuid = _coerce_uuid(job_id)
+        if job_uuid is None:
+            return []
+
+        with self._session_scope() as session:
+            links = (
+                session.query(JobEventLink)
+                .options(joinedload(JobEventLink.event))
+                .filter(JobEventLink.job_id == job_uuid)
+                .all()
+            )
+            return [_serialize_event(link.event) for link in links if link.event]
+
+    def get_events_for_task(self, task_id: Any) -> List[Dict[str, Any]]:
+        """Get all calendar events linked to a task."""
+        task_uuid = _coerce_uuid(task_id)
+        if task_uuid is None:
+            return []
+
+        with self._session_scope() as session:
+            links = (
+                session.query(TaskEventLink)
+                .options(joinedload(TaskEventLink.event))
+                .filter(TaskEventLink.task_id == task_uuid)
+                .all()
+            )
+            return [_serialize_event(link.event) for link in links if link.event]
+
+    def delete_job_link(
+        self,
+        event_id: Any,
+        job_id: Any,
+    ) -> bool:
+        """Delete a job link by event and job ID.
+
+        Returns
+        -------
+        True if the link was deleted, False if it didn't exist
+        """
+        event_uuid = _coerce_uuid(event_id)
+        job_uuid = _coerce_uuid(job_id)
+
+        if event_uuid is None or job_uuid is None:
+            return False
+
+        with self._session_scope() as session:
+            link = (
+                session.query(JobEventLink)
+                .filter(
+                    JobEventLink.event_id == event_uuid,
+                    JobEventLink.job_id == job_uuid,
+                )
+                .first()
+            )
+            if link is None:
+                return False
+
+            session.delete(link)
+            return True
+
+    def delete_task_link(
+        self,
+        event_id: Any,
+        task_id: Any,
+    ) -> bool:
+        """Delete a task link by event and task ID.
+
+        Returns
+        -------
+        True if the link was deleted, False if it didn't exist
+        """
+        event_uuid = _coerce_uuid(event_id)
+        task_uuid = _coerce_uuid(task_id)
+
+        if event_uuid is None or task_uuid is None:
+            return False
+
+        with self._session_scope() as session:
+            link = (
+                session.query(TaskEventLink)
+                .filter(
+                    TaskEventLink.event_id == event_uuid,
+                    TaskEventLink.task_id == task_uuid,
+                )
+                .first()
+            )
+            if link is None:
+                return False
+
+            session.delete(link)
+            return True
+
+    def delete_all_job_links_for_event(self, event_id: Any) -> int:
+        """Delete all job links for an event.
+
+        Returns
+        -------
+        Number of links deleted
+        """
+        event_uuid = _coerce_uuid(event_id)
+        if event_uuid is None:
+            return 0
+
+        with self._session_scope() as session:
+            count = (
+                session.query(JobEventLink)
+                .filter(JobEventLink.event_id == event_uuid)
+                .delete()
+            )
+            return count
+
+    def delete_all_task_links_for_event(self, event_id: Any) -> int:
+        """Delete all task links for an event.
+
+        Returns
+        -------
+        Number of links deleted
+        """
+        event_uuid = _coerce_uuid(event_id)
+        if event_uuid is None:
+            return 0
+
+        with self._session_scope() as session:
+            count = (
+                session.query(TaskEventLink)
+                .filter(TaskEventLink.event_id == event_uuid)
+                .delete()
+            )
+            return count
+
+    def get_links_with_sync_behavior(
+        self,
+        sync_behavior: SyncBehavior,
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """Get all links with a specific sync behavior.
+
+        Returns
+        -------
+        Dictionary with 'job_links' and 'task_links' keys
+        """
+        with self._session_scope() as session:
+            job_links = (
+                session.query(JobEventLink)
+                .filter(JobEventLink.sync_behavior == sync_behavior)
+                .all()
+            )
+            task_links = (
+                session.query(TaskEventLink)
+                .filter(TaskEventLink.sync_behavior == sync_behavior)
+                .all()
+            )
+            return {
+                "job_links": [_serialize_job_link(link) for link in job_links],
+                "task_links": [_serialize_task_link(link) for link in task_links],
+            }
+
+
+def _serialize_job_link(link: JobEventLink) -> Dict[str, Any]:
+    """Serialize a JobEventLink to a dictionary."""
+    return {
+        "id": str(link.id),
+        "event_id": str(link.event_id),
+        "job_id": str(link.job_id),
+        "link_type": link.link_type.value,
+        "sync_behavior": link.sync_behavior.value,
+        "notes": link.notes,
+        "metadata": link.meta,
+        "created_at": _dt_to_iso(link.created_at),
+        "created_by": link.created_by,
+    }
+
+
+def _serialize_task_link(link: TaskEventLink) -> Dict[str, Any]:
+    """Serialize a TaskEventLink to a dictionary."""
+    return {
+        "id": str(link.id),
+        "event_id": str(link.event_id),
+        "task_id": str(link.task_id),
+        "link_type": link.link_type.value,
+        "sync_behavior": link.sync_behavior.value,
+        "notes": link.notes,
+        "metadata": link.meta,
+        "created_at": _dt_to_iso(link.created_at),
+        "created_by": link.created_by,
+    }
+
 
 __all__ = [
     # Exceptions
@@ -1168,4 +1516,7 @@ __all__ = [
     "ReadOnlyCategoryError",
     # Repository
     "CalendarStoreRepository",
+    # Link types (re-exported for convenience)
+    "LinkType",
+    "SyncBehavior",
 ]

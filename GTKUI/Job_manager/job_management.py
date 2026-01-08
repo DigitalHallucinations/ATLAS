@@ -7,7 +7,8 @@ import json
 import logging
 import types
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+from pathlib import Path
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple, cast
 
 import gi
 
@@ -80,11 +81,13 @@ class JobManagement:
         self._risk_box: Optional[Gtk.Widget] = None
         self._linked_tasks_box: Optional[Gtk.Widget] = None
         self._link_task_button: Optional[Gtk.Button] = None
+        self._linked_events_box: Optional[Gtk.Widget] = None
         self._escalation_box: Optional[Gtk.Widget] = None
         self._action_box: Optional[Gtk.Box] = None
         self._start_button: Optional[Gtk.Button] = None
         self._pause_button: Optional[Gtk.Button] = None
         self._rerun_button: Optional[Gtk.Button] = None
+        self._create_calendar_event_button: Optional[Gtk.Button] = None
         self._new_job_button: Optional[Gtk.Button] = None
         self._export_bundle_button: Optional[Gtk.Button] = None
         self._import_bundle_button: Optional[Gtk.Button] = None
@@ -264,6 +267,12 @@ class JobManagement:
         action_box.append(rerun_button)
         self._rerun_button = rerun_button
 
+        calendar_event_button = Gtk.Button(label="📅 Create Event")
+        calendar_event_button.set_tooltip_text("Create a calendar event for this job")
+        calendar_event_button.connect("clicked", self._on_create_calendar_event_clicked)
+        action_box.append(calendar_event_button)
+        self._create_calendar_event_button = calendar_event_button
+
         export_bundle_button = Gtk.Button(label="Export bundle")
         export_bundle_button.set_tooltip_text("Export this job definition to a signed bundle.")
         export_bundle_button.connect("clicked", self._on_export_job_bundle_clicked)
@@ -290,6 +299,7 @@ class JobManagement:
         self._schedule_box = self._add_badge_section(detail_panel, "Schedule")
         self._risk_box = self._add_badge_section(detail_panel, "SLA risk forecast")
         self._linked_tasks_box = self._add_linked_tasks_section(detail_panel)
+        self._linked_events_box = self._add_linked_events_section(detail_panel)
         self._escalation_box = self._add_badge_section(detail_panel, "Escalation policy")
 
         detail_panel.connect("destroy", lambda *_args: self._on_close_request())
@@ -512,6 +522,112 @@ class JobManagement:
         badge_container.set_visible(False)
         container.append(badge_container)
         return badge_container
+
+    def _add_linked_events_section(self, container: Gtk.Box) -> Gtk.Widget:
+        """Add linked calendar events section to job detail panel."""
+        header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+
+        header_label = Gtk.Label(label="Calendar Events")
+        header_label.set_xalign(0.0)
+        header_label.set_hexpand(True)
+        header_box.append(header_label)
+
+        container.append(header_box)
+
+        events_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        events_container.set_visible(False)
+        events_container.add_css_class("linked-events-container")
+        container.append(events_container)
+        return events_container
+
+    def _load_linked_events_for_job(self, job_id: str) -> None:
+        """Load calendar events linked to the current job."""
+        import asyncio
+
+        async def fetch_events():
+            try:
+                if not self.ATLAS:
+                    return []
+
+                service = self.ATLAS.calendar_service
+                actor = self.ATLAS.get_current_actor()
+                result = await service.get_events_for_job(actor, job_id)
+
+                if result.is_success:
+                    return result.value or []
+            except Exception as exc:
+                logger.warning(f"Failed to load events for job: {exc}")
+            return []
+
+        async def update_ui():
+            events = await fetch_events()
+            GLib.idle_add(self._display_linked_events, events)
+
+        asyncio.create_task(update_ui())
+
+    def _display_linked_events(self, events: List[Any]) -> bool:
+        """Display linked calendar events in the detail panel."""
+        container = self._linked_events_box
+        if container is None:
+            return True
+
+        # Clear existing children
+        while child := container.get_first_child():
+            container.remove(child)
+
+        if not events:
+            container.set_visible(False)
+            return True
+
+        container.set_visible(True)
+
+        for event in events[:5]:  # Show max 5 events
+            row = self._create_event_row(event)
+            container.append(row)
+
+        if len(events) > 5:
+            more_label = Gtk.Label(label=f"+{len(events) - 5} more events")
+            more_label.add_css_class("dim-label")
+            more_label.set_xalign(0)
+            container.append(more_label)
+
+        return True
+
+    def _create_event_row(self, event: Any) -> Gtk.Box:
+        """Create a row widget for a linked calendar event."""
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        row.set_margin_top(2)
+        row.set_margin_bottom(2)
+
+        # Calendar icon
+        icon = Gtk.Image.new_from_icon_name("x-office-calendar-symbolic")
+        icon.set_opacity(0.7)
+        row.append(icon)
+
+        # Event title
+        title = getattr(event, "title", None) or event.get("title", "Untitled") if isinstance(event, dict) else "Event"
+        title_label = Gtk.Label(label=str(title))
+        title_label.set_xalign(0)
+        title_label.set_hexpand(True)
+        title_label.set_ellipsize(3)  # PANGO_ELLIPSIZE_END
+        row.append(title_label)
+
+        # Date/time
+        start_time = getattr(event, "start_time", None) or (event.get("start_time") if isinstance(event, dict) else None)
+        if start_time:
+            from datetime import datetime
+            if isinstance(start_time, str):
+                try:
+                    start_time = datetime.fromisoformat(start_time)
+                except ValueError:
+                    start_time = None
+            if start_time:
+                time_text = start_time.strftime("%b %d, %H:%M")
+                time_label = Gtk.Label(label=time_text)
+                time_label.add_css_class("dim-label")
+                row.append(time_label)
+
+        return row
 
     # ------------------------------------------------------------------
     # Data loading and synchronization
@@ -979,6 +1095,8 @@ class JobManagement:
             sync_badge_section(self._risk_box, [])
             sync_badge_section(self._linked_tasks_box, [])
             sync_badge_section(self._escalation_box, [])
+            if self._linked_events_box:
+                self._linked_events_box.set_visible(False)
             self._current_schedule_badges = []
             self._current_risk_badges = []
             self._current_linked_task_badges = []
@@ -1121,6 +1239,9 @@ class JobManagement:
 
         self._update_action_buttons(entry)
 
+        # Load linked calendar events
+        self._load_linked_events_for_job(entry.job_id)
+
     def _load_job_detail(self, entry: _JobEntry) -> Tuple[Mapping[str, Any], List[Mapping[str, Any]]]:
         server = getattr(self.ATLAS, "server", None)
         get_job = getattr(server, "get_job", None)
@@ -1233,12 +1354,16 @@ class JobManagement:
         start = self._start_button
         pause = self._pause_button
         rerun = self._rerun_button
+        calendar_btn = self._create_calendar_event_button
         export_button = self._export_bundle_button
         import_button = self._import_bundle_button
         for button in (start, pause, rerun):
             if button is not None:
                 button.set_visible(False)
                 button.set_sensitive(False)
+        if calendar_btn is not None:
+            calendar_btn.set_visible(entry is not None)
+            calendar_btn.set_sensitive(entry is not None)
         if export_button is not None:
             export_button.set_visible(entry is not None)
             export_button.set_sensitive(entry is not None)
@@ -1340,6 +1465,94 @@ class JobManagement:
 
     def _on_rerun_clicked(self, _button: Gtk.Button) -> None:
         self._trigger_action("rerun")
+
+    def _on_create_calendar_event_clicked(self, _button: Gtk.Button) -> None:
+        """Create a calendar event for the selected job."""
+        entry = self._entry_lookup.get(self._active_job) if self._active_job else None
+        if entry is None:
+            return
+
+        try:
+            from GTKUI.Calendar_manager.event_dialog import EventDialog
+            from datetime import datetime, timedelta
+
+            # Pre-populate event data from job
+            now = datetime.now()
+            default_start = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+
+            # Create event dialog with job context
+            dialog = EventDialog(
+                parent=self.parent_window,
+                atlas=self.ATLAS,
+                mode="add",
+                default_start=default_start,
+            )
+
+            # Pre-fill title and description from job
+            if hasattr(dialog, "_title_entry") and dialog._title_entry:
+                dialog._title_entry.set_text(f"Job: {entry.name}")
+            if hasattr(dialog, "_description_view") and dialog._description_view:
+                buffer = dialog._description_view.get_buffer()
+                buffer.set_text(entry.description or "")
+
+            # Store job reference for linking after creation
+            dialog._pending_job_link = {
+                "job_id": entry.job_id,
+                "job_name": entry.name,
+            }
+
+            def on_response(dlg: Gtk.Dialog, response: int) -> None:
+                if response == Gtk.ResponseType.OK:
+                    event_data = dialog.get_event_data()
+                    if event_data:
+                        self._create_event_and_link_job(event_data, entry)
+                dlg.destroy()
+
+            dialog.connect("response", on_response)
+            dialog.present()
+
+        except Exception as exc:
+            logger.warning(f"Failed to open calendar event dialog: {exc}")
+
+    def _create_event_and_link_job(
+        self,
+        event_data: Dict[str, Any],
+        entry: _JobEntry,
+    ) -> None:
+        """Create calendar event and link it to the job."""
+        import asyncio
+
+        async def do_create_and_link():
+            try:
+                if not self.ATLAS:
+                    return
+
+                service = self.ATLAS.calendar_service
+                actor = self.ATLAS.get_current_actor()
+
+                # Use the create_event_from_job service method
+                job_dict = {
+                    "id": entry.job_id,
+                    "name": entry.name,
+                    "description": entry.description,
+                }
+
+                # Merge with user-provided event data
+                result = await service.create_event_from_job(
+                    actor,
+                    job_dict,
+                    event_overrides=event_data,
+                )
+
+                if result.is_success:
+                    logger.info(f"Created calendar event for job {entry.job_id}")
+                else:
+                    logger.warning(f"Failed to create event: {result.error}")
+
+            except Exception as exc:
+                logger.warning(f"Failed to create/link calendar event: {exc}")
+
+        asyncio.create_task(do_create_and_link())
 
     def _on_export_job_bundle_clicked(self, _button: Gtk.Button) -> None:
         entry = self._entry_lookup.get(self._active_job) if self._active_job else None
@@ -1500,8 +1713,10 @@ class JobManagement:
             return True
 
         metadata = entry.metadata or {}
-        schedule_info = metadata.get("schedule") if isinstance(metadata.get("schedule"), Mapping) else {}
-        schedule_meta = schedule_info.get("metadata") if isinstance(schedule_info.get("metadata"), Mapping) else {}
+        raw_schedule = metadata.get("schedule")
+        schedule_info: Mapping[str, Any] = raw_schedule if isinstance(raw_schedule, Mapping) else {}
+        raw_schedule_meta = schedule_info.get("metadata")
+        schedule_meta: Mapping[str, Any] = raw_schedule_meta if isinstance(raw_schedule_meta, Mapping) else {}
         schedule_state = (
             str(
                 schedule_meta.get("state")
@@ -1717,7 +1932,8 @@ class JobManagement:
     def _subscribe_to_bus(self) -> None:
         if self._bus_subscriptions:
             return
-        events = (
+        # Job events for general refresh
+        job_events = (
             "jobs.created",
             "jobs.updated",
             "jobs.completed",
@@ -1725,9 +1941,25 @@ class JobManagement:
             "job.updated",
             "job.status_changed",
         )
-        for event_name in events:
+        for event_name in job_events:
             try:
                 handle = self.ATLAS.subscribe_event(event_name, self._handle_bus_event)
+            except Exception as exc:  # pragma: no cover - subscription fallback
+                logger.debug("Unable to subscribe to %s events: %s", event_name, exc, exc_info=True)
+                continue
+            self._bus_subscriptions.append(handle)
+
+        # Calendar events for linked events refresh
+        calendar_events = (
+            "calendar.event_created",
+            "calendar.event_updated",
+            "calendar.event_deleted",
+            "calendar.event_linked",
+            "calendar.event_unlinked",
+        )
+        for event_name in calendar_events:
+            try:
+                handle = self.ATLAS.subscribe_event(event_name, self._handle_calendar_event)
             except Exception as exc:  # pragma: no cover - subscription fallback
                 logger.debug("Unable to subscribe to %s events: %s", event_name, exc, exc_info=True)
                 continue
@@ -1740,6 +1972,13 @@ class JobManagement:
         if job_id:
             logger.debug("Received job event for %s; scheduling refresh", job_id)
         self._schedule_refresh()
+
+    async def _handle_calendar_event(self, payload: Any, *_args: Any) -> None:
+        """Handle calendar events to refresh linked events display."""
+        # Check if we have an active job with linked events displayed
+        if self._active_job and self._linked_events_box:
+            logger.debug("Received calendar event; refreshing linked events for job %s", self._active_job)
+            self._load_linked_events_for_job(self._active_job)
 
     # ------------------------------------------------------------------
     # Error handling
@@ -1796,10 +2035,12 @@ class JobManagement:
         if callable(file_filter_cls):
             try:
                 file_filter = file_filter_cls()
-                if hasattr(file_filter, "set_name"):
-                    file_filter.set_name(pattern.upper())
-                if hasattr(file_filter, "add_pattern"):
-                    file_filter.add_pattern(pattern)
+                set_name_fn = getattr(file_filter, "set_name", None)
+                if callable(set_name_fn):
+                    set_name_fn(pattern.upper())
+                add_pattern_fn = getattr(file_filter, "add_pattern", None)
+                if callable(add_pattern_fn):
+                    add_pattern_fn(pattern)
                 adder = getattr(chooser, "add_filter", None)
                 if callable(adder):
                     adder(file_filter)
@@ -1832,12 +2073,15 @@ class JobManagement:
                 file_handle = file_obj()
             else:
                 file_handle = None
-            if file_handle is not None and hasattr(file_handle, "get_path"):
-                filename = file_handle.get_path()
-            else:
+            if file_handle is not None:
+                get_path_fn = getattr(file_handle, "get_path", None)
+                if callable(get_path_fn):
+                    filename = str(get_path_fn())
+            if filename is None:
                 getter = getattr(chooser, "get_filename", None)
                 if callable(getter):
-                    filename = getter()
+                    result = getter()
+                    filename = str(result) if result is not None else None
 
         if hasattr(chooser, "destroy"):
             try:
@@ -1868,10 +2112,12 @@ class JobManagement:
         if callable(file_filter_cls):
             try:
                 file_filter = file_filter_cls()
-                if hasattr(file_filter, "set_name"):
-                    file_filter.set_name(pattern.upper())
-                if hasattr(file_filter, "add_pattern"):
-                    file_filter.add_pattern(pattern)
+                set_name_fn = getattr(file_filter, "set_name", None)
+                if callable(set_name_fn):
+                    set_name_fn(pattern.upper())
+                add_pattern_fn = getattr(file_filter, "add_pattern", None)
+                if callable(add_pattern_fn):
+                    add_pattern_fn(pattern)
                 adder = getattr(chooser, "add_filter", None)
                 if callable(adder):
                     adder(file_filter)
@@ -1904,12 +2150,15 @@ class JobManagement:
                 file_handle = file_obj()
             else:
                 file_handle = None
-            if file_handle is not None and hasattr(file_handle, "get_path"):
-                filename = file_handle.get_path()
-            else:
+            if file_handle is not None:
+                get_path_fn = getattr(file_handle, "get_path", None)
+                if callable(get_path_fn):
+                    filename = str(get_path_fn())
+            if filename is None:
                 getter = getattr(chooser, "get_filename", None)
                 if callable(getter):
-                    filename = getter()
+                    result = getter()
+                    filename = str(result) if result is not None else None
 
         if hasattr(chooser, "destroy"):
             try:
@@ -1998,12 +2247,13 @@ class JobManagement:
         atlas = self.ATLAS
         handler = getattr(atlas, "link_job_task", None)
         if callable(handler):
-            return handler(
+            result = handler(
                 entry.job_id,
                 payload.get("task_id"),
                 relationship_type=payload.get("relationship_type"),
                 metadata=payload.get("metadata") if isinstance(payload.get("metadata"), Mapping) else None,
             )
+            return cast(Mapping[str, Any], result) if result else {}
 
         server = getattr(atlas, "server", None)
         link_route = getattr(server, "link_job_task", None)
@@ -2019,7 +2269,8 @@ class JobManagement:
             request["metadata"] = dict(metadata)
 
         context = {"tenant_id": getattr(atlas, "tenant_id", "default")}
-        return link_route(entry.job_id, request, context=context)
+        result = link_route(entry.job_id, request, context=context)
+        return cast(Mapping[str, Any], result) if result else {}
 
     def _call_unlink_job_task(
         self,
@@ -2031,7 +2282,8 @@ class JobManagement:
         atlas = self.ATLAS
         handler = getattr(atlas, "unlink_job_task", None)
         if callable(handler):
-            return handler(entry.job_id, link_id=link_id, task_id=task_id)
+            result = handler(entry.job_id, link_id=link_id, task_id=task_id)
+            return cast(Mapping[str, Any], result) if result else {}
 
         server = getattr(atlas, "server", None)
         unlink_route = getattr(server, "unlink_job_task", None)
@@ -2039,12 +2291,13 @@ class JobManagement:
             raise RuntimeError("Task unlinking is unavailable.")
 
         context = {"tenant_id": getattr(atlas, "tenant_id", "default")}
-        return unlink_route(
+        result = unlink_route(
             entry.job_id,
             context=context,
             link_id=link_id,
             task_id=task_id,
         )
+        return cast(Mapping[str, Any], result) if result else {}
 
 
 class _NewJobDialog(Gtk.Window):

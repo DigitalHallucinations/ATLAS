@@ -71,6 +71,7 @@ def mock_repository():
     repo.bulk_delete_events = AsyncMock()
     repo.list_events = AsyncMock()
     repo.find_conflicting_events = AsyncMock()
+    repo.search_events = AsyncMock()
     return repo
 
 

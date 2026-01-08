@@ -55,6 +55,13 @@ from .models import (
     CalendarSyncStateModel,
     ensure_calendar_schema,
 )
+from .link_models import (
+    JobEventLink,
+    TaskEventLink,
+    LinkType,
+    SyncBehavior,
+    ensure_link_schema,
+)
 from .dataclasses import (
     # Dataclasses
     CalendarCategory,
@@ -148,6 +155,12 @@ __all__ = [
     "CalendarImportMappingModel",
     "CalendarSyncStateModel",
     "ensure_calendar_schema",
+    # Link models
+    "JobEventLink",
+    "TaskEventLink",
+    "LinkType",
+    "SyncBehavior",
+    "ensure_link_schema",
     # Dataclasses
     "CalendarCategory",
     "CalendarEvent",

@@ -227,3 +227,58 @@ calendar:
     enabled: true
     country: US
     regions: []  # Optional: state-specific holidays
+
+  # Agent/LLM calendar access permissions
+  agent_access:
+    # Enable calendar access for agents
+    enabled: true
+    
+    # Read permissions
+    read:
+      enabled: true
+      # Allow searching events
+      search_enabled: true
+      # Allow viewing upcoming events
+      upcoming_enabled: true
+      # Allow checking availability
+      availability_check_enabled: true
+      # Allow getting calendar summary
+      summary_enabled: true
+      # Allow finding free time slots
+      find_free_time_enabled: true
+    
+    # Write permissions
+    write:
+      enabled: false  # Disabled by default for safety
+      # Allow creating events
+      create_enabled: false
+      # Allow updating events
+      update_enabled: false
+      # Allow deleting events
+      delete_enabled: false
+      # Require user confirmation for writes
+      require_confirmation: true
+    
+    # Context injection settings
+    context_injection:
+      # Include calendar context in LLM prompts
+      enabled: true
+      # Include today's summary
+      include_today: true
+      # Include upcoming events list
+      include_upcoming: true
+      # Include next event details
+      include_next_event: true
+      # Maximum events to include
+      max_events: 5
+    
+    # Scheduling assistance
+    scheduling:
+      # Allow agents to suggest meeting times
+      suggest_times_enabled: true
+      # Default working hours for suggestions
+      default_working_hours:
+        start: 9
+        end: 17
+      # Exclude weekends by default
+      exclude_weekends: true

@@ -204,6 +204,95 @@ class EventCard(Gtk.Box):
 
                 self.append(video_box)
 
+            # Linked job/task indicators
+            self._build_linked_entity_badges()
+
+    def _build_linked_entity_badges(self) -> None:
+        """Build badges for linked jobs and tasks."""
+        linked_jobs = self.event_data.get("linked_jobs", [])
+        linked_tasks = self.event_data.get("linked_tasks", [])
+
+        if not linked_jobs and not linked_tasks:
+            return
+
+        links_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        links_box.set_margin_top(2)
+
+        # Job badge(s)
+        for job in linked_jobs[:2]:  # Max 2 badges
+            job_name = job.get("job_name") or job.get("name") or "Job"
+            job_status = job.get("status") or job.get("job_status")
+
+            badge = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
+            badge.add_css_class("linked-entity-badge")
+            badge.add_css_class("job-badge")
+
+            icon = Gtk.Image.new_from_icon_name("emblem-system-symbolic")
+            icon.set_pixel_size(10)
+            badge.append(icon)
+
+            name_label = Gtk.Label(label=self._truncate(str(job_name), 12))
+            name_label.add_css_class("caption")
+            badge.append(name_label)
+
+            if job_status:
+                self._apply_status_class_to_badge(badge, str(job_status))
+
+            badge.set_tooltip_text(f"Job: {job_name}")
+            links_box.append(badge)
+
+        # Task badge(s)
+        for task in linked_tasks[:2]:  # Max 2 badges
+            task_title = task.get("task_title") or task.get("title") or "Task"
+            task_status = task.get("status") or task.get("task_status")
+
+            badge = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
+            badge.add_css_class("linked-entity-badge")
+            badge.add_css_class("task-badge")
+
+            icon = Gtk.Image.new_from_icon_name("view-list-symbolic")
+            icon.set_pixel_size(10)
+            badge.append(icon)
+
+            name_label = Gtk.Label(label=self._truncate(str(task_title), 12))
+            name_label.add_css_class("caption")
+            badge.append(name_label)
+
+            if task_status:
+                self._apply_status_class_to_badge(badge, str(task_status))
+
+            badge.set_tooltip_text(f"Task: {task_title}")
+            links_box.append(badge)
+
+        # Overflow indicator
+        total = len(linked_jobs) + len(linked_tasks)
+        shown = min(len(linked_jobs), 2) + min(len(linked_tasks), 2)
+        if total > shown:
+            more_label = Gtk.Label(label=f"+{total - shown}")
+            more_label.add_css_class("dim-label")
+            more_label.add_css_class("caption")
+            links_box.append(more_label)
+
+        self.append(links_box)
+
+    def _truncate(self, text: str, max_len: int) -> str:
+        """Truncate text with ellipsis if too long."""
+        if len(text) <= max_len:
+            return text
+        return text[:max_len - 1] + "…"
+
+    def _apply_status_class_to_badge(self, badge: Gtk.Box, status: str) -> None:
+        """Apply CSS class to badge based on status."""
+        status_lower = status.lower()
+        if status_lower in ("done", "succeeded", "completed"):
+            badge.add_css_class("status-success")
+        elif status_lower in ("running", "in_progress"):
+            badge.add_css_class("status-active")
+        elif status_lower in ("failed", "cancelled"):
+            badge.add_css_class("status-error")
+        elif status_lower in ("scheduled", "ready", "pending"):
+            badge.add_css_class("status-pending")
+
     def _setup_interactions(self) -> None:
         """Set up click and gesture handlers."""
         # Click gesture

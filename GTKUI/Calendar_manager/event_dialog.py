@@ -118,6 +118,9 @@ class EventDialog(Gtk.Dialog):
         self._visibility_dropdown: Optional[Gtk.DropDown] = None
         self._busy_dropdown: Optional[Gtk.DropDown] = None
         self._url_entry: Optional[Gtk.Entry] = None
+        self._linked_entities_box: Optional[Gtk.Box] = None
+        self._linked_jobs_list: Optional[Gtk.Box] = None
+        self._linked_tasks_list: Optional[Gtk.Box] = None
 
         # State
         self._start_date: date = self._default_start.date()
@@ -218,6 +221,11 @@ class EventDialog(Gtk.Dialog):
         # Advanced options (collapsible)
         advanced_expander = self._build_advanced_section()
         form_box.append(advanced_expander)
+
+        # Linked entities section (only in edit mode)
+        if self._mode == "edit":
+            linked_expander = self._build_linked_entities_section()
+            form_box.append(linked_expander)
 
         scrolled.set_child(form_box)
         content.append(scrolled)
@@ -433,6 +441,258 @@ class EventDialog(Gtk.Dialog):
 
         expander.set_child(box)
         return expander
+
+    def _build_linked_entities_section(self) -> Gtk.Expander:
+        """Build the linked jobs/tasks section for edit mode."""
+        expander = Gtk.Expander(label="Linked Jobs & Tasks")
+
+        self._linked_entities_box = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL, spacing=12
+        )
+        self._linked_entities_box.set_margin_top(8)
+        self._linked_entities_box.set_margin_start(16)
+
+        # Linked Jobs section
+        jobs_label = Gtk.Label(label="Linked Jobs")
+        jobs_label.set_xalign(0)
+        jobs_label.add_css_class("heading")
+        self._linked_entities_box.append(jobs_label)
+
+        self._linked_jobs_list = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL, spacing=4
+        )
+        self._linked_jobs_list.set_margin_start(8)
+        self._linked_entities_box.append(self._linked_jobs_list)
+
+        # Placeholder for jobs
+        jobs_placeholder = Gtk.Label(label="Loading...")
+        jobs_placeholder.set_xalign(0)
+        jobs_placeholder.add_css_class("dim-label")
+        self._linked_jobs_list.append(jobs_placeholder)
+
+        # Linked Tasks section
+        tasks_label = Gtk.Label(label="Linked Tasks")
+        tasks_label.set_xalign(0)
+        tasks_label.add_css_class("heading")
+        self._linked_entities_box.append(tasks_label)
+
+        self._linked_tasks_list = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL, spacing=4
+        )
+        self._linked_tasks_list.set_margin_start(8)
+        self._linked_entities_box.append(self._linked_tasks_list)
+
+        # Placeholder for tasks
+        tasks_placeholder = Gtk.Label(label="Loading...")
+        tasks_placeholder.set_xalign(0)
+        tasks_placeholder.add_css_class("dim-label")
+        self._linked_tasks_list.append(tasks_placeholder)
+
+        expander.set_child(self._linked_entities_box)
+
+        # Load linked entities asynchronously
+        self._load_linked_entities()
+
+        return expander
+
+    def _load_linked_entities(self) -> None:
+        """Load linked jobs and tasks for the current event."""
+        import asyncio
+
+        async def fetch_and_display():
+            event_id = self._event_data.get("id") or self._event_data.get("event_id")
+            if not event_id or not self.ATLAS:
+                self._update_linked_list(self._linked_jobs_list, [], "jobs")
+                self._update_linked_list(self._linked_tasks_list, [], "tasks")
+                return
+
+            try:
+                service = self.ATLAS.calendar_service
+                actor = self.ATLAS.get_current_actor()
+
+                # Fetch linked jobs
+                jobs_result = await service.get_linked_jobs(actor, str(event_id))
+                jobs = jobs_result.value if jobs_result.is_success else []
+                GLib.idle_add(
+                    self._update_linked_list,
+                    self._linked_jobs_list,
+                    jobs,
+                    "jobs"
+                )
+
+                # Fetch linked tasks
+                tasks_result = await service.get_linked_tasks(actor, str(event_id))
+                tasks = tasks_result.value if tasks_result.is_success else []
+                GLib.idle_add(
+                    self._update_linked_list,
+                    self._linked_tasks_list,
+                    tasks,
+                    "tasks"
+                )
+            except Exception as exc:
+                logger.warning(f"Failed to load linked entities: {exc}")
+                GLib.idle_add(
+                    self._update_linked_list,
+                    self._linked_jobs_list,
+                    [],
+                    "jobs"
+                )
+                GLib.idle_add(
+                    self._update_linked_list,
+                    self._linked_tasks_list,
+                    [],
+                    "tasks"
+                )
+
+        asyncio.create_task(fetch_and_display())
+
+    def _update_linked_list(
+        self,
+        container: Gtk.Box,
+        items: List[Dict[str, Any]],
+        entity_type: str,
+    ) -> bool:
+        """Update a linked entities list container.
+
+        Returns True for GLib.idle_add compatibility.
+        """
+        # Clear existing children
+        while True:
+            child = container.get_first_child()
+            if child is None:
+                break
+            container.remove(child)
+
+        if not items:
+            placeholder = Gtk.Label(
+                label=f"No linked {entity_type}"
+            )
+            placeholder.set_xalign(0)
+            placeholder.add_css_class("dim-label")
+            container.append(placeholder)
+            return True
+
+        for item in items:
+            row = self._create_linked_entity_row(item, entity_type)
+            container.append(row)
+
+        return True
+
+    def _create_linked_entity_row(
+        self,
+        item: Dict[str, Any],
+        entity_type: str,
+    ) -> Gtk.Box:
+        """Create a row widget for a linked job or task."""
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        row.set_margin_top(2)
+        row.set_margin_bottom(2)
+
+        # Icon based on entity type
+        icon_name = "emblem-system-symbolic" if entity_type == "jobs" else "view-list-symbolic"
+        icon = Gtk.Image.new_from_icon_name(icon_name)
+        icon.set_opacity(0.7)
+        row.append(icon)
+
+        # Name/title
+        if entity_type == "jobs":
+            name = item.get("job_name") or item.get("name") or item.get("job_id", "Unknown")
+            entity_id = item.get("job_id")
+        else:
+            name = item.get("task_title") or item.get("title") or item.get("task_id", "Unknown")
+            entity_id = item.get("task_id")
+
+        name_label = Gtk.Label(label=str(name))
+        name_label.set_xalign(0)
+        name_label.set_hexpand(True)
+        name_label.set_ellipsize(3)  # PANGO_ELLIPSIZE_END
+        row.append(name_label)
+
+        # Status badge if available
+        status = item.get("status") or item.get("job_status") or item.get("task_status")
+        if status:
+            status_badge = Gtk.Label(label=str(status).replace("_", " ").title())
+            status_badge.add_css_class("badge")
+            self._apply_status_style(status_badge, str(status))
+            row.append(status_badge)
+
+        # Link type indicator
+        link_type = item.get("link_type")
+        if link_type:
+            link_label = Gtk.Label(label=f"({link_type})")
+            link_label.add_css_class("dim-label")
+            link_label.set_opacity(0.6)
+            row.append(link_label)
+
+        # Unlink button
+        unlink_btn = Gtk.Button()
+        unlink_btn.set_icon_name("edit-delete-symbolic")
+        unlink_btn.set_tooltip_text(f"Unlink this {entity_type[:-1]}")
+        unlink_btn.add_css_class("flat")
+        unlink_btn.add_css_class("circular")
+        unlink_btn.connect(
+            "clicked",
+            self._on_unlink_clicked,
+            entity_type,
+            entity_id,
+        )
+        row.append(unlink_btn)
+
+        return row
+
+    def _apply_status_style(self, widget: Gtk.Widget, status: str) -> None:
+        """Apply CSS class based on status value."""
+        status_lower = status.lower()
+        if status_lower in ("done", "succeeded", "completed"):
+            widget.add_css_class("success")
+        elif status_lower in ("running", "in_progress"):
+            widget.add_css_class("accent")
+        elif status_lower in ("failed", "cancelled"):
+            widget.add_css_class("error")
+        elif status_lower in ("scheduled", "ready", "pending"):
+            widget.add_css_class("warning")
+        else:
+            widget.add_css_class("dim-label")
+
+    def _on_unlink_clicked(
+        self,
+        button: Gtk.Button,
+        entity_type: str,
+        entity_id: Optional[str],
+    ) -> None:
+        """Handle unlink button click."""
+        import asyncio
+
+        if not entity_id or not self.ATLAS:
+            return
+
+        event_id = self._event_data.get("id") or self._event_data.get("event_id")
+        if not event_id:
+            return
+
+        async def do_unlink():
+            try:
+                service = self.ATLAS.calendar_service
+                actor = self.ATLAS.get_current_actor()
+
+                if entity_type == "jobs":
+                    result = await service.unlink_from_job(
+                        actor, str(event_id), entity_id
+                    )
+                else:
+                    result = await service.unlink_from_task(
+                        actor, str(event_id), entity_id
+                    )
+
+                if result.is_success:
+                    # Refresh the linked entities display
+                    self._load_linked_entities()
+                else:
+                    logger.warning(f"Failed to unlink: {result.error}")
+            except Exception as exc:
+                logger.warning(f"Failed to unlink entity: {exc}")
+
+        asyncio.create_task(do_unlink())
 
     def _load_categories(self) -> None:
         """Load categories for the dropdown."""

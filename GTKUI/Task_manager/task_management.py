@@ -94,9 +94,11 @@ class TaskManagement:
         self._required_tools_box: Optional[Gtk.Widget] = None
         self._acceptance_box: Optional[Gtk.Widget] = None
         self._dependencies_box: Optional[Gtk.Widget] = None
+        self._linked_events_box: Optional[Gtk.Widget] = None
         self._action_box: Optional[Gtk.Box] = None
         self._primary_action_button: Optional[Gtk.Button] = None
         self._secondary_action_button: Optional[Gtk.Button] = None
+        self._create_calendar_event_button: Optional[Gtk.Button] = None
 
         self._entries: List[_TaskEntry] = []
         self._entry_lookup: Dict[str, _TaskEntry] = {}
@@ -333,6 +335,12 @@ class TaskManagement:
         action_box.append(secondary_button)
         self._secondary_action_button = secondary_button
 
+        calendar_event_button = Gtk.Button(label="📅 Create Event")
+        calendar_event_button.set_tooltip_text("Create a calendar event for this task")
+        calendar_event_button.connect("clicked", self._on_create_calendar_event_clicked)
+        action_box.append(calendar_event_button)
+        self._create_calendar_event_button = calendar_event_button
+
         description_header = Gtk.Label(label="Description")
         description_header.set_xalign(0.0)
         detail_panel.append(description_header)
@@ -347,6 +355,7 @@ class TaskManagement:
         self._required_tools_box = self._add_badge_section(detail_panel, "Required tools")
         self._acceptance_box = self._add_badge_section(detail_panel, "Acceptance criteria")
         self._dependencies_box = self._add_badge_section(detail_panel, "Dependencies")
+        self._linked_events_box = self._add_linked_events_section(detail_panel)
 
         detail_panel.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
 
@@ -427,6 +436,112 @@ class TaskManagement:
         badge_container.set_visible(False)
         container.append(badge_container)
         return badge_container
+
+    def _add_linked_events_section(self, container: Gtk.Box) -> Gtk.Widget:
+        """Add linked calendar events section to task detail panel."""
+        header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+
+        header_label = Gtk.Label(label="Calendar Events")
+        header_label.set_xalign(0.0)
+        header_label.set_hexpand(True)
+        header_box.append(header_label)
+
+        container.append(header_box)
+
+        events_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        events_container.set_visible(False)
+        events_container.add_css_class("linked-events-container")
+        container.append(events_container)
+        return events_container
+
+    def _load_linked_events_for_task(self, task_id: str) -> None:
+        """Load calendar events linked to the current task."""
+        import asyncio
+
+        async def fetch_events():
+            try:
+                if not self.ATLAS:
+                    return []
+
+                service = self.ATLAS.calendar_service
+                actor = self.ATLAS.get_current_actor()
+                result = await service.get_events_for_task(actor, task_id)
+
+                if result.is_success:
+                    return result.value or []
+            except Exception as exc:
+                logger.warning(f"Failed to load events for task: {exc}")
+            return []
+
+        async def update_ui():
+            events = await fetch_events()
+            GLib.idle_add(self._display_linked_events, events)
+
+        asyncio.create_task(update_ui())
+
+    def _display_linked_events(self, events: List[Any]) -> bool:
+        """Display linked calendar events in the detail panel."""
+        container = self._linked_events_box
+        if container is None:
+            return True
+
+        # Clear existing children
+        while child := container.get_first_child():
+            container.remove(child)
+
+        if not events:
+            container.set_visible(False)
+            return True
+
+        container.set_visible(True)
+
+        for event in events[:5]:  # Show max 5 events
+            row = self._create_event_row(event)
+            container.append(row)
+
+        if len(events) > 5:
+            more_label = Gtk.Label(label=f"+{len(events) - 5} more events")
+            more_label.add_css_class("dim-label")
+            more_label.set_xalign(0)
+            container.append(more_label)
+
+        return True
+
+    def _create_event_row(self, event: Any) -> Gtk.Box:
+        """Create a row widget for a linked calendar event."""
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        row.set_margin_top(2)
+        row.set_margin_bottom(2)
+
+        # Calendar icon
+        icon = Gtk.Image.new_from_icon_name("x-office-calendar-symbolic")
+        icon.set_opacity(0.7)
+        row.append(icon)
+
+        # Event title
+        title = getattr(event, "title", None) or event.get("title", "Untitled") if isinstance(event, dict) else "Event"
+        title_label = Gtk.Label(label=str(title))
+        title_label.set_xalign(0)
+        title_label.set_hexpand(True)
+        title_label.set_ellipsize(3)  # PANGO_ELLIPSIZE_END
+        row.append(title_label)
+
+        # Date/time
+        start_time = getattr(event, "start_time", None) or (event.get("start_time") if isinstance(event, dict) else None)
+        if start_time:
+            from datetime import datetime
+            if isinstance(start_time, str):
+                try:
+                    start_time = datetime.fromisoformat(start_time)
+                except ValueError:
+                    start_time = None
+            if start_time:
+                time_text = start_time.strftime("%b %d, %H:%M")
+                time_label = Gtk.Label(label=time_text)
+                time_label.add_css_class("dim-label")
+                row.append(time_label)
+
+        return row
 
     # ------------------------------------------------------------------
     # Board construction and interaction
@@ -1538,6 +1653,8 @@ class TaskManagement:
             sync_badge_section(self._required_tools_box, [])
             sync_badge_section(self._acceptance_box, [])
             sync_badge_section(self._dependencies_box, [])
+            if self._linked_events_box:
+                self._linked_events_box.set_visible(False)
             return
 
         self._set_label(self._title_label, entry.title)
@@ -1585,6 +1702,9 @@ class TaskManagement:
             fallback="No dependencies",
         )
 
+        # Load linked calendar events
+        self._load_linked_events_for_task(entry.task_id)
+
     def _set_label(self, widget: Optional[Gtk.Label], text: str) -> None:
         if widget is None:
             return
@@ -1599,10 +1719,17 @@ class TaskManagement:
             return
         primary = self._primary_action_button
         secondary = self._secondary_action_button
+        calendar_btn = self._create_calendar_event_button
         for button in (primary, secondary):
             if button is not None:
                 button.set_visible(False)
                 button._target_status = None  # type: ignore[attr-defined]
+        
+        # Calendar button is always visible when a task is selected
+        if calendar_btn is not None:
+            calendar_btn.set_visible(entry is not None)
+            calendar_btn.set_sensitive(entry is not None)
+        
         if entry is None:
             return
 
@@ -1651,6 +1778,105 @@ class TaskManagement:
         entry = self._entry_lookup[self._active_task]
         self._transition_task(entry, target)
 
+    def _on_create_calendar_event_clicked(self, _button: Gtk.Button) -> None:
+        """Create a calendar event for the selected task."""
+        if not self._active_task or self._active_task not in self._entry_lookup:
+            return
+        entry = self._entry_lookup[self._active_task]
+
+        try:
+            from GTKUI.Calendar_manager.event_dialog import EventDialog
+            from datetime import datetime, timedelta
+
+            # Use due date as default start if available
+            default_start = None
+            if entry.due_at:
+                try:
+                    due_dt = datetime.fromisoformat(entry.due_at)
+                    # Set event for morning of due date
+                    default_start = due_dt.replace(hour=9, minute=0, second=0, microsecond=0)
+                except (ValueError, TypeError):
+                    pass
+
+            if not default_start:
+                now = datetime.now()
+                default_start = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+
+            # Create event dialog with task context
+            dialog = EventDialog(
+                parent=self.parent_window,
+                atlas=self.ATLAS,
+                mode="add",
+                default_start=default_start,
+            )
+
+            # Pre-fill title and description from task
+            if hasattr(dialog, "_title_entry") and dialog._title_entry:
+                dialog._title_entry.set_text(f"Task: {entry.title}")
+            if hasattr(dialog, "_description_view") and dialog._description_view:
+                buffer = dialog._description_view.get_buffer()
+                buffer.set_text(entry.description or "")
+
+            # Store task reference for linking after creation
+            dialog._pending_task_link = {
+                "task_id": entry.task_id,
+                "task_title": entry.title,
+            }
+
+            def on_response(dlg: Gtk.Dialog, response: int) -> None:
+                if response == Gtk.ResponseType.OK:
+                    event_data = dialog.get_event_data()
+                    if event_data:
+                        self._create_event_and_link_task(event_data, entry)
+                dlg.destroy()
+
+            dialog.connect("response", on_response)
+            dialog.present()
+
+        except Exception as exc:
+            logger.warning(f"Failed to open calendar event dialog: {exc}")
+
+    def _create_event_and_link_task(
+        self,
+        event_data: Dict[str, Any],
+        entry: _TaskEntry,
+    ) -> None:
+        """Create calendar event and link it to the task."""
+        import asyncio
+
+        async def do_create_and_link():
+            try:
+                if not self.ATLAS:
+                    return
+
+                service = self.ATLAS.calendar_service
+                actor = self.ATLAS.get_current_actor()
+
+                # Use the create_event_from_task service method
+                task_dict = {
+                    "id": entry.task_id,
+                    "title": entry.title,
+                    "description": entry.description,
+                    "due_date": entry.due_at,
+                }
+
+                # Merge with user-provided event data
+                result = await service.create_event_from_task(
+                    actor,
+                    task_dict,
+                    event_overrides=event_data,
+                )
+
+                if result.is_success:
+                    logger.info(f"Created calendar event for task {entry.task_id}")
+                else:
+                    logger.warning(f"Failed to create event: {result.error}")
+
+            except Exception as exc:
+                logger.warning(f"Failed to create/link calendar event: {exc}")
+
+        asyncio.create_task(do_create_and_link())
+
     def _transition_task(self, entry: _TaskEntry, target_status: str) -> None:
         server = getattr(self.ATLAS, "server", None)
         transition = getattr(server, "transition_task", None)
@@ -1686,10 +1912,27 @@ class TaskManagement:
     def _subscribe_to_bus(self) -> None:
         if self._bus_subscriptions:
             return
-        events = ("task.created", "task.updated", "task.status_changed")
-        for event_name in events:
+        # Task events for general refresh
+        task_events = ("task.created", "task.updated", "task.status_changed")
+        for event_name in task_events:
             try:
                 handle = self.ATLAS.subscribe_event(event_name, self._handle_bus_event)
+            except Exception as exc:  # pragma: no cover - subscription fallback
+                logger.debug("Unable to subscribe to %s events: %s", event_name, exc, exc_info=True)
+                continue
+            self._bus_subscriptions.append(handle)
+
+        # Calendar events for linked events refresh
+        calendar_events = (
+            "calendar.event_created",
+            "calendar.event_updated",
+            "calendar.event_deleted",
+            "calendar.event_linked",
+            "calendar.event_unlinked",
+        )
+        for event_name in calendar_events:
+            try:
+                handle = self.ATLAS.subscribe_event(event_name, self._handle_calendar_event)
             except Exception as exc:  # pragma: no cover - subscription fallback
                 logger.debug("Unable to subscribe to %s events: %s", event_name, exc, exc_info=True)
                 continue
@@ -1702,6 +1945,14 @@ class TaskManagement:
         if task_id:
             logger.debug("Received task event for %s; scheduling refresh", task_id)
         self._schedule_refresh()
+
+    async def _handle_calendar_event(self, payload: Any, *_args: Any) -> None:
+        """Handle calendar events to refresh linked events display."""
+        # Check if this event is linked to a task we're viewing
+        if self._active_task and self._linked_events_box:
+            # Refresh linked events for the active task
+            logger.debug("Received calendar event; refreshing linked events for task %s", self._active_task)
+            self._load_linked_events_for_task(self._active_task)
 
     # ------------------------------------------------------------------
     # Error handling
