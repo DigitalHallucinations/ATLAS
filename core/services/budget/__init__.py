@@ -6,7 +6,7 @@ following the ATLAS service pattern.
 
 This package splits the monolithic BudgetManager into three focused services:
 - BudgetPolicyService: Policy CRUD, enforcement, pre-flight checks
-- BudgetTrackingService: Usage recording, aggregation, reporting (Phase 2)
+- BudgetTrackingService: Usage recording, aggregation, reporting
 - BudgetAlertService: Alert configuration, threshold monitoring (Phase 3)
 
 Author: ATLAS Team
@@ -14,16 +14,35 @@ Date: Jan 8, 2026
 """
 
 from .types import (
-    # Events
+    # Policy Events
     BudgetPolicyCreated,
     BudgetPolicyUpdated,
     BudgetPolicyDeleted,
     BudgetCheckRequested,
-    # DTOs
+    # Tracking Events
+    BudgetUsageRecorded,
+    BudgetThresholdReached,
+    # Policy DTOs
     BudgetPolicyCreate,
     BudgetPolicyUpdate,
     BudgetCheckRequest,
     BudgetCheckResponse,
+    # Tracking DTOs
+    UsageRecordCreate,
+    LLMUsageCreate,
+    ImageUsageCreate,
+    UsageSummaryRequest,
+    SpendBreakdown,
+    SpendTrendPoint,
+    SpendTrend,
+    # Re-exported models
+    BudgetPolicy,
+    BudgetScope,
+    BudgetPeriod,
+    LimitAction,
+    OperationType,
+    UsageRecord,
+    SpendSummary,
 )
 from .exceptions import (
     BudgetError,
@@ -34,23 +53,47 @@ from .exceptions import (
 )
 from .permissions import BudgetPermissionChecker
 from .policy_service import BudgetPolicyService
+from .tracking_service import BudgetTrackingService
 
 __all__ = [
     # Services
     "BudgetPolicyService",
+    "BudgetTrackingService",
     "BudgetPermissionChecker",
     
-    # Events
+    # Policy Events
     "BudgetPolicyCreated",
     "BudgetPolicyUpdated",
     "BudgetPolicyDeleted",
     "BudgetCheckRequested",
     
-    # DTOs
+    # Tracking Events
+    "BudgetUsageRecorded",
+    "BudgetThresholdReached",
+    
+    # Policy DTOs
     "BudgetPolicyCreate",
     "BudgetPolicyUpdate",
     "BudgetCheckRequest",
     "BudgetCheckResponse",
+    
+    # Tracking DTOs
+    "UsageRecordCreate",
+    "LLMUsageCreate",
+    "ImageUsageCreate",
+    "UsageSummaryRequest",
+    "SpendBreakdown",
+    "SpendTrendPoint",
+    "SpendTrend",
+    
+    # Re-exported models
+    "BudgetPolicy",
+    "BudgetScope",
+    "BudgetPeriod",
+    "LimitAction",
+    "OperationType",
+    "UsageRecord",
+    "SpendSummary",
     
     # Exceptions
     "BudgetError",

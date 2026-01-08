@@ -24,6 +24,9 @@ from modules.budget.models import (
     BudgetPeriod,
     LimitAction,
     BudgetCheckResult,
+    OperationType,
+    UsageRecord,
+    SpendSummary,
 )
 
 
@@ -295,3 +298,250 @@ class BudgetCheckResponse:
     def is_near_limit(self) -> bool:
         """Check if approaching budget limit (>80% used)."""
         return self.percent_used >= 0.80
+
+
+# =============================================================================
+# Tracking Domain Events
+# =============================================================================
+
+
+@dataclass(frozen=True)
+class BudgetUsageRecorded:
+    """Emitted when usage is recorded against a budget."""
+    
+    record_id: str
+    provider: str
+    model: str
+    cost_usd: Decimal
+    tenant_id: str
+    actor_id: str
+    operation_type: str
+    input_tokens: Optional[int] = None
+    output_tokens: Optional[int] = None
+    images_generated: Optional[int] = None
+    audio_seconds: Optional[float] = None
+    user_id: Optional[str] = None
+    actor_type: str = "user"
+    event_type: str = "budget.usage_recorded"
+    entity_id: str = field(default_factory=_generate_uuid)
+    timestamp: datetime = field(default_factory=_now_utc)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return {
+            "event_type": self.event_type,
+            "entity_id": self.entity_id,
+            "tenant_id": self.tenant_id,
+            "actor_id": self.actor_id,
+            "actor_type": self.actor_type,
+            "record_id": self.record_id,
+            "provider": self.provider,
+            "model": self.model,
+            "operation_type": self.operation_type,
+            "cost_usd": str(self.cost_usd),
+            "input_tokens": self.input_tokens,
+            "output_tokens": self.output_tokens,
+            "images_generated": self.images_generated,
+            "audio_seconds": self.audio_seconds,
+            "user_id": self.user_id,
+            "timestamp": self.timestamp.isoformat(),
+        }
+
+
+@dataclass(frozen=True)
+class BudgetThresholdReached:
+    """Emitted when spending reaches a configured threshold."""
+    
+    policy_id: str
+    policy_name: str
+    threshold_percent: float
+    current_percent: float
+    current_spend: Decimal
+    limit_amount: Decimal
+    tenant_id: str
+    scope: str
+    scope_id: Optional[str] = None
+    event_type: str = "budget.threshold_reached"
+    entity_id: str = field(default_factory=_generate_uuid)
+    timestamp: datetime = field(default_factory=_now_utc)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return {
+            "event_type": self.event_type,
+            "entity_id": self.entity_id,
+            "tenant_id": self.tenant_id,
+            "policy_id": self.policy_id,
+            "policy_name": self.policy_name,
+            "scope": self.scope,
+            "scope_id": self.scope_id,
+            "threshold_percent": self.threshold_percent,
+            "current_percent": self.current_percent,
+            "current_spend": str(self.current_spend),
+            "limit_amount": str(self.limit_amount),
+            "timestamp": self.timestamp.isoformat(),
+        }
+
+
+# =============================================================================
+# Tracking DTOs
+# =============================================================================
+
+
+@dataclass
+class UsageRecordCreate:
+    """DTO for recording a usage event."""
+    
+    provider: str
+    model: str
+    operation_type: OperationType
+    cost_usd: Decimal
+    input_tokens: Optional[int] = None
+    output_tokens: Optional[int] = None
+    images_generated: Optional[int] = None
+    image_size: Optional[str] = None
+    image_quality: Optional[str] = None
+    audio_seconds: Optional[float] = None
+    user_id: Optional[str] = None
+    tenant_id: Optional[str] = None
+    persona: Optional[str] = None
+    conversation_id: Optional[str] = None
+    request_id: Optional[str] = None
+    success: bool = True
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    
+    def to_record(self) -> UsageRecord:
+        """Convert DTO to UsageRecord domain model."""
+        return UsageRecord(
+            provider=self.provider,
+            model=self.model,
+            operation_type=self.operation_type,
+            cost_usd=self.cost_usd,
+            input_tokens=self.input_tokens,
+            output_tokens=self.output_tokens,
+            images_generated=self.images_generated,
+            image_size=self.image_size,
+            image_quality=self.image_quality,
+            audio_seconds=self.audio_seconds,
+            user_id=self.user_id,
+            tenant_id=self.tenant_id,
+            persona=self.persona,
+            conversation_id=self.conversation_id,
+            request_id=self.request_id,
+            success=self.success,
+            metadata=self.metadata,
+        )
+
+
+@dataclass
+class LLMUsageCreate:
+    """Convenience DTO for recording LLM usage."""
+    
+    provider: str
+    model: str
+    input_tokens: int
+    output_tokens: int
+    cached_tokens: int = 0
+    user_id: Optional[str] = None
+    tenant_id: Optional[str] = None
+    persona: Optional[str] = None
+    conversation_id: Optional[str] = None
+    request_id: Optional[str] = None
+    success: bool = True
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class ImageUsageCreate:
+    """Convenience DTO for recording image generation usage."""
+    
+    provider: str
+    model: str
+    count: int = 1
+    size: str = "1024x1024"
+    quality: str = "standard"
+    user_id: Optional[str] = None
+    tenant_id: Optional[str] = None
+    persona: Optional[str] = None
+    conversation_id: Optional[str] = None
+    request_id: Optional[str] = None
+    success: bool = True
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class UsageSummaryRequest:
+    """Request for usage summary aggregation."""
+    
+    scope: BudgetScope = BudgetScope.GLOBAL
+    scope_id: Optional[str] = None
+    period: BudgetPeriod = BudgetPeriod.MONTHLY
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
+
+
+@dataclass
+class SpendBreakdown:
+    """Breakdown of spending by a dimension."""
+    
+    dimension: str  # "provider", "model", "operation", "user"
+    items: Dict[str, Decimal] = field(default_factory=dict)
+    total: Decimal = Decimal("0")
+    currency: str = "USD"
+    
+    def as_dict(self) -> Dict[str, Any]:
+        """Serialize to dictionary."""
+        return {
+            "dimension": self.dimension,
+            "items": {k: str(v) for k, v in self.items.items()},
+            "total": str(self.total),
+            "currency": self.currency,
+        }
+
+
+@dataclass
+class SpendTrendPoint:
+    """A single point in a spending trend."""
+    
+    period_start: datetime
+    period_end: datetime
+    total_spent: Decimal
+    record_count: int
+    by_provider: Dict[str, Decimal] = field(default_factory=dict)
+    
+    def as_dict(self) -> Dict[str, Any]:
+        """Serialize to dictionary."""
+        return {
+            "period_start": self.period_start.isoformat(),
+            "period_end": self.period_end.isoformat(),
+            "total_spent": str(self.total_spent),
+            "record_count": self.record_count,
+            "by_provider": {k: str(v) for k, v in self.by_provider.items()},
+        }
+
+
+@dataclass
+class SpendTrend:
+    """Historical spending trend over multiple periods."""
+    
+    scope: BudgetScope
+    scope_id: Optional[str]
+    period_type: BudgetPeriod
+    points: List[SpendTrendPoint] = field(default_factory=list)
+    total_spent: Decimal = Decimal("0")
+    average_per_period: Decimal = Decimal("0")
+    trend_direction: Literal["up", "down", "stable"] = "stable"
+    percent_change: float = 0.0
+    
+    def as_dict(self) -> Dict[str, Any]:
+        """Serialize to dictionary."""
+        return {
+            "scope": self.scope.value,
+            "scope_id": self.scope_id,
+            "period_type": self.period_type.value,
+            "points": [p.as_dict() for p in self.points],
+            "total_spent": str(self.total_spent),
+            "average_per_period": str(self.average_per_period),
+            "trend_direction": self.trend_direction,
+            "percent_change": self.percent_change,
+        }

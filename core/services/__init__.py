@@ -5,6 +5,7 @@ High-level service facades that coordinate multiple subsystems:
 - CalendarEventService: Calendar event management
 - NotificationService: Notification delivery
 - BudgetPolicyService: Budget policy management and enforcement
+- BudgetTrackingService: Usage recording and spend aggregation
 - ConversationService: Conversation management (future)
 - ProviderService: LLM provider orchestration (future)
 
@@ -18,15 +19,30 @@ from core.services.calendar import CalendarEventService, CalendarPermissionCheck
 
 # Budget services
 from core.services.budget import (
+    # Services
     BudgetPolicyService,
+    BudgetTrackingService,
     BudgetPermissionChecker,
+    # Policy events
     BudgetPolicyCreated,
     BudgetPolicyUpdated,
     BudgetPolicyDeleted,
+    # Tracking events
+    BudgetUsageRecorded,
+    BudgetThresholdReached,
+    # Policy DTOs
     BudgetCheckRequest,
     BudgetCheckResponse,
     BudgetPolicyCreate,
     BudgetPolicyUpdate,
+    # Tracking DTOs
+    UsageRecordCreate,
+    LLMUsageCreate,
+    ImageUsageCreate,
+    UsageSummaryRequest,
+    SpendBreakdown,
+    SpendTrend,
+    # Exceptions
     BudgetError,
     BudgetPolicyNotFoundError,
     BudgetExceededError,
@@ -74,14 +90,23 @@ __all__ = [
     
     # Budget services
     "BudgetPolicyService",
+    "BudgetTrackingService",
     "BudgetPermissionChecker",
     "BudgetPolicyCreated",
     "BudgetPolicyUpdated",
     "BudgetPolicyDeleted",
+    "BudgetUsageRecorded",
+    "BudgetThresholdReached",
     "BudgetCheckRequest",
     "BudgetCheckResponse",
     "BudgetPolicyCreate",
     "BudgetPolicyUpdate",
+    "UsageRecordCreate",
+    "LLMUsageCreate",
+    "ImageUsageCreate",
+    "UsageSummaryRequest",
+    "SpendBreakdown",
+    "SpendTrend",
     "BudgetError",
     "BudgetPolicyNotFoundError",
     "BudgetExceededError",

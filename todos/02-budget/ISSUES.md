@@ -35,18 +35,28 @@
 **Completed**: 2026-01-08
 **Tests**: 36 unit tests passing (`tests/services/budget/test_policy_service.py`)
 
----
-
-## 📋 Ready for Development
-
-### BUD-003: Extract Tracking Logic
+### BUD-003: Extract Tracking Logic ✅
 
 **Description**: Move usage recording to `BudgetTrackingService`.
 **Acceptance Criteria**:
 
-- `record_usage(actor, token_count, model_cost)`.
-- Method must be high-performance (critical path).
-- `get_current_usage(period)` aggregation.
+- ✅ `record_usage(actor, usage)` - high-performance usage recording.
+- ✅ `record_llm_usage(actor, usage)` - LLM-specific with cost calculation.
+- ✅ `record_image_usage(actor, usage)` - Image generation with cost calculation.
+- ✅ Buffer management for batch persistence.
+- ✅ `get_usage_summary(actor, request)` aggregation with caching.
+- ✅ `get_spend_by_provider/model/operation` breakdowns.
+- ✅ `get_spend_trend` for historical analysis.
+- ✅ Threshold detection with event publishing.
+
+**Completed**: 2026-01-08
+**Tests**: 24 unit tests passing (`tests/services/budget/test_tracking_service.py`)
+**Files Created**:
+- `core/services/budget/tracking_service.py`
+
+---
+
+## 📋 Ready for Development
 
 ### BUD-004: Extract Alerting Logic
 
