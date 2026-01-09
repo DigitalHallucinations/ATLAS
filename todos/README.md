@@ -4,6 +4,8 @@
 
 This directory contains all planning documents for ATLAS development, organized by domain.
 
+> **Note**: Folder numbers indicate **domain groupings**, not build order. See [Implementation Order](#implementation-order) for the recommended build sequence.
+
 ---
 
 ## Quick Navigation
@@ -34,6 +36,7 @@ This directory contains all planning documents for ATLAS development, organized 
 - [21-multi-agent/](21-multi-agent/) - Orchestrator-worker, agent handoff, parallelization
 - [22-guardrails/](22-guardrails/) - Safety, content filtering, human-in-the-loop
 - [23-planning/](23-planning/) - Task decomposition, self-reflection, chain-of-thought
+- [24-recursive-llm/](24-recursive-llm/) - Recursive Language Models for long-context handling
 
 ### 🔧 Infrastructure
 
@@ -88,7 +91,11 @@ This directory contains all planning documents for ATLAS development, organized 
 2. `22-guardrails/` - Safety layer
 3. `23-planning/` - Agent enhancement
 
-### Phase 5: Security Hardening (Week 11-13)
+### Phase 4.5: Recursive Processing (Week 11-12)
+
+1. `24-recursive-llm/` - Recursive Language Models for arbitrarily long prompts
+
+### Phase 5: Security Hardening (Week 12-14)
 
 1. `32-authentication/` - MFA, session management, federation
 2. `33-security/` - Crypto, secrets, agentic security, RBAC
@@ -122,6 +129,7 @@ This directory contains all planning documents for ATLAS development, organized 
 | 21-multi-agent | High | 1-2 weeks |
 | 22-guardrails | Medium | 4-5 days |
 | 23-planning | Medium | 4-5 days |
+| 24-recursive-llm | High | 1-2 weeks |
 | 30-observability | Low | 2-3 days |
 | 31-mcp | Medium | 3-4 days |
 | 32-authentication | High | 1-2 weeks |
