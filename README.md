@@ -368,6 +368,7 @@ flowchart TD
 ### Deep Dives
 
 - [Architecture Overview](docs/architecture-overview.md) – Runtime, personas, orchestration
+- [Architecture Strategy](docs/architecture/) – Technical design decisions and evolution
 - [Persona Definitions](docs/Personas.md) – Schema, validation, tooling
 - [Task Lifecycle](docs/tasks/overview.md) – Routing, analytics, UI integration
 - [Job Services](docs/jobs/api.md) – APIs and scheduling
