@@ -49,6 +49,25 @@ Comprehensive RAG pipeline enhancement implementing state-of-the-art retrieval t
 - ✅ **Documentation updates** – Updated `docs/ops/messaging.md`, `docs/architecture-overview.md`, `docs/configuration.md`, `docs/_audit/glossary.md`, and `docs/_audit/inventory.md` to reflect the new architecture.
 - ✅ **Legacy removal** – Deprecated bridge files (`bridge_redis_to_kafka.py`, `kafka_sink.py`) and removed legacy test files (`test_message_bus_backends.py`, `test_redis_to_kafka_bridge.py`).
 
+## Polyglot Architecture Discussion (2026-01-09)
+
+Added comprehensive strategy document for introducing compiled languages alongside Python:
+
+- ✅ **Strategy document** – Created `docs/architecture/polyglot-strategy.md` exploring Rust integration for performance-critical components while maintaining Python-first development.
+- ✅ **Performance analysis** – Identified four high-value optimization targets: vector operations, document processing, message bus, and storage management.
+- ✅ **Language selection** – Recommended Rust over C++/Go/Zig based on safety, performance, PyO3 integration quality, and ecosystem momentum.
+- ✅ **Integration patterns** – Documented three strategies: PyO3 native extensions (recommended), ctypes/CFFI for C/C++ libs, and gRPC microservices for Go.
+- ✅ **Migration roadmap** – Outlined 4-phase approach: PoC (1-2 months), core modules (3-4 months), advanced optimizations (4-6 months), production hardening (2-3 months).
+- ✅ **Cost-benefit analysis** – Projected 10-100x performance gains for compute-intensive operations with detailed impact assessment.
+- ✅ **Decision framework** – Established clear criteria for when to use Rust vs Python based on bottleneck analysis, CPU-bound workload, and interface clarity.
+- ✅ **Risk assessment** – Documented technical and organizational risks with mitigation strategies.
+- ✅ **Code examples** – Included working Rust/PyO3 examples for vector operations with Python integration layer showing fallback patterns.
+- ✅ **Build configuration** – Provided complete Cargo workspace, pyproject.toml, and CI/CD workflow configurations.
+- ✅ **Documentation index** – Added architecture directory README and updated main README with link to architecture strategy docs.
+- ✅ **Audit tracking** – Updated `docs/_audit/inventory.md` with new architecture documents.
+
+**Status:** Proposed for stakeholder discussion. Next step: approval and Phase 1 PoC implementation.
+
 ## Front matter and link spot-checks
 
 - ✅ `docs/Personas.md`, `docs/architecture-overview.md`, `docs/conversation-store.md`, `docs/user-accounts.md`, `docs/configuration.md`, `docs/tasks/overview.md`, and `docs/tool-manifest.md` now include the standard front matter block. Quick previews confirmed heading rendering and intra-doc links remain intact after the retrofit.
