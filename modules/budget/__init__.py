@@ -4,7 +4,7 @@ Provides centralized budget tracking, cost monitoring, and spending
 controls across all LLM and media generation providers.
 
 Key Components:
-- BudgetManager: Singleton orchestrator for budget operations
+- Budget Services: Policy, Tracking, and Alert services from core.services.budget
 - PricingRegistry: Provider/model pricing database
 - UsageTracker: Real-time cost capture from provider calls
 - AlertEngine: Threshold monitoring and notifications
@@ -12,22 +12,19 @@ Key Components:
 
 Usage::
 
-    from modules.budget import get_budget_manager, BudgetPolicy, BudgetScope
+    from modules.budget import set_budget_policy, check_budget, BudgetPolicy, BudgetScope
 
-    manager = await get_budget_manager()
-    
     # Set a monthly budget
-    policy = BudgetPolicy(
+    policy = await set_budget_policy(
         name="Monthly Limit",
         scope=BudgetScope.GLOBAL,
         period=BudgetPeriod.MONTHLY,
         limit_amount=Decimal("100.00"),
     )
-    await manager.set_budget_policy(policy)
     
-    # Check current spend
-    summary = await manager.get_current_spend()
-    print(f"Spent: ${summary.total_spent} / ${summary.limit}")
+    # Check current budget status
+    result = await check_budget()
+    print(f"Allowed: {result.allowed}, Spend: {result.current_spend}")
 """
 
 from .models import (
@@ -44,10 +41,26 @@ from .models import (
     AlertTriggerType,
 )
 from .pricing import PricingRegistry, get_pricing_registry
-from .manager import BudgetManager, get_budget_manager
 from .tracking import UsageTracker, get_usage_tracker
 from .alerts import AlertEngine, get_alert_engine
 from .reports import ReportGenerator, UsageReport, ReportGrouping
+from .scope_hierarchy import (
+    ScopeHierarchyResolver,
+    UsageContext,
+    get_scope_resolver,
+    reset_scope_resolver,
+    get_scope_priority,
+    is_hierarchical_scope,
+    is_resource_scope,
+    HIERARCHY_ORDER,
+    RESOURCE_ORDER,
+)
+from .policy_matcher import (
+    PolicyMatcher,
+    PolicyMatch,
+    PolicyMatchResult,
+    build_scopes_to_check,
+)
 from .api import (
     record_llm_usage,
     record_image_usage,
@@ -64,8 +77,8 @@ from .api import (
     get_rollover_amount,
     calculate_rollover,
     process_period_end,
-    initialize_budget_manager,
-    shutdown_budget_manager,
+    initialize_budget_services,
+    shutdown_budget_services,
 )
 from .integration import (
     setup_budget_integration,
@@ -76,9 +89,6 @@ from .integration import (
 )
 
 __all__ = [
-    # Core manager
-    "BudgetManager",
-    "get_budget_manager",
     # Models
     "BudgetPolicy",
     "BudgetPeriod",
@@ -91,6 +101,21 @@ __all__ = [
     "BudgetAlert",
     "AlertSeverity",
     "AlertTriggerType",
+    # Scope hierarchy
+    "ScopeHierarchyResolver",
+    "UsageContext",
+    "get_scope_resolver",
+    "reset_scope_resolver",
+    "get_scope_priority",
+    "is_hierarchical_scope",
+    "is_resource_scope",
+    "HIERARCHY_ORDER",
+    "RESOURCE_ORDER",
+    # Policy matching
+    "PolicyMatcher",
+    "PolicyMatch",
+    "PolicyMatchResult",
+    "build_scopes_to_check",
     # Pricing
     "PricingRegistry",
     "get_pricing_registry",
@@ -120,8 +145,8 @@ __all__ = [
     "get_rollover_amount",
     "calculate_rollover",
     "process_period_end",
-    "initialize_budget_manager",
-    "shutdown_budget_manager",
+    "initialize_budget_services",
+    "shutdown_budget_services",
     # Integration functions
     "setup_budget_integration",
     "shutdown_budget_integration",

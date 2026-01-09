@@ -357,15 +357,34 @@ class PolicyListPanel(Gtk.Box):
         self.append(scroller)
 
     def _refresh_policies(self) -> None:
-        """Refresh the policy list from the budget manager."""
+        """Refresh the policy list from the budget service."""
         async def fetch_policies() -> None:
             try:
-                from modules.budget import get_budget_manager_sync
+                from core.services.budget import get_policy_service
+                from core.services.common import Actor
 
-                manager = get_budget_manager_sync()
-                if manager:
-                    policies = await manager.get_policies(enabled_only=False)
-                    policy_dicts = [p.as_dict() for p in policies]
+                actor = Actor(
+                    type="system",
+                    id="gtkui-policy-editor",
+                    tenant_id="local",
+                    permissions={"budget:read"},
+                )
+
+                policy_service = await get_policy_service()
+                result = await policy_service.list_policies(actor, enabled_only=False)
+                
+                if result.success and result.data:
+                    policy_dicts = []
+                    for p in result.data:
+                        policy_dict = {
+                            "id": p.id,
+                            "name": p.name,
+                            "scope": p.scope.value if hasattr(p.scope, 'value') else str(p.scope),
+                            "period": p.period.value if hasattr(p.period, 'value') else str(p.period),
+                            "limit_amount": str(p.limit_amount),
+                            "enabled": p.enabled,
+                        }
+                        policy_dicts.append(policy_dict)
                     GLib.idle_add(self._on_policies_loaded, policy_dicts)
                 else:
                     GLib.idle_add(self._on_policies_loaded, [])

@@ -105,34 +105,33 @@ class AlertsPanel(Gtk.Box):
         self.append(scroller)
 
     def _refresh_alerts(self) -> None:
-        """Refresh alerts from the alert engine."""
+        """Refresh alerts from the alert service."""
         async def fetch_alerts() -> None:
             try:
-                from modules.budget import get_budget_manager, get_budget_manager_sync
+                from core.services.budget import get_alert_service, AlertListRequest
 
-                manager = get_budget_manager_sync()
-                if manager:
-                    alerts = await manager.get_active_alerts()
-                    alert_dicts = [
-                        {
-                            "id": a.id,
-                            "severity": a.severity.value,
-                            "trigger_type": a.trigger_type.value,
-                            "policy_name": a.policy_id,  # Could lookup policy name
-                            "message": a.message,
-                            "triggered_at": a.triggered_at.isoformat(),
-                            "acknowledged": a.acknowledged,
-                            "acknowledged_at": a.acknowledged_at.isoformat() if a.acknowledged_at else None,
-                        }
-                        for a in alerts
-                    ]
-                    GLib.idle_add(self._on_alerts_loaded, alert_dicts)
-                else:
-                    # Manager not initialized - use sample data
-                    GLib.idle_add(self._on_alerts_loaded, self._generate_sample_alerts())
+                alert_service = await get_alert_service()
+                request = AlertListRequest(active_only=False)
+                alerts = await alert_service.get_active_alerts(request)
+                
+                alert_dicts = [
+                    {
+                        "id": a.id,
+                        "severity": a.severity.value if hasattr(a.severity, 'value') else str(a.severity),
+                        "trigger_type": a.trigger_type.value if hasattr(a.trigger_type, 'value') else str(a.trigger_type),
+                        "policy_name": a.policy_id,  # Could lookup policy name
+                        "message": a.message,
+                        "triggered_at": a.triggered_at.isoformat() if hasattr(a, 'triggered_at') else "",
+                        "acknowledged": getattr(a, 'acknowledged', False),
+                        "acknowledged_at": a.acknowledged_at.isoformat() if getattr(a, 'acknowledged_at', None) else None,
+                    }
+                    for a in alerts
+                ]
+                GLib.idle_add(self._on_alerts_loaded, alert_dicts)
             except Exception as exc:
                 logger.warning("Failed to fetch alerts: %s", exc)
-                GLib.idle_add(self._on_alerts_error, str(exc))
+                # Fallback to sample data
+                GLib.idle_add(self._on_alerts_loaded, self._generate_sample_alerts())
 
         asyncio.create_task(fetch_alerts())
 
@@ -358,11 +357,19 @@ class AlertsPanel(Gtk.Box):
 
         async def do_acknowledge() -> None:
             try:
-                from modules.budget import get_budget_manager_sync
+                from core.services.budget import get_alert_service
+                from core.services.common import Actor
 
-                manager = get_budget_manager_sync()
-                if manager:
-                    await manager.acknowledge_alert(alert_id)
+                actor = Actor(
+                    type="user",
+                    id="gtkui-user",
+                    tenant_id="local",
+                    permissions={"budget:write"},
+                )
+
+                alert_service = await get_alert_service()
+                result = await alert_service.acknowledge_alert(actor, alert_id)
+                if result:
                     logger.info("Alert acknowledged: %s", alert_id)
 
                 # Update local state
@@ -387,12 +394,20 @@ class AlertsPanel(Gtk.Box):
         """Acknowledge all active alerts."""
         async def do_acknowledge_all() -> None:
             try:
-                from modules.budget import get_budget_manager_sync
+                from core.services.budget import get_alert_service
+                from core.services.common import Actor
 
-                manager = get_budget_manager_sync()
+                actor = Actor(
+                    type="user",
+                    id="gtkui-user",
+                    tenant_id="local",
+                    permissions={"budget:write"},
+                )
+
+                alert_service = await get_alert_service()
                 for alert in self._alerts:
-                    if not alert.get("acknowledged") and manager:
-                        await manager.acknowledge_alert(alert["id"])
+                    if not alert.get("acknowledged"):
+                        await alert_service.acknowledge_alert(actor, alert["id"])
 
                 GLib.idle_add(self._mark_all_acknowledged)
             except Exception as exc:

@@ -254,8 +254,17 @@ class BudgetCheckRequest:
     estimated_input_tokens: int = 0
     estimated_output_tokens: int = 0
     image_count: int = 0
+    # Hierarchical context for granular budget checks
     user_id: Optional[str] = None
-    tenant_id: Optional[str] = None
+    team_id: Optional[str] = None
+    project_id: Optional[str] = None
+    job_id: Optional[str] = None
+    task_id: Optional[str] = None
+    agent_id: Optional[str] = None
+    session_id: Optional[str] = None
+    # Resource context
+    tool_id: Optional[str] = None
+    skill_id: Optional[str] = None
 
 
 @dataclass
@@ -313,14 +322,24 @@ class BudgetUsageRecorded:
     provider: str
     model: str
     cost_usd: Decimal
-    tenant_id: str
     actor_id: str
     operation_type: str
     input_tokens: Optional[int] = None
     output_tokens: Optional[int] = None
     images_generated: Optional[int] = None
     audio_seconds: Optional[float] = None
+    # Granular attribution context
     user_id: Optional[str] = None
+    team_id: Optional[str] = None
+    project_id: Optional[str] = None
+    job_id: Optional[str] = None
+    task_id: Optional[str] = None
+    agent_id: Optional[str] = None
+    session_id: Optional[str] = None
+    conversation_id: Optional[str] = None
+    tool_id: Optional[str] = None
+    skill_id: Optional[str] = None
+    request_id: Optional[str] = None
     actor_type: str = "user"
     event_type: str = "budget.usage_recorded"
     entity_id: str = field(default_factory=_generate_uuid)
@@ -331,7 +350,6 @@ class BudgetUsageRecorded:
         return {
             "event_type": self.event_type,
             "entity_id": self.entity_id,
-            "tenant_id": self.tenant_id,
             "actor_id": self.actor_id,
             "actor_type": self.actor_type,
             "record_id": self.record_id,
@@ -344,6 +362,16 @@ class BudgetUsageRecorded:
             "images_generated": self.images_generated,
             "audio_seconds": self.audio_seconds,
             "user_id": self.user_id,
+            "team_id": self.team_id,
+            "project_id": self.project_id,
+            "job_id": self.job_id,
+            "task_id": self.task_id,
+            "agent_id": self.agent_id,
+            "session_id": self.session_id,
+            "conversation_id": self.conversation_id,
+            "tool_id": self.tool_id,
+            "skill_id": self.skill_id,
+            "request_id": self.request_id,
             "timestamp": self.timestamp.isoformat(),
         }
 
@@ -358,7 +386,6 @@ class BudgetThresholdReached:
     current_percent: float
     current_spend: Decimal
     limit_amount: Decimal
-    tenant_id: str
     scope: str
     scope_id: Optional[str] = None
     event_type: str = "budget.threshold_reached"
@@ -370,7 +397,6 @@ class BudgetThresholdReached:
         return {
             "event_type": self.event_type,
             "entity_id": self.entity_id,
-            "tenant_id": self.tenant_id,
             "policy_id": self.policy_id,
             "policy_name": self.policy_name,
             "scope": self.scope,
@@ -402,11 +428,19 @@ class UsageRecordCreate:
     image_size: Optional[str] = None
     image_quality: Optional[str] = None
     audio_seconds: Optional[float] = None
+    # Granular attribution context
     user_id: Optional[str] = None
-    tenant_id: Optional[str] = None
-    persona: Optional[str] = None
+    team_id: Optional[str] = None
+    project_id: Optional[str] = None
+    job_id: Optional[str] = None
+    task_id: Optional[str] = None
+    agent_id: Optional[str] = None
+    session_id: Optional[str] = None
     conversation_id: Optional[str] = None
+    tool_id: Optional[str] = None
+    skill_id: Optional[str] = None
     request_id: Optional[str] = None
+    parent_request_id: Optional[str] = None
     success: bool = True
     metadata: Dict[str, Any] = field(default_factory=dict)
     
@@ -424,10 +458,17 @@ class UsageRecordCreate:
             image_quality=self.image_quality,
             audio_seconds=self.audio_seconds,
             user_id=self.user_id,
-            tenant_id=self.tenant_id,
-            persona=self.persona,
+            team_id=self.team_id,
+            project_id=self.project_id,
+            job_id=self.job_id,
+            task_id=self.task_id,
+            agent_id=self.agent_id,
+            session_id=self.session_id,
             conversation_id=self.conversation_id,
+            tool_id=self.tool_id,
+            skill_id=self.skill_id,
             request_id=self.request_id,
+            parent_request_id=self.parent_request_id,
             success=self.success,
             metadata=self.metadata,
         )
@@ -442,11 +483,19 @@ class LLMUsageCreate:
     input_tokens: int
     output_tokens: int
     cached_tokens: int = 0
+    # Granular attribution context
     user_id: Optional[str] = None
-    tenant_id: Optional[str] = None
-    persona: Optional[str] = None
+    team_id: Optional[str] = None
+    project_id: Optional[str] = None
+    job_id: Optional[str] = None
+    task_id: Optional[str] = None
+    agent_id: Optional[str] = None
+    session_id: Optional[str] = None
     conversation_id: Optional[str] = None
+    tool_id: Optional[str] = None
+    skill_id: Optional[str] = None
     request_id: Optional[str] = None
+    parent_request_id: Optional[str] = None
     success: bool = True
     metadata: Dict[str, Any] = field(default_factory=dict)
 
@@ -460,11 +509,19 @@ class ImageUsageCreate:
     count: int = 1
     size: str = "1024x1024"
     quality: str = "standard"
+    # Granular attribution context
     user_id: Optional[str] = None
-    tenant_id: Optional[str] = None
-    persona: Optional[str] = None
+    team_id: Optional[str] = None
+    project_id: Optional[str] = None
+    job_id: Optional[str] = None
+    task_id: Optional[str] = None
+    agent_id: Optional[str] = None
+    session_id: Optional[str] = None
     conversation_id: Optional[str] = None
+    tool_id: Optional[str] = None
+    skill_id: Optional[str] = None
     request_id: Optional[str] = None
+    parent_request_id: Optional[str] = None
     success: bool = True
     metadata: Dict[str, Any] = field(default_factory=dict)
 
@@ -545,3 +602,306 @@ class SpendTrend:
             "trend_direction": self.trend_direction,
             "percent_change": self.percent_change,
         }
+
+
+# =============================================================================
+# Alert Domain Events
+# =============================================================================
+
+
+@dataclass(frozen=True)
+class BudgetAlertTriggered:
+    """Emitted when a budget alert is triggered."""
+    
+    alert_id: str
+    policy_id: str
+    policy_name: str
+    severity: str
+    trigger_type: str
+    threshold_percent: float
+    current_spend: Decimal
+    limit_amount: Decimal
+    message: str
+    tenant_id: str
+    scope: str
+    scope_id: Optional[str] = None
+    event_type: str = "budget.alert_triggered"
+    entity_id: str = field(default_factory=_generate_uuid)
+    timestamp: datetime = field(default_factory=_now_utc)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return {
+            "event_type": self.event_type,
+            "entity_id": self.entity_id,
+            "alert_id": self.alert_id,
+            "policy_id": self.policy_id,
+            "policy_name": self.policy_name,
+            "severity": self.severity,
+            "trigger_type": self.trigger_type,
+            "threshold_percent": self.threshold_percent,
+            "current_spend": str(self.current_spend),
+            "limit_amount": str(self.limit_amount),
+            "message": self.message,
+            "tenant_id": self.tenant_id,
+            "scope": self.scope,
+            "scope_id": self.scope_id,
+            "timestamp": self.timestamp.isoformat(),
+        }
+
+
+@dataclass(frozen=True)
+class BudgetAlertAcknowledged:
+    """Emitted when a budget alert is acknowledged."""
+    
+    alert_id: str
+    policy_id: str
+    severity: str
+    tenant_id: str
+    actor_id: str
+    actor_type: str = "user"
+    event_type: str = "budget.alert_acknowledged"
+    entity_id: str = field(default_factory=_generate_uuid)
+    timestamp: datetime = field(default_factory=_now_utc)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return {
+            "event_type": self.event_type,
+            "entity_id": self.entity_id,
+            "alert_id": self.alert_id,
+            "policy_id": self.policy_id,
+            "severity": self.severity,
+            "tenant_id": self.tenant_id,
+            "actor_id": self.actor_id,
+            "actor_type": self.actor_type,
+            "timestamp": self.timestamp.isoformat(),
+        }
+
+
+@dataclass(frozen=True)
+class BudgetLimitExceeded:
+    """Emitted when a budget limit is exceeded."""
+    
+    policy_id: str
+    policy_name: str
+    current_spend: Decimal
+    limit_amount: Decimal
+    overage_amount: Decimal
+    tenant_id: str
+    scope: str
+    scope_id: Optional[str] = None
+    action_taken: str = "warn"
+    event_type: str = "budget.limit_exceeded"
+    entity_id: str = field(default_factory=_generate_uuid)
+    timestamp: datetime = field(default_factory=_now_utc)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return {
+            "event_type": self.event_type,
+            "entity_id": self.entity_id,
+            "policy_id": self.policy_id,
+            "policy_name": self.policy_name,
+            "current_spend": str(self.current_spend),
+            "limit_amount": str(self.limit_amount),
+            "overage_amount": str(self.overage_amount),
+            "tenant_id": self.tenant_id,
+            "scope": self.scope,
+            "scope_id": self.scope_id,
+            "action_taken": self.action_taken,
+            "timestamp": self.timestamp.isoformat(),
+        }
+
+
+@dataclass(frozen=True)
+class BudgetApproachingLimit:
+    """Emitted when spending is approaching the budget limit."""
+    
+    policy_id: str
+    policy_name: str
+    current_percent: float
+    threshold_percent: float
+    current_spend: Decimal
+    limit_amount: Decimal
+    remaining: Decimal
+    tenant_id: str
+    scope: str
+    scope_id: Optional[str] = None
+    event_type: str = "budget.approaching_limit"
+    entity_id: str = field(default_factory=_generate_uuid)
+    timestamp: datetime = field(default_factory=_now_utc)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return {
+            "event_type": self.event_type,
+            "entity_id": self.entity_id,
+            "policy_id": self.policy_id,
+            "policy_name": self.policy_name,
+            "current_percent": self.current_percent,
+            "threshold_percent": self.threshold_percent,
+            "current_spend": str(self.current_spend),
+            "limit_amount": str(self.limit_amount),
+            "remaining": str(self.remaining),
+            "tenant_id": self.tenant_id,
+            "scope": self.scope,
+            "scope_id": self.scope_id,
+            "timestamp": self.timestamp.isoformat(),
+        }
+
+
+# =============================================================================
+# Alert DTOs
+# =============================================================================
+
+
+@dataclass
+class AlertConfigCreate:
+    """DTO for configuring a budget alert threshold."""
+    
+    policy_id: str
+    threshold_percent: float
+    severity: str = "warning"  # "info", "warning", "critical", "emergency"
+    notification_channels: List[str] = field(default_factory=list)  # "email", "slack", "webhook"
+    cooldown_minutes: int = 60  # Minimum time between repeated alerts
+    enabled: bool = True
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    
+    def __post_init__(self) -> None:
+        """Validate alert configuration."""
+        if not 0.0 <= self.threshold_percent <= 2.0:
+            raise ValueError("threshold_percent must be between 0.0 and 2.0")
+        if self.cooldown_minutes < 0:
+            raise ValueError("cooldown_minutes cannot be negative")
+
+
+@dataclass
+class AlertConfigUpdate:
+    """DTO for updating an alert configuration."""
+    
+    threshold_percent: Optional[float] = None
+    severity: Optional[str] = None
+    notification_channels: Optional[List[str]] = None
+    cooldown_minutes: Optional[int] = None
+    enabled: Optional[bool] = None
+    metadata: Optional[Dict[str, Any]] = None
+    
+    def get_changed_fields(self) -> List[str]:
+        """Return list of fields that have been set."""
+        return [
+            field_name for field_name in [
+                "threshold_percent", "severity", "notification_channels",
+                "cooldown_minutes", "enabled", "metadata"
+            ]
+            if getattr(self, field_name) is not None
+        ]
+
+
+@dataclass
+class AlertConfig:
+    """Alert configuration for a budget policy."""
+    
+    id: str
+    policy_id: str
+    threshold_percent: float
+    severity: str
+    notification_channels: List[str] = field(default_factory=list)
+    cooldown_minutes: int = 60
+    enabled: bool = True
+    last_triggered_at: Optional[datetime] = None
+    created_at: datetime = field(default_factory=_now_utc)
+    updated_at: datetime = field(default_factory=_now_utc)
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    
+    def can_trigger(self) -> bool:
+        """Check if alert can trigger based on cooldown."""
+        if not self.enabled:
+            return False
+        if self.last_triggered_at is None:
+            return True
+        
+        from datetime import timedelta
+        cooldown = timedelta(minutes=self.cooldown_minutes)
+        return _now_utc() - self.last_triggered_at >= cooldown
+    
+    def as_dict(self) -> Dict[str, Any]:
+        """Serialize to dictionary."""
+        return {
+            "id": self.id,
+            "policy_id": self.policy_id,
+            "threshold_percent": self.threshold_percent,
+            "severity": self.severity,
+            "notification_channels": self.notification_channels,
+            "cooldown_minutes": self.cooldown_minutes,
+            "enabled": self.enabled,
+            "last_triggered_at": self.last_triggered_at.isoformat() if self.last_triggered_at else None,
+            "created_at": self.created_at.isoformat(),
+            "updated_at": self.updated_at.isoformat(),
+            "metadata": self.metadata,
+        }
+
+
+@dataclass
+class ActiveAlert:
+    """An active (unresolved) budget alert."""
+    
+    id: str
+    policy_id: str
+    policy_name: str
+    severity: str
+    trigger_type: str
+    threshold_percent: float
+    current_spend: Decimal
+    limit_amount: Decimal
+    message: str
+    triggered_at: datetime
+    acknowledged: bool = False
+    acknowledged_at: Optional[datetime] = None
+    acknowledged_by: Optional[str] = None
+    scope: str = "global"
+    scope_id: Optional[str] = None
+    tenant_id: str = "default"
+    
+    @property
+    def percent_used(self) -> float:
+        """Calculate percent of budget used."""
+        if self.limit_amount <= 0:
+            return 1.0 if self.current_spend > 0 else 0.0
+        return float(self.current_spend / self.limit_amount)
+    
+    def as_dict(self) -> Dict[str, Any]:
+        """Serialize to dictionary."""
+        return {
+            "id": self.id,
+            "policy_id": self.policy_id,
+            "policy_name": self.policy_name,
+            "severity": self.severity,
+            "trigger_type": self.trigger_type,
+            "threshold_percent": self.threshold_percent,
+            "current_spend": str(self.current_spend),
+            "limit_amount": str(self.limit_amount),
+            "percent_used": self.percent_used,
+            "message": self.message,
+            "triggered_at": self.triggered_at.isoformat(),
+            "acknowledged": self.acknowledged,
+            "acknowledged_at": self.acknowledged_at.isoformat() if self.acknowledged_at else None,
+            "acknowledged_by": self.acknowledged_by,
+            "scope": self.scope,
+            "scope_id": self.scope_id,
+            "tenant_id": self.tenant_id,
+        }
+
+
+@dataclass
+class AlertListRequest:
+    """Request for listing alerts."""
+    
+    scope: Optional[BudgetScope] = None
+    scope_id: Optional[str] = None
+    policy_id: Optional[str] = None
+    severity: Optional[str] = None
+    active_only: bool = True
+    unacknowledged_only: bool = False
+    limit: int = 100
+    offset: int = 0

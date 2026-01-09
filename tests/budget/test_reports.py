@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -17,17 +16,6 @@ from modules.budget.reports import (
     UsageReport,
     UsageReportRow,
 )
-
-
-@pytest.fixture
-def mock_budget_manager() -> MagicMock:
-    """Create a mock BudgetManager for testing."""
-    manager = MagicMock()
-    manager._usage_lock = AsyncMock()
-    manager._usage_records = []
-    # Mock async methods
-    manager.get_policies = AsyncMock(return_value=[])
-    return manager
 
 
 @pytest.fixture
@@ -202,26 +190,17 @@ class TestUsageReport:
 class TestReportGenerator:
     """Tests for ReportGenerator class."""
 
-    def test_create_generator(self, mock_budget_manager: MagicMock) -> None:
+    def test_create_generator(self) -> None:
         """Test creating a ReportGenerator."""
-        generator = ReportGenerator(mock_budget_manager)
-
-        assert generator is not None
-        assert generator.budget_manager is mock_budget_manager
-
-    def test_create_generator_without_manager(self) -> None:
-        """Test creating generator without budget manager."""
         generator = ReportGenerator()
 
         assert generator is not None
-        assert generator.budget_manager is None
+        assert generator.logger is not None
 
     @pytest.mark.asyncio
-    async def test_generate_report_basic(
-        self, mock_budget_manager: MagicMock
-    ) -> None:
+    async def test_generate_report_basic(self) -> None:
         """Test generating a basic report."""
-        generator = ReportGenerator(mock_budget_manager)
+        generator = ReportGenerator()
 
         now = datetime.now(timezone.utc)
         report = await generator.generate_report(
@@ -233,11 +212,9 @@ class TestReportGenerator:
         assert report.start_date < report.end_date
 
     @pytest.mark.asyncio
-    async def test_generate_report_grouped_by_provider(
-        self, mock_budget_manager: MagicMock
-    ) -> None:
+    async def test_generate_report_grouped_by_provider(self) -> None:
         """Test report grouped by provider."""
-        generator = ReportGenerator(mock_budget_manager)
+        generator = ReportGenerator()
 
         now = datetime.now(timezone.utc)
         report = await generator.generate_report(
@@ -250,11 +227,9 @@ class TestReportGenerator:
         assert ReportGrouping.PROVIDER in report.groupings
 
     @pytest.mark.asyncio
-    async def test_generate_report_grouped_by_model(
-        self, mock_budget_manager: MagicMock
-    ) -> None:
+    async def test_generate_report_grouped_by_model(self) -> None:
         """Test report grouped by model."""
-        generator = ReportGenerator(mock_budget_manager)
+        generator = ReportGenerator()
 
         now = datetime.now(timezone.utc)
         report = await generator.generate_report(
@@ -267,11 +242,9 @@ class TestReportGenerator:
         assert ReportGrouping.MODEL in report.groupings
 
     @pytest.mark.asyncio
-    async def test_generate_report_with_filters(
-        self, mock_budget_manager: MagicMock
-    ) -> None:
+    async def test_generate_report_with_filters(self) -> None:
         """Test report with filters applied."""
-        generator = ReportGenerator(mock_budget_manager)
+        generator = ReportGenerator()
 
         now = datetime.now(timezone.utc)
         report = await generator.generate_report(
@@ -287,11 +260,9 @@ class TestReportGenerator:
         assert report.metadata["filters"]["model"] == "gpt-4o"
 
     @pytest.mark.asyncio
-    async def test_generate_report_with_title(
-        self, mock_budget_manager: MagicMock
-    ) -> None:
+    async def test_generate_report_with_title(self) -> None:
         """Test report with custom title."""
-        generator = ReportGenerator(mock_budget_manager)
+        generator = ReportGenerator()
 
         now = datetime.now(timezone.utc)
         report = await generator.generate_report(
@@ -303,22 +274,18 @@ class TestReportGenerator:
         assert report.title == "Custom Report Title"
 
     @pytest.mark.asyncio
-    async def test_generate_summary_report(
-        self, mock_budget_manager: MagicMock
-    ) -> None:
+    async def test_generate_summary_report(self) -> None:
         """Test generating a summary report."""
-        generator = ReportGenerator(mock_budget_manager)
+        generator = ReportGenerator()
 
         summary = await generator.generate_summary_report(period=BudgetPeriod.MONTHLY)
 
         assert summary is not None
 
     @pytest.mark.asyncio
-    async def test_generate_trend_report(
-        self, mock_budget_manager: MagicMock
-    ) -> None:
+    async def test_generate_trend_report(self) -> None:
         """Test generating a trend report."""
-        generator = ReportGenerator(mock_budget_manager)
+        generator = ReportGenerator()
 
         trend = await generator.generate_trend_report(
             days=14,
@@ -328,11 +295,9 @@ class TestReportGenerator:
         assert trend is not None
 
     @pytest.mark.asyncio
-    async def test_generate_comparison_report(
-        self, mock_budget_manager: MagicMock
-    ) -> None:
+    async def test_generate_comparison_report(self) -> None:
         """Test generating a comparison report."""
-        generator = ReportGenerator(mock_budget_manager)
+        generator = ReportGenerator()
 
         now = datetime.now(timezone.utc)
         comparison = await generator.generate_comparison_report(
@@ -345,11 +310,9 @@ class TestReportGenerator:
         assert comparison is not None
 
     @pytest.mark.asyncio
-    async def test_generate_projection_report(
-        self, mock_budget_manager: MagicMock
-    ) -> None:
+    async def test_generate_projection_report(self) -> None:
         """Test generating a projection report."""
-        generator = ReportGenerator(mock_budget_manager)
+        generator = ReportGenerator()
 
         projection = await generator.generate_projection_report(
             days_to_project=30,
@@ -412,11 +375,9 @@ class TestMultipleGroupings:
     """Tests for reports with multiple groupings."""
 
     @pytest.mark.asyncio
-    async def test_multiple_groupings(
-        self, mock_budget_manager: MagicMock
-    ) -> None:
+    async def test_multiple_groupings(self) -> None:
         """Test report with multiple grouping levels."""
-        generator = ReportGenerator(mock_budget_manager)
+        generator = ReportGenerator()
 
         now = datetime.now(timezone.utc)
         report = await generator.generate_report(

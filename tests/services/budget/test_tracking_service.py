@@ -55,7 +55,7 @@ class MockActor:
     """Mock actor for testing."""
     
     user_id: str = "user_123"
-    tenant_id: str = "tenant_abc"
+    team_id: str = "team_abc"
     actor_type: str = "user"
     is_system: bool = False
     is_admin: bool = False
@@ -93,7 +93,7 @@ class MockUsageRepository:
         start_date: datetime,
         end_date: datetime,
         user_id: Optional[str] = None,
-        tenant_id: Optional[str] = None,
+        team_id: Optional[str] = None,
         provider: Optional[str] = None,
         model: Optional[str] = None,
         limit: int = 1000,
@@ -104,7 +104,7 @@ class MockUsageRepository:
                 continue
             if user_id and r.user_id != user_id:
                 continue
-            if tenant_id and r.tenant_id != tenant_id:
+            if team_id and r.team_id != team_id:
                 continue
             if provider and r.provider != provider:
                 continue
@@ -120,7 +120,7 @@ class MockUsageRepository:
         start_date: datetime,
         end_date: datetime,
         user_id: Optional[str] = None,
-        tenant_id: Optional[str] = None,
+        team_id: Optional[str] = None,
         provider: Optional[str] = None,
         model: Optional[str] = None,
     ) -> Decimal:
@@ -130,7 +130,7 @@ class MockUsageRepository:
                 continue
             if user_id and r.user_id != user_id:
                 continue
-            if tenant_id and r.tenant_id != tenant_id:
+            if team_id and r.team_id != team_id:
                 continue
             if provider and r.provider != provider:
                 continue
@@ -144,13 +144,13 @@ class MockUsageRepository:
         dimension: str,
         start_date: datetime,
         end_date: datetime,
-        tenant_id: Optional[str] = None,
+        team_id: Optional[str] = None,
     ) -> Dict[str, Decimal]:
         result: Dict[str, Decimal] = {}
         for r in self.records:
             if r.timestamp < start_date or r.timestamp > end_date:
                 continue
-            if tenant_id and r.tenant_id != tenant_id:
+            if team_id and r.team_id != team_id:
                 continue
             
             if dimension == "provider":
@@ -297,7 +297,7 @@ class TestRecordUsage:
             cost_usd=Decimal("0.05"),
             input_tokens=1000,
             output_tokens=500,
-            tenant_id="tenant_abc",
+            team_id="team_abc",
         )
         
         record = await initialized_service.record_usage(actor, usage)
@@ -310,12 +310,12 @@ class TestRecordUsage:
         assert record.output_tokens == 500
     
     @pytest.mark.asyncio
-    async def test_record_usage_sets_tenant_from_actor(
+    async def test_record_usage_sets_team_from_actor(
         self,
         initialized_service: BudgetTrackingService,
         actor: MockActor,
     ):
-        """Record usage should set tenant_id from actor if not provided."""
+        """Record usage should set team_id from actor if not provided."""
         usage = UsageRecordCreate(
             provider="OpenAI",
             model="gpt-4o",
@@ -325,7 +325,7 @@ class TestRecordUsage:
         
         record = await initialized_service.record_usage(actor, usage)
         
-        assert record.tenant_id == actor.tenant_id
+        assert record.team_id == actor.team_id
         assert record.user_id == actor.user_id
     
     @pytest.mark.asyncio
@@ -464,13 +464,13 @@ class TestGetUsageSummary:
                 model="gpt-4o",
                 operation_type=OperationType.CHAT_COMPLETION,
                 cost_usd=Decimal("0.10"),
-                tenant_id=actor.tenant_id,
+                team_id=actor.team_id,
             )
             await initialized_service.record_usage(actor, usage)
         
         request = UsageSummaryRequest(
-            scope=BudgetScope.TENANT,
-            scope_id=actor.tenant_id,
+            scope=BudgetScope.TEAM,
+            scope_id=actor.team_id,
             period=BudgetPeriod.MONTHLY,
         )
         
@@ -501,7 +501,7 @@ class TestGetUsageSummary:
             model="gpt-4o",
             operation_type=OperationType.CHAT_COMPLETION,
             cost_usd=Decimal("1.00"),
-            # No tenant_id - should not affect tenant-scoped cache
+            # No team_id - should not affect team-scoped cache
         )
         await initialized_service.record_usage(actor, usage)
         
@@ -522,9 +522,9 @@ class TestGetUsageSummary:
         """Get usage summary should include policy limits."""
         # Add a policy
         policy = BudgetPolicy(
-            name="Tenant Monthly",
-            scope=BudgetScope.TENANT,
-            scope_id=actor.tenant_id,
+            name="Team Monthly",
+            scope=BudgetScope.TEAM,
+            scope_id=actor.team_id,
             limit_amount=Decimal("100.00"),
             period=BudgetPeriod.MONTHLY,
         )
@@ -536,13 +536,13 @@ class TestGetUsageSummary:
             model="gpt-4o",
             operation_type=OperationType.CHAT_COMPLETION,
             cost_usd=Decimal("25.00"),
-            tenant_id=actor.tenant_id,
+            team_id=actor.team_id,
         )
         await initialized_service.record_usage(actor, usage)
         
         request = UsageSummaryRequest(
-            scope=BudgetScope.TENANT,
-            scope_id=actor.tenant_id,
+            scope=BudgetScope.TEAM,
+            scope_id=actor.team_id,
             period=BudgetPeriod.MONTHLY,
         )
         
@@ -730,8 +730,8 @@ class TestThresholdDetection:
         # Add a policy with 80% soft limit
         policy = BudgetPolicy(
             name="Test Budget",
-            scope=BudgetScope.TENANT,
-            scope_id=actor.tenant_id,
+            scope=BudgetScope.TEAM,
+            scope_id=actor.team_id,
             limit_amount=Decimal("100.00"),
             period=BudgetPeriod.MONTHLY,
             soft_limit_percent=0.80,
@@ -744,7 +744,7 @@ class TestThresholdDetection:
             model="gpt-4o",
             operation_type=OperationType.CHAT_COMPLETION,
             cost_usd=Decimal("85.00"),
-            tenant_id=actor.tenant_id,
+            team_id=actor.team_id,
         )
         await service.record_usage(actor, usage)
         
@@ -793,7 +793,7 @@ class TestEventPublishing:
             model="gpt-4o",
             operation_type=OperationType.CHAT_COMPLETION,
             cost_usd=Decimal("0.05"),
-            tenant_id=actor.tenant_id,
+            team_id=actor.team_id,
         )
         await service.record_usage(actor, usage)
         
@@ -845,18 +845,18 @@ class TestCacheManagement:
     ):
         """Invalidate cache should clear specific scope entries."""
         # Populate cache for multiple scopes
-        for scope in [BudgetScope.GLOBAL, BudgetScope.TENANT]:
+        for scope in [BudgetScope.GLOBAL, BudgetScope.TEAM]:
             request = UsageSummaryRequest(
                 scope=scope,
-                scope_id=actor.tenant_id if scope == BudgetScope.TENANT else None,
+                scope_id=actor.team_id if scope == BudgetScope.TEAM else None,
                 period=BudgetPeriod.MONTHLY,
             )
             await initialized_service.get_usage_summary(actor, request)
         
-        # Invalidate just tenant scope
+        # Invalidate just team scope
         initialized_service.invalidate_cache(
-            scope=BudgetScope.TENANT,
-            scope_id=actor.tenant_id,
+            scope=BudgetScope.TEAM,
+            scope_id=actor.team_id,
         )
         
         # Global cache should still exist

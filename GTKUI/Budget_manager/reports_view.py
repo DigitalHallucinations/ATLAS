@@ -160,39 +160,46 @@ class ReportsView(Gtk.Box):
 
         async def fetch_report() -> None:
             try:
-                from modules.budget.reports import ReportGenerator, ReportGrouping
-                from modules.budget import get_budget_manager_sync
+                from core.services.budget import get_tracking_service, UsageSummaryRequest, BudgetScope, BudgetPeriod
+                from core.services.common import Actor
+                from datetime import timedelta
 
-                manager = get_budget_manager_sync()
-                generator = ReportGenerator(manager)
-
-                # Map period to date range
-                now = datetime.now(timezone.utc)
-                period_map = {
-                    "day": timedelta(days=1),
-                    "week": timedelta(weeks=1),
-                    "month": timedelta(days=30),
-                    "quarter": timedelta(days=90),
-                    "year": timedelta(days=365),
-                }
-                delta = period_map.get(period, timedelta(days=30))
-
-                # Map grouping
-                grouping_map = {
-                    "provider": [ReportGrouping.PROVIDER],
-                    "model": [ReportGrouping.MODEL],
-                    "day": [ReportGrouping.DAY],
-                    "operation": [ReportGrouping.OPERATION_TYPE],
-                }
-                group_by = grouping_map.get(grouping, [ReportGrouping.PROVIDER])
-
-                report = await generator.generate_report(
-                    start_date=now - delta,
-                    end_date=now,
-                    group_by=group_by,
+                actor = Actor(
+                    type="system",
+                    id="gtkui-reports",
+                    tenant_id="local",
+                    permissions={"budget:read"},
                 )
 
-                GLib.idle_add(self._on_report_loaded, report.as_dict())
+                tracking_service = await get_tracking_service()
+
+                # Map period to BudgetPeriod
+                period_map = {
+                    "today": BudgetPeriod.DAILY,
+                    "week": BudgetPeriod.WEEKLY,
+                    "month": BudgetPeriod.MONTHLY,
+                    "quarter": BudgetPeriod.QUARTERLY,
+                    "year": BudgetPeriod.YEARLY,
+                    "all": BudgetPeriod.YEARLY,  # Fallback
+                }
+                budget_period = period_map.get(period, BudgetPeriod.MONTHLY)
+
+                # Get usage summary
+                request = UsageSummaryRequest(
+                    scope=BudgetScope.GLOBAL,
+                    period=budget_period,
+                )
+                result = await tracking_service.get_usage_summary(actor, request)
+
+                if result.success and result.data:
+                    report_data = {
+                        "total_spent": str(result.data.total_spent) if hasattr(result.data, 'total_spent') else "0.00",
+                        "period": period,
+                        "grouping": grouping,
+                    }
+                    GLib.idle_add(self._on_report_loaded, report_data)
+                else:
+                    GLib.idle_add(self._on_report_loaded, {})
             except Exception as exc:
                 logger.warning("Failed to generate report: %s", exc)
                 GLib.idle_add(self._on_report_error, str(exc))
@@ -366,25 +373,38 @@ class ReportsView(Gtk.Box):
 
         async def do_export() -> None:
             try:
-                from modules.budget.reports import ReportGenerator, ReportGrouping, ExportFormat
-                from modules.budget import get_budget_manager_sync
+                from core.services.budget import get_tracking_service, UsageSummaryRequest, BudgetScope, BudgetPeriod
+                from core.services.common import Actor
 
-                manager = get_budget_manager_sync()
-                generator = ReportGenerator(manager)
-
-                now = datetime.now(timezone.utc)
-                report = await generator.generate_report(
-                    start_date=now - timedelta(days=30),
-                    end_date=now,
-                    group_by=[ReportGrouping.PROVIDER],
+                actor = Actor(
+                    type="system",
+                    id="gtkui-reports",
+                    tenant_id="local",
+                    permissions={"budget:read"},
                 )
 
-                # Export as HTML (can be saved/printed as PDF)
-                html_content = report.to_html()
+                tracking_service = await get_tracking_service()
 
-                # Copy to clipboard
-                GLib.idle_add(self._copy_to_clipboard, html_content)
-                logger.info("Report exported as HTML")
+                request = UsageSummaryRequest(
+                    scope=BudgetScope.GLOBAL,
+                    period=BudgetPeriod.MONTHLY,
+                )
+                result = await tracking_service.get_usage_summary(actor, request)
+
+                if result.success and result.data:
+                    # Generate simple HTML report
+                    html_content = f"""
+                    <html>
+                    <head><title>Budget Report</title></head>
+                    <body>
+                    <h1>Usage Report</h1>
+                    <p>Total Spent: ${result.data.total_spent if hasattr(result.data, 'total_spent') else '0.00'}</p>
+                    <p>Generated: {datetime.now(timezone.utc).isoformat()}</p>
+                    </body>
+                    </html>
+                    """
+                    GLib.idle_add(self._copy_to_clipboard, html_content)
+                    logger.info("Report exported as HTML")
             except Exception as exc:
                 logger.warning("Failed to export report: %s", exc)
 

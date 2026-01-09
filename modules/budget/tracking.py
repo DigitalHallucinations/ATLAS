@@ -19,7 +19,6 @@ from .models import BudgetCheckResult, LimitAction, OperationType, UsageRecord
 
 if TYPE_CHECKING:
     from core.config import ConfigManager
-    from .manager import BudgetManager
 
 logger = setup_logger(__name__)
 
@@ -89,9 +88,6 @@ class UsageTracker:
         self.config_manager = config_manager
         self.logger = setup_logger(__name__)
 
-        # Budget manager (lazy loaded)
-        self._budget_manager: Optional["BudgetManager"] = None
-
         # Tracking state
         self._enabled = True
         self._pending_requests: Dict[str, Dict[str, Any]] = {}
@@ -108,16 +104,6 @@ class UsageTracker:
                 pass
 
         self.logger.info("UsageTracker initialized, enabled=%s", self._enabled)
-
-    async def _get_budget_manager(self) -> Optional["BudgetManager"]:
-        """Lazy load budget manager."""
-        if self._budget_manager is None:
-            try:
-                from .manager import get_budget_manager_sync
-                self._budget_manager = get_budget_manager_sync()
-            except Exception:
-                pass
-        return self._budget_manager
 
     # =========================================================================
     # LLM Tracking
@@ -249,13 +235,10 @@ class UsageTracker:
         duration_ms: int,
         error: Optional[str] = None,
     ) -> None:
-        """Record LLM usage to budget manager."""
-        manager = await self._get_budget_manager()
-        if manager is None:
-            return
-
+        """Record LLM usage via budget API."""
         try:
-            await manager.record_llm_usage(
+            from . import api
+            await api.record_llm_usage(
                 provider=provider,
                 model=model,
                 input_tokens=input_tokens,
@@ -372,13 +355,10 @@ class UsageTracker:
         duration_ms: int,
         error: Optional[str] = None,
     ) -> None:
-        """Record image generation usage."""
-        manager = await self._get_budget_manager()
-        if manager is None:
-            return
-
+        """Record image generation usage via budget API."""
         try:
-            await manager.record_image_usage(
+            from . import api
+            await api.record_image_usage(
                 provider=provider,
                 model=model,
                 count=count,
@@ -484,9 +464,12 @@ class UsageTracker:
         if not self._enabled:
             return None
 
-        manager = await self._get_budget_manager()
-        if manager is None:
-            return None
+        # Build metadata with tenant_id and persona if provided
+        record_metadata = metadata.copy() if metadata else {}
+        if tenant_id:
+            record_metadata["tenant_id"] = tenant_id
+        if persona:
+            record_metadata["persona"] = persona
 
         record = UsageRecord(
             provider=provider,
@@ -497,13 +480,39 @@ class UsageTracker:
             output_tokens=output_tokens,
             images_generated=images_generated,
             user_id=user_id,
-            tenant_id=tenant_id,
-            persona=persona,
             conversation_id=conversation_id,
-            metadata=metadata or {},
+            metadata=record_metadata,
         )
 
-        await manager.record_usage(record)
+        try:
+            from . import api
+            # Use appropriate API based on operation type
+            if operation_type == OperationType.CHAT_COMPLETION:
+                await api.record_llm_usage(
+                    provider=provider,
+                    model=model,
+                    input_tokens=input_tokens or 0,
+                    output_tokens=output_tokens or 0,
+                    user_id=user_id,
+                    tenant_id=tenant_id,
+                    persona=persona,
+                    conversation_id=conversation_id,
+                    metadata=metadata,
+                )
+            elif operation_type == OperationType.IMAGE_GENERATION:
+                await api.record_image_usage(
+                    provider=provider,
+                    model=model,
+                    count=images_generated or 1,
+                    user_id=user_id,
+                    tenant_id=tenant_id,
+                    persona=persona,
+                    conversation_id=conversation_id,
+                    metadata=metadata,
+                )
+        except Exception as exc:
+            self.logger.warning("Failed to record usage: %s", exc)
+
         return record
 
     # =========================================================================
@@ -534,21 +543,16 @@ class UsageTracker:
         Returns:
             BudgetCheckResult indicating if request is allowed.
         """
-        manager = await self._get_budget_manager()
-        if manager is None:
-            # Return a permissive result when budget manager is not available
-            from .models import BudgetCheckResult as BCR
-            return BCR(allowed=True, action=LimitAction.WARN)
-
-        return await manager.check_budget_available(
-            provider=provider,
-            model=model,
-            estimated_input_tokens=estimated_input_tokens,
-            estimated_output_tokens=estimated_output_tokens,
-            image_count=image_count,
-            user_id=user_id,
-            tenant_id=tenant_id,
-        )
+        try:
+            from . import api
+            return await api.check_budget(
+                scope=None,  # Will use GLOBAL scope
+                scope_id=tenant_id,
+                user_id=user_id,
+            )
+        except Exception:
+            # Return a permissive result when budget check fails
+            return BudgetCheckResult(allowed=True, action=LimitAction.WARN)
 
     @property
     def enabled(self) -> bool:

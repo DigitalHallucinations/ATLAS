@@ -15,14 +15,42 @@ from typing import Any, Dict, List, Optional
 
 
 class BudgetScope(Enum):
-    """Scope level for budget policies."""
+    """Scope level for budget policies.
 
+    Scopes are organized hierarchically for policy resolution:
+    - GLOBAL: Instance-wide budget (top level)
+    - TEAM: Group of users/agents with shared budget
+    - PROJECT: Project-specific budget allocation
+    - JOB: Background job budget allocation
+    - TASK: Individual task budget
+    - AGENT: Individual agent budget (for multi-agent systems)
+    - USER: Per-user budget
+    - SESSION: Single conversation/session budget
+    - PROVIDER: Per-provider (OpenAI, Anthropic, etc.)
+    - MODEL: Per-model (gpt-4o, claude-3-opus, etc.)
+    - TOOL: Per-tool budget (function calling costs)
+    - SKILL: Per-skill budget (skill execution costs)
+
+    Hierarchy for policy resolution (most specific wins):
+    GLOBAL > TEAM > PROJECT > JOB > TASK > AGENT > USER > SESSION
+    PROVIDER, MODEL, TOOL, SKILL are orthogonal and apply as additional constraints.
+    """
+
+    # Hierarchical scopes (ordered from broadest to most specific)
     GLOBAL = "global"  # Applies to entire ATLAS instance
-    TENANT = "tenant"  # Per-tenant in multi-tenant deployments
+    TEAM = "team"  # Team/department budget
+    PROJECT = "project"  # Project-specific budget allocation
+    JOB = "job"  # Background job budget
+    TASK = "task"  # Individual task budget
+    AGENT = "agent"  # Individual agent in multi-agent orchestration
     USER = "user"  # Per-user budget
-    PERSONA = "persona"  # Per-persona budget
+    SESSION = "session"  # Single conversation/session budget
+
+    # Orthogonal resource-based scopes (apply as additional constraints)
     PROVIDER = "provider"  # Per-provider (OpenAI, Anthropic, etc.)
     MODEL = "model"  # Per-model (gpt-4o, claude-3-opus, etc.)
+    TOOL = "tool"  # Per-tool (function calling)
+    SKILL = "skill"  # Per-skill (skill execution)
 
 
 class BudgetPeriod(Enum):
@@ -256,11 +284,20 @@ class UsageRecord:
         image_size: Image dimensions if applicable.
         audio_seconds: Duration for audio operations.
         cost_usd: Calculated cost in USD.
+
+        Context fields for granular budget attribution:
         user_id: User who initiated the request.
-        tenant_id: Tenant identifier.
-        persona: Persona used for the request.
+        team_id: Team/department identifier.
+        project_id: Project identifier.
+        job_id: Background job identifier.
+        task_id: Task identifier.
+        agent_id: Agent identifier (for multi-agent orchestration).
+        session_id: Session/workflow identifier.
         conversation_id: Associated conversation.
+        tool_id: Tool/function that was called.
+        skill_id: Skill that was executed.
         request_id: Unique request identifier for tracing.
+        parent_request_id: Parent request for nested/delegated calls.
         success: Whether the operation succeeded.
         metadata: Additional context.
     """
@@ -278,11 +315,19 @@ class UsageRecord:
     image_size: Optional[str] = None
     image_quality: Optional[str] = None
     audio_seconds: Optional[float] = None
+    # Granular attribution context
     user_id: Optional[str] = None
-    tenant_id: Optional[str] = None
-    persona: Optional[str] = None
+    team_id: Optional[str] = None
+    project_id: Optional[str] = None
+    job_id: Optional[str] = None
+    task_id: Optional[str] = None
+    agent_id: Optional[str] = None
+    session_id: Optional[str] = None
     conversation_id: Optional[str] = None
+    tool_id: Optional[str] = None
+    skill_id: Optional[str] = None
     request_id: Optional[str] = None
+    parent_request_id: Optional[str] = None
     success: bool = True
     metadata: Dict[str, Any] = field(default_factory=dict)
 
@@ -319,10 +364,17 @@ class UsageRecord:
             "audio_seconds": self.audio_seconds,
             "cost_usd": str(self.cost_usd),
             "user_id": self.user_id,
-            "tenant_id": self.tenant_id,
-            "persona": self.persona,
+            "team_id": self.team_id,
+            "project_id": self.project_id,
+            "job_id": self.job_id,
+            "task_id": self.task_id,
+            "agent_id": self.agent_id,
+            "session_id": self.session_id,
             "conversation_id": self.conversation_id,
+            "tool_id": self.tool_id,
+            "skill_id": self.skill_id,
             "request_id": self.request_id,
+            "parent_request_id": self.parent_request_id,
             "success": self.success,
             "metadata": self.metadata,
         }

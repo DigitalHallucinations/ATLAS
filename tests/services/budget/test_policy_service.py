@@ -81,7 +81,7 @@ def tenant_user() -> Actor:
 
 @pytest.fixture
 def readonly_user() -> Actor:
-    """User with only read permissions."""
+    """Regular user with only read permissions."""
     return Actor(
         type="user",
         id="reader_1",
@@ -107,7 +107,7 @@ def sample_policy() -> BudgetPolicy:
     return BudgetPolicy(
         id="policy_1",
         name="Monthly Team Budget",
-        scope=BudgetScope.TENANT,
+        scope=BudgetScope.TEAM,
         scope_id="tenant_1",
         limit_amount=Decimal("500.00"),
         period=BudgetPeriod.MONTHLY,
@@ -177,7 +177,7 @@ class TestCreatePolicy:
         """Successfully create a tenant-scoped policy."""
         policy_data = BudgetPolicyCreate(
             name="Test Budget",
-            scope=BudgetScope.TENANT,
+            scope=BudgetScope.TEAM,
             scope_id="tenant_1",
             limit_amount=Decimal("100.00"),
         )
@@ -200,7 +200,7 @@ class TestCreatePolicy:
         """Creating a policy publishes BudgetPolicyCreated event."""
         policy_data = BudgetPolicyCreate(
             name="Test Budget",
-            scope=BudgetScope.TENANT,
+            scope=BudgetScope.TEAM,
             scope_id="tenant_1",
             limit_amount=Decimal("100.00"),
         )
@@ -221,7 +221,7 @@ class TestCreatePolicy:
         """Users without write permission cannot create policies."""
         policy_data = BudgetPolicyCreate(
             name="Test Budget",
-            scope=BudgetScope.TENANT,
+            scope=BudgetScope.TEAM,
             scope_id="tenant_1",
             limit_amount=Decimal("100.00"),
         )
@@ -240,7 +240,7 @@ class TestCreatePolicy:
         """Users cannot create policies in other tenants."""
         policy_data = BudgetPolicyCreate(
             name="Test Budget",
-            scope=BudgetScope.TENANT,
+            scope=BudgetScope.TEAM,
             scope_id="tenant_1",  # Different from other_tenant_user's tenant_2
             limit_amount=Decimal("100.00"),
         )
@@ -283,7 +283,7 @@ class TestCreatePolicy:
         """Policy name cannot be empty."""
         policy_data = BudgetPolicyCreate(
             name="",
-            scope=BudgetScope.TENANT,
+            scope=BudgetScope.TEAM,
             scope_id="tenant_1",
             limit_amount=Decimal("100.00"),
         )
@@ -304,7 +304,7 @@ class TestCreatePolicy:
         """Limit amount must be positive."""
         policy_data = BudgetPolicyCreate(
             name="Test",
-            scope=BudgetScope.TENANT,
+            scope=BudgetScope.TEAM,
             scope_id="tenant_1",
             limit_amount=Decimal("-50.00"),
         )
@@ -328,7 +328,7 @@ class TestCreatePolicy:
         
         policy_data = BudgetPolicyCreate(
             name="Duplicate Budget",
-            scope=BudgetScope.TENANT,
+            scope=BudgetScope.TEAM,
             scope_id="tenant_1",
             limit_amount=Decimal("200.00"),
             period=BudgetPeriod.MONTHLY,  # Same as sample_policy
@@ -338,6 +338,88 @@ class TestCreatePolicy:
         
         assert not result.success
         assert result.error_code == "POLICY_CONFLICT"
+
+    @pytest.mark.asyncio
+    async def test_create_policy_exceeds_global_ceiling(
+        self,
+        service: BudgetPolicyService,
+        tenant_user: Actor,
+        global_policy: BudgetPolicy,
+        mock_repository: AsyncMock,
+    ) -> None:
+        """Policy limit cannot exceed global budget ceiling."""
+        # Set up global policy with $500 limit
+        mock_repository.list_policies.side_effect = lambda **kwargs: (
+            [global_policy] if kwargs.get("scope") == BudgetScope.GLOBAL else []
+        )
+        
+        # Try to create team policy with $600 (exceeds global $10000)
+        # Note: global_policy has limit_amount=10000
+        policy_data = BudgetPolicyCreate(
+            name="Exceeds Global",
+            scope=BudgetScope.TEAM,
+            scope_id="tenant_1",
+            limit_amount=Decimal("15000.00"),  # Exceeds global ceiling
+            period=BudgetPeriod.MONTHLY,
+        )
+        
+        result = await service.create_policy(tenant_user, policy_data)
+        
+        assert not result.success
+        assert result.error_code == "GLOBAL_CEILING_EXCEEDED"
+        assert "exceeds global" in result.error.lower()
+
+    @pytest.mark.asyncio
+    async def test_create_policy_combined_exceeds_global_ceiling(
+        self,
+        service: BudgetPolicyService,
+        tenant_user: Actor,
+        mock_repository: AsyncMock,
+    ) -> None:
+        """Combined scoped policies cannot exceed global ceiling."""
+        global_policy = BudgetPolicy(
+            id="global_1",
+            name="Global Budget",
+            scope=BudgetScope.GLOBAL,
+            scope_id=None,
+            limit_amount=Decimal("1000.00"),
+            period=BudgetPeriod.MONTHLY,
+        )
+        
+        existing_team_policy = BudgetPolicy(
+            id="team_existing",
+            name="Existing Team Budget",
+            scope=BudgetScope.TEAM,
+            scope_id="tenant_2",
+            limit_amount=Decimal("600.00"),
+            period=BudgetPeriod.MONTHLY,
+        )
+        
+        def mock_list(**kwargs):
+            if kwargs.get("scope") == BudgetScope.GLOBAL:
+                return [global_policy]
+            elif kwargs.get("scope") == BudgetScope.TEAM:
+                if kwargs.get("scope_id") == "tenant_1":
+                    return []  # No conflict
+                return [existing_team_policy]
+            return []
+        
+        mock_repository.list_policies.side_effect = mock_list
+        
+        # Try to create another team policy with $500 (600 + 500 = 1100 > 1000)
+        policy_data = BudgetPolicyCreate(
+            name="New Team Budget",
+            scope=BudgetScope.TEAM,
+            scope_id="tenant_1",
+            limit_amount=Decimal("500.00"),
+            period=BudgetPeriod.MONTHLY,
+        )
+        
+        result = await service.create_policy(tenant_user, policy_data)
+        
+        assert not result.success
+        assert result.error_code == "GLOBAL_CEILING_EXCEEDED"
+        assert "combined" in result.error.lower()
 
 
 class TestGetPolicy:
@@ -582,7 +664,7 @@ class TestListPolicies:
         other_tenant_policy = BudgetPolicy(
             id="policy_other",
             name="Other Tenant Budget",
-            scope=BudgetScope.TENANT,
+            scope=BudgetScope.TEAM,
             scope_id="tenant_2",  # Different tenant
             limit_amount=Decimal("500.00"),
         )
@@ -621,7 +703,7 @@ class TestCheckBudget:
             provider="openai",
             model="gpt-4o",
             estimated_cost=Decimal("5.00"),
-            tenant_id="tenant_1",
+            team_id="tenant_1",
         )
         
         result = await service.check_budget(tenant_user, request)
@@ -641,7 +723,7 @@ class TestCheckBudget:
         blocking_policy = BudgetPolicy(
             id="policy_strict",
             name="Strict Budget",
-            scope=BudgetScope.TENANT,
+            scope=BudgetScope.TEAM,
             scope_id="tenant_1",
             limit_amount=Decimal("100.00"),
             hard_limit_action=LimitAction.BLOCK,
@@ -653,7 +735,7 @@ class TestCheckBudget:
             provider="openai",
             model="gpt-4o",
             estimated_cost=Decimal("10.00"),  # Would exceed limit
-            tenant_id="tenant_1",
+            team_id="tenant_1",
         )
         
         result = await service.check_budget(tenant_user, request)
@@ -679,7 +761,7 @@ class TestCheckBudget:
             provider="openai",
             model="gpt-4o",
             estimated_cost=Decimal("5.00"),
-            tenant_id="tenant_1",
+            team_id="tenant_1",
         )
         
         result = await service.check_budget(tenant_user, request)
@@ -783,7 +865,7 @@ class TestBudgetPermissionChecker:
         other_tenant_policy = BudgetPolicy(
             id="other",
             name="Other",
-            scope=BudgetScope.TENANT,
+            scope=BudgetScope.TEAM,
             scope_id="tenant_2",
             limit_amount=Decimal("100.00"),
         )

@@ -64,12 +64,12 @@ async def setup_budget_integration(config_manager: "ConfigManager") -> bool:
             logger.info("Budget management is disabled in configuration")
             return False
 
-        # Initialize the budget manager
-        from modules.budget import initialize_budget_manager
-        budget_manager = await initialize_budget_manager()
+        # Initialize the budget services
+        from modules.budget import initialize_budget_services
+        await initialize_budget_services()
 
         # Set up default policies if configured
-        await _setup_default_policies(config_manager, budget_manager)
+        await _setup_default_policies(config_manager)
 
         _integration_initialized = True
         logger.info("Budget integration initialized successfully")
@@ -82,22 +82,21 @@ async def setup_budget_integration(config_manager: "ConfigManager") -> bool:
 
 async def _setup_default_policies(
     config_manager: "ConfigManager",
-    budget_manager: Any,
 ) -> None:
     """Set up default budget policies from configuration.
 
     Args:
         config_manager: Configuration manager.
-        budget_manager: Budget manager instance.
     """
     from modules.budget.models import BudgetPolicy, BudgetPeriod, BudgetScope, LimitAction
+    from modules.budget import api
 
     budget_config = getattr(config_manager, "budget", None)
     if not budget_config:
         return
 
     # Check if we already have a global policy
-    existing = await budget_manager.get_policies(scope=BudgetScope.GLOBAL)
+    existing = await api.get_policies(scope=BudgetScope.GLOBAL)
     if existing:
         logger.debug("Global budget policy already exists, skipping defaults")
         return
@@ -107,7 +106,7 @@ async def _setup_default_policies(
         default_limit = budget_config.default_global_monthly_limit
         soft_limit_pct = budget_config.soft_limit_percent
 
-        policy = BudgetPolicy(
+        await api.set_budget_policy(
             name="Default Global Monthly Budget",
             scope=BudgetScope.GLOBAL,
             period=BudgetPeriod.MONTHLY,
@@ -117,8 +116,6 @@ async def _setup_default_policies(
             enabled=True,
             metadata={"source": "default_config"},
         )
-
-        await budget_manager.set_budget_policy(policy)
         logger.info("Created default global budget policy: $%.2f/month", default_limit)
 
     except Exception as exc:
@@ -440,8 +437,8 @@ async def shutdown_budget_integration() -> None:
         return
 
     try:
-        from modules.budget import shutdown_budget_manager
-        await shutdown_budget_manager()
+        from modules.budget import shutdown_budget_services
+        await shutdown_budget_services()
         _integration_initialized = False
         logger.info("Budget integration shutdown complete")
     except Exception as exc:

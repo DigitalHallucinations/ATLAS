@@ -1,6 +1,6 @@
 # ATLAS Todo Index
 
-> **Last Updated**: 2026-01-08
+> **Last Updated**: 2026-01-09
 
 This directory contains all planning documents for ATLAS development, organized by domain.
 
@@ -11,11 +11,11 @@ This directory contains all planning documents for ATLAS development, organized 
 ### ✅ Completed Phases
 
 - [completed/00-foundation/](completed/00-foundation/) - ✅ **COMPLETED** Core patterns, common types, base infrastructure
+- [completed/01-calendar/](completed/01-calendar/) - ✅ **COMPLETED** Calendar, sync, and reminder services
+- [completed/02-budget/](completed/02-budget/) - ✅ **COMPLETED** Budget policies, tracking, and alerts (243 tests)
 
 ### 📅 Domain Services
 
-- [01-calendar/](01-calendar/) - Calendar, sync, and reminder services
-- [02-budget/](02-budget/) - Budget policies, tracking, and alerts
 - [03-library/](03-library/) - Artifact storage, collections, versioning
 - [04-accounts/](04-accounts/) - User accounts, authentication, credentials
 - [05-jobs-tasks/](05-jobs-tasks/) - Job and task service migration

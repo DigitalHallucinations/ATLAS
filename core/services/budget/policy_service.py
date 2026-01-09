@@ -114,7 +114,7 @@ class BudgetPolicyService(Service):
             actor=user_actor,
             policy_data=BudgetPolicyCreate(
                 name="Monthly Team Budget",
-                scope=BudgetScope.TENANT,
+                scope=BudgetScope.TEAM,
                 limit_amount=Decimal("500.00"),
             ),
         )
@@ -210,6 +210,11 @@ class BudgetPolicyService(Service):
                 "POLICY_CONFLICT",
             )
         
+        # Validate against global budget ceiling
+        ceiling_error = await self._validate_global_ceiling(policy_data)
+        if ceiling_error:
+            return OperationResult.failure(ceiling_error, "GLOBAL_CEILING_EXCEEDED")
+        
         # Create policy from DTO
         policy = policy_data.to_policy()
         
@@ -290,6 +295,22 @@ class BudgetPolicyService(Service):
         validation_error = self._validate_policy_update(update_data)
         if validation_error:
             return OperationResult.failure(validation_error, "VALIDATION_ERROR")
+        
+        # If limit_amount is being updated, validate against global ceiling
+        if update_data.limit_amount is not None:
+            ceiling_check_data = BudgetPolicyCreate(
+                name=policy.name,
+                scope=policy.scope,
+                scope_id=policy.scope_id,
+                limit_amount=update_data.limit_amount,
+                period=policy.period,
+            )
+            ceiling_error = await self._validate_global_ceiling(
+                ceiling_check_data,
+                excluding_policy_id=policy_id,
+            )
+            if ceiling_error:
+                return OperationResult.failure(ceiling_error, "GLOBAL_CEILING_EXCEEDED")
         
         # Apply updates
         changed_fields = update_data.get_changed_fields()
@@ -451,10 +472,20 @@ class BudgetPolicyService(Service):
             (BudgetScope.MODEL, request.model),
         ]
         
-        if request.tenant_id:
-            scopes_to_check.append((BudgetScope.TENANT, request.tenant_id))
+        if request.team_id:
+            scopes_to_check.append((BudgetScope.TEAM, request.team_id))
         if request.user_id:
             scopes_to_check.append((BudgetScope.USER, request.user_id))
+        if request.project_id:
+            scopes_to_check.append((BudgetScope.PROJECT, request.project_id))
+        if request.job_id:
+            scopes_to_check.append((BudgetScope.JOB, request.job_id))
+        if request.task_id:
+            scopes_to_check.append((BudgetScope.TASK, request.task_id))
+        if request.agent_id:
+            scopes_to_check.append((BudgetScope.AGENT, request.agent_id))
+        if request.session_id:
+            scopes_to_check.append((BudgetScope.SESSION, request.session_id))
         
         warnings: List[str] = []
         most_restrictive_action = LimitAction.WARN
@@ -604,6 +635,87 @@ class BudgetPolicyService(Service):
                     
         except Exception as exc:
             logger.warning("Error checking policy conflicts: %s", exc)
+        
+        return None
+    
+    async def _validate_global_ceiling(
+        self,
+        data: BudgetPolicyCreate,
+        excluding_policy_id: Optional[str] = None,
+    ) -> Optional[str]:
+        """Validate that a policy doesn't exceed the global budget ceiling.
+        
+        Rules:
+        1. No scoped policy can have a limit greater than the global policy limit
+        2. The sum of all scoped policies at the same level cannot exceed global
+        
+        Args:
+            data: Policy creation data to validate
+            excluding_policy_id: Policy ID to exclude (for updates)
+            
+        Returns:
+            Error message if validation fails, None otherwise
+        """
+        # Global policies don't need ceiling validation
+        if data.scope == BudgetScope.GLOBAL:
+            return None
+        
+        try:
+            # Get global policies for the same period
+            global_policies = await self._repository.list_policies(
+                scope=BudgetScope.GLOBAL,
+                scope_id=None,
+                enabled_only=True,
+            )
+            
+            # Find matching period global policy
+            global_policy = None
+            for policy in global_policies:
+                if policy.period == data.period:
+                    global_policy = policy
+                    break
+            
+            # If no global policy exists, no ceiling constraint
+            if global_policy is None:
+                return None
+            
+            global_limit = global_policy.limit_amount
+            
+            # Rule 1: Individual policy cannot exceed global
+            if data.limit_amount > global_limit:
+                return (
+                    f"Policy limit ({data.limit_amount}) exceeds global budget "
+                    f"ceiling ({global_limit}) for {data.period.value} period"
+                )
+            
+            # Rule 2: Combined scoped policies cannot exceed global
+            # Get all policies at the same scope level
+            existing_policies = await self._repository.list_policies(
+                scope=data.scope,
+                enabled_only=True,
+            )
+            
+            # Calculate total limit for existing policies (excluding the one being updated)
+            existing_total = Decimal("0")
+            for policy in existing_policies:
+                if policy.period == data.period:
+                    if excluding_policy_id and policy.id == excluding_policy_id:
+                        continue
+                    existing_total += policy.limit_amount
+            
+            # Check if adding this policy exceeds global
+            combined_total = existing_total + data.limit_amount
+            if combined_total > global_limit:
+                return (
+                    f"Combined {data.scope.value} budgets ({combined_total}) "
+                    f"would exceed global ceiling ({global_limit}). "
+                    f"Existing {data.scope.value} budgets: {existing_total}, "
+                    f"new policy: {data.limit_amount}"
+                )
+            
+        except Exception as exc:
+            logger.warning("Error validating global ceiling: %s", exc)
+            # Don't fail creation on validation errors, just log
         
         return None
     

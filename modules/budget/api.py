@@ -41,12 +41,12 @@ Usage::
 
 from __future__ import annotations
 
+import warnings
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, Tuple
 
 from .alerts import AlertEngine, AlertRule, get_alert_engine
-from .manager import BudgetManager, get_budget_manager, get_budget_manager_sync
 from .models import (
     AlertSeverity,
     BudgetAlert,
@@ -67,6 +67,44 @@ from .reports import (
     UsageReport,
 )
 from .tracking import UsageTracker, TrackingContext, get_usage_tracker
+
+# Import new budget services
+from core.services.budget import (
+    BudgetPolicyService,
+    BudgetTrackingService,
+    BudgetAlertService,
+    get_policy_service,
+    get_tracking_service,
+    get_alert_service,
+)
+from core.services.budget.types import (
+    LLMUsageCreate,
+    ImageUsageCreate,
+    UsageRecordCreate,
+    BudgetPolicyCreate,
+)
+from core.services.common.types import Actor
+
+
+def _make_actor(
+    user_id: Optional[str] = None,
+    tenant_id: Optional[str] = None,
+) -> Actor:
+    """Create an Actor for service calls.
+    
+    Args:
+        user_id: User identifier (uses "system" if not provided).
+        tenant_id: Tenant identifier (uses "default" if not provided).
+    
+    Returns:
+        Actor instance for service authorization.
+    """
+    return Actor(
+        type="user" if user_id else "system",
+        id=user_id or "budget_api",
+        tenant_id=tenant_id or "default",
+        permissions={"budget:*"},  # Full budget permissions for API facade
+    )
 
 
 # =============================================================================
@@ -107,21 +145,24 @@ async def record_llm_usage(
     Returns:
         Created UsageRecord.
     """
-    manager = await get_budget_manager()
-    return await manager.record_llm_usage(
+    tracking = await get_tracking_service()
+    actor = _make_actor(user_id, tenant_id)
+    
+    usage = LLMUsageCreate(
         provider=provider,
         model=model,
         input_tokens=input_tokens,
         output_tokens=output_tokens,
         cached_tokens=cached_tokens,
         user_id=user_id,
-        tenant_id=tenant_id,
-        persona=persona,
+        team_id=tenant_id,  # Map tenant_id to team_id
         conversation_id=conversation_id,
         request_id=request_id,
         success=success,
-        metadata=metadata,
+        metadata=metadata or {},
     )
+    
+    return await tracking.record_llm_usage(actor, usage)
 
 
 async def record_image_usage(
@@ -157,21 +198,24 @@ async def record_image_usage(
     Returns:
         Created UsageRecord.
     """
-    manager = await get_budget_manager()
-    return await manager.record_image_usage(
+    tracking = await get_tracking_service()
+    actor = _make_actor(user_id, tenant_id)
+    
+    usage = ImageUsageCreate(
         provider=provider,
         model=model,
         count=count,
         size=size,
         quality=quality,
         user_id=user_id,
-        tenant_id=tenant_id,
-        persona=persona,
+        team_id=tenant_id,
         conversation_id=conversation_id,
         request_id=request_id,
         success=success,
-        metadata=metadata,
+        metadata=metadata or {},
     )
+    
+    return await tracking.record_image_usage(actor, usage)
 
 
 async def record_audio_usage(
@@ -200,26 +244,26 @@ async def record_audio_usage(
     Returns:
         Created UsageRecord.
     """
-    manager = await get_budget_manager()
+    tracking = await get_tracking_service()
+    actor = _make_actor(user_id, tenant_id)
     
     op_type = (
         OperationType.SPEECH_TO_TEXT if operation == "transcription"
         else OperationType.TEXT_TO_SPEECH
     )
     
-    record = UsageRecord(
+    usage = UsageRecordCreate(
         provider=provider,
         model=model,
         operation_type=op_type,
         cost_usd=Decimal("0"),  # Cost calculation TBD
         audio_seconds=duration_seconds,
         user_id=user_id,
-        tenant_id=tenant_id,
+        team_id=tenant_id,
         request_id=request_id,
     )
     
-    await manager.record_usage(record)
-    return record
+    return await tracking.record_usage(actor, usage)
 
 
 async def record_embedding_usage(
@@ -246,7 +290,8 @@ async def record_embedding_usage(
     Returns:
         Created UsageRecord.
     """
-    manager = await get_budget_manager()
+    tracking = await get_tracking_service()
+    actor = _make_actor(user_id, tenant_id)
     
     # Calculate cost for embeddings
     cost = calculate_llm_cost(
@@ -255,19 +300,18 @@ async def record_embedding_usage(
         output_tokens=0,
     )
     
-    record = UsageRecord(
+    usage = UsageRecordCreate(
         provider=provider,
         model=model,
         operation_type=OperationType.EMBEDDING,
         cost_usd=cost,
         input_tokens=input_tokens,
         user_id=user_id,
-        tenant_id=tenant_id,
+        team_id=tenant_id,
         request_id=request_id,
     )
     
-    await manager.record_usage(record)
-    return record
+    return await tracking.record_usage(actor, usage)
 
 
 # =============================================================================
@@ -300,17 +344,35 @@ async def check_budget(
     Returns:
         BudgetCheckResult with allowed status and details.
     """
-    manager = await get_budget_manager()
-    return await manager.check_budget_available(
+    policy_service = await get_policy_service()
+    actor = _make_actor(user_id, tenant_id)
+    
+    # Calculate estimated cost if not provided
+    if estimated_cost is None:
+        if estimated_input_tokens > 0 or estimated_output_tokens > 0:
+            estimated_cost = calculate_llm_cost(
+                model=model,
+                input_tokens=estimated_input_tokens,
+                output_tokens=estimated_output_tokens,
+            )
+        elif image_count > 0:
+            estimated_cost = calculate_image_cost(
+                model=model,
+                count=image_count,
+            )
+        else:
+            estimated_cost = Decimal("0")
+    
+    result = await policy_service.check_budget(
+        actor=actor,
         provider=provider,
         model=model,
         estimated_cost=estimated_cost,
-        estimated_input_tokens=estimated_input_tokens,
-        estimated_output_tokens=estimated_output_tokens,
-        image_count=image_count,
         user_id=user_id,
-        tenant_id=tenant_id,
+        team_id=tenant_id,
     )
+    
+    return result
 
 
 async def get_current_spend(
@@ -328,12 +390,18 @@ async def get_current_spend(
     Returns:
         SpendSummary with current spending data.
     """
-    manager = await get_budget_manager()
-    return await manager.get_current_spend(
+    from core.services.budget.types import UsageSummaryRequest
+    
+    tracking = await get_tracking_service()
+    actor = _make_actor(scope_id=scope_id)
+    
+    request = UsageSummaryRequest(
         scope=scope,
         scope_id=scope_id,
         period=period,
     )
+    
+    return await tracking.get_usage_summary(actor, request)
 
 
 # =============================================================================
@@ -364,7 +432,7 @@ async def get_spend_summary(
         scope = BudgetScope.USER
         scope_id = user_id
     elif tenant_id:
-        scope = BudgetScope.TENANT
+        scope = BudgetScope.TEAM
         scope_id = tenant_id
     else:
         scope = BudgetScope.GLOBAL
@@ -408,8 +476,10 @@ async def get_usage_report(
     end_date = end_date or now
     group_by = group_by or [ReportGrouping.PROVIDER]
 
-    manager = await get_budget_manager()
-    generator = ReportGenerator(manager)
+    # Use BudgetStore directly for report generation
+    from .persistence import BudgetStore
+    store = BudgetStore.get_instance()
+    generator = ReportGenerator(store)
 
     return await generator.generate_report(
         start_date=start_date,
@@ -444,8 +514,9 @@ async def export_usage_report(
         group_by=group_by,
     )
 
-    manager = await get_budget_manager()
-    generator = ReportGenerator(manager)
+    from .persistence import BudgetStore
+    store = BudgetStore.get_instance()
+    generator = ReportGenerator(store)
     return generator.export_report(report, format)
 
 
@@ -460,8 +531,9 @@ async def get_cost_projection(
     Returns:
         Projection data dictionary.
     """
-    manager = await get_budget_manager()
-    generator = ReportGenerator(manager)
+    from .persistence import BudgetStore
+    store = BudgetStore.get_instance()
+    generator = ReportGenerator(store)
     return await generator.generate_projection_report(days_to_project)
 
 
@@ -485,12 +557,24 @@ async def get_alerts(
     Returns:
         List of BudgetAlerts.
     """
-    manager = await get_budget_manager()
-    return await manager.get_active_alerts(
+    alert_service = await get_alert_service()
+    actor = _make_actor()
+    
+    from core.services.budget.types import AlertListRequest
+    
+    request = AlertListRequest(
         policy_id=policy_id,
-        severity=severity,
-        unacknowledged_only=unacknowledged_only,
+        severity=severity.value if severity else None,
+        active_only=True,
     )
+    
+    alerts = await alert_service.get_alerts(actor, request)
+    
+    # Filter unacknowledged if requested
+    if unacknowledged_only:
+        alerts = [a for a in alerts if not a.acknowledged]
+    
+    return alerts
 
 
 async def acknowledge_alert(
@@ -506,11 +590,11 @@ async def acknowledge_alert(
     Returns:
         True if acknowledged, False if not found.
     """
-    manager = await get_budget_manager()
-    return await manager.acknowledge_alert(
-        alert_id=alert_id,
-        user_id=user_id,
-    )
+    alert_service = await get_alert_service()
+    actor = _make_actor(user_id=user_id)
+    
+    result = await alert_service.acknowledge_alert(actor, alert_id)
+    return result.success
 
 
 async def add_alert_rule(
@@ -569,9 +653,10 @@ async def set_budget_policy(
     Returns:
         Created BudgetPolicy.
     """
-    manager = await get_budget_manager()
-
-    policy = BudgetPolicy(
+    policy_service = await get_policy_service()
+    actor = _make_actor(tenant_id=scope_id if scope == BudgetScope.TEAM else None)
+    
+    policy_data = BudgetPolicyCreate(
         name=name,
         scope=scope,
         scope_id=scope_id,
@@ -581,9 +666,12 @@ async def set_budget_policy(
         hard_limit_action=actions[0] if actions else LimitAction.WARN,
         enabled=enabled,
     )
-
-    await manager.set_budget_policy(policy)
-    return policy
+    
+    result = await policy_service.create_policy(actor, policy_data)
+    if result.success:
+        return result.data
+    else:
+        raise ValueError(result.error or "Failed to create policy")
 
 
 async def get_policies(
@@ -601,12 +689,19 @@ async def get_policies(
     Returns:
         List of BudgetPolicies.
     """
-    manager = await get_budget_manager()
-    return await manager.get_policies(
+    policy_service = await get_policy_service()
+    actor = _make_actor(tenant_id=scope_id)
+    
+    result = await policy_service.list_policies(
+        actor=actor,
         scope=scope,
         scope_id=scope_id,
         enabled_only=enabled_only,
     )
+    
+    if result.success:
+        return result.data
+    return []
 
 
 async def delete_policy(policy_id: str) -> bool:
@@ -618,8 +713,11 @@ async def delete_policy(policy_id: str) -> bool:
     Returns:
         True if deleted.
     """
-    manager = await get_budget_manager()
-    return await manager.delete_policy(policy_id)
+    policy_service = await get_policy_service()
+    actor = _make_actor()
+    
+    result = await policy_service.delete_policy(actor, policy_id)
+    return result.success
 
 
 # =============================================================================
@@ -798,8 +896,8 @@ async def get_rollover_amount(policy_id: str) -> Decimal:
     Returns:
         Rollover amount in USD (Decimal).
     """
-    manager = await get_budget_manager()
-    return await manager.get_rollover_amount(policy_id)
+    tracking = await get_tracking_service()
+    return tracking.get_rollover_amount(policy_id)
 
 
 async def calculate_rollover(policy_id: str) -> Decimal:
@@ -814,11 +912,34 @@ async def calculate_rollover(policy_id: str) -> Decimal:
     Returns:
         Calculated rollover amount (0 if policy not found or rollover disabled).
     """
-    manager = await get_budget_manager()
-    policy = await manager.get_policy(policy_id)
-    if not policy:
+    policy_service = await get_policy_service()
+    actor = _make_actor()
+    
+    result = await policy_service.get_policy(actor, policy_id)
+    if not result.success or not result.data:
         return Decimal("0")
-    return await manager.calculate_rollover(policy)
+    
+    policy = result.data
+    if not policy.rollover_enabled:
+        return Decimal("0")
+    
+    # Calculate based on remaining budget
+    tracking = await get_tracking_service()
+    from core.services.budget.types import UsageSummaryRequest
+    
+    request = UsageSummaryRequest(
+        scope=policy.scope,
+        scope_id=policy.scope_id,
+        period=policy.period,
+    )
+    summary = await tracking.get_usage_summary(actor, request)
+    
+    remaining = policy.limit_amount - summary.total_cost
+    if remaining <= 0:
+        return Decimal("0")
+    
+    max_rollover = policy.limit_amount * Decimal(str(policy.rollover_max_percent))
+    return min(remaining, max_rollover)
 
 
 async def process_period_end(policy_id: str) -> Decimal:
@@ -833,11 +954,11 @@ async def process_period_end(policy_id: str) -> Decimal:
     Returns:
         Rollover amount for next period (0 if policy not found).
     """
-    manager = await get_budget_manager()
-    policy = await manager.get_policy(policy_id)
-    if not policy:
-        return Decimal("0")
-    return await manager.process_period_end(policy)
+    rollover = await calculate_rollover(policy_id)
+    if rollover > 0:
+        tracking = await get_tracking_service()
+        tracking.set_rollover_amount(policy_id, rollover)
+    return rollover
 
 
 # =============================================================================
@@ -845,29 +966,21 @@ async def process_period_end(policy_id: str) -> Decimal:
 # =============================================================================
 
 
-async def initialize_budget_manager(
-    config_manager: Optional[Any] = None,
-) -> BudgetManager:
-    """Initialize the budget management system.
+async def initialize_budget_services() -> None:
+    """Initialize the budget service layer.
 
-    Should be called during application startup with a ConfigManager.
-
-    Args:
-        config_manager: Configuration manager instance.
-
-    Returns:
-        Initialized BudgetManager.
+    Should be called during application startup.
+    Initializes all budget services (policy, tracking, alerts).
     """
-    manager = await get_budget_manager(config_manager)
-    return manager
+    from core.services.budget import get_all_services
+    await get_all_services()
 
 
-async def shutdown_budget_manager() -> None:
-    """Shutdown the budget management system.
+async def shutdown_budget_services() -> None:
+    """Shutdown the budget service layer.
 
     Should be called during application shutdown.
     Flushes pending usage records and closes resources.
     """
-    manager = get_budget_manager_sync()
-    if manager:
-        await manager.shutdown()
+    from core.services.budget.factory import shutdown_services
+    await shutdown_services()

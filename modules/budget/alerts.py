@@ -23,7 +23,6 @@ from .models import (
 
 if TYPE_CHECKING:
     from core.config import ConfigManager
-    from .manager import BudgetManager
 
 logger = setup_logger(__name__)
 
@@ -234,11 +233,11 @@ class AlertEngine:
     async def _load_alerts(self) -> None:
         """Load active alerts from persistence."""
         try:
-            from modules.budget import get_budget_manager_sync
+            from modules.budget.persistence import BudgetStore
 
-            manager = get_budget_manager_sync()
-            if manager and manager._persistence:
-                alerts = await manager._persistence.get_alerts(active_only=True)
+            store = BudgetStore.get_instance()
+            if store:
+                alerts = await store.get_alerts(active_only=True)
                 async with self._alert_lock:
                     self._active_alerts = {a.id: a for a in alerts}
                 self.logger.debug("Loaded %d active alerts from storage", len(alerts))

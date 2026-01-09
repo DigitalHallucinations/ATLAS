@@ -87,7 +87,7 @@ class UsageRepository(Protocol):
         start_date: datetime,
         end_date: datetime,
         user_id: Optional[str] = None,
-        tenant_id: Optional[str] = None,
+        team_id: Optional[str] = None,
         provider: Optional[str] = None,
         model: Optional[str] = None,
         limit: int = 1000,
@@ -100,7 +100,7 @@ class UsageRepository(Protocol):
         start_date: datetime,
         end_date: datetime,
         user_id: Optional[str] = None,
-        tenant_id: Optional[str] = None,
+        team_id: Optional[str] = None,
         provider: Optional[str] = None,
         model: Optional[str] = None,
     ) -> Decimal:
@@ -112,7 +112,7 @@ class UsageRepository(Protocol):
         dimension: str,  # "provider", "model", "operation", "user"
         start_date: datetime,
         end_date: datetime,
-        tenant_id: Optional[str] = None,
+        team_id: Optional[str] = None,
     ) -> Dict[str, Decimal]:
         """Get spend broken down by a dimension."""
         ...
@@ -212,7 +212,7 @@ class BudgetTrackingService:
         summary = await service.get_usage_summary(
             actor=actor,
             request=UsageSummaryRequest(
-                scope=BudgetScope.TENANT,
+                scope=BudgetScope.TEAM,
                 period=BudgetPeriod.MONTHLY,
             ),
         )
@@ -384,9 +384,9 @@ class BudgetTrackingService:
         # Create the record
         record = usage.to_record()
         
-        # Set tenant from actor if not provided
-        if not record.tenant_id and hasattr(actor, "tenant_id"):
-            record.tenant_id = actor.tenant_id
+        # Set team from actor if not provided
+        if not record.team_id and hasattr(actor, "team_id"):
+            record.team_id = actor.team_id
         if not record.user_id and hasattr(actor, "user_id"):
             record.user_id = actor.user_id
 
@@ -442,9 +442,15 @@ class BudgetTrackingService:
             input_tokens=usage.input_tokens,
             output_tokens=usage.output_tokens,
             user_id=usage.user_id,
-            tenant_id=usage.tenant_id,
-            persona=usage.persona,
+            team_id=usage.team_id,
+            project_id=usage.project_id,
+            job_id=usage.job_id,
+            task_id=usage.task_id,
+            agent_id=usage.agent_id,
+            session_id=usage.session_id,
             conversation_id=usage.conversation_id,
+            tool_id=usage.tool_id,
+            skill_id=usage.skill_id,
             request_id=usage.request_id,
             success=usage.success,
             metadata=usage.metadata,
@@ -486,9 +492,15 @@ class BudgetTrackingService:
             image_size=usage.size,
             image_quality=usage.quality,
             user_id=usage.user_id,
-            tenant_id=usage.tenant_id,
-            persona=usage.persona,
+            team_id=usage.team_id,
+            project_id=usage.project_id,
+            job_id=usage.job_id,
+            task_id=usage.task_id,
+            agent_id=usage.agent_id,
+            session_id=usage.session_id,
             conversation_id=usage.conversation_id,
+            tool_id=usage.tool_id,
+            skill_id=usage.skill_id,
             request_id=usage.request_id,
             success=usage.success,
             metadata=usage.metadata,
@@ -517,8 +529,8 @@ class BudgetTrackingService:
         # Use scope_id from request or actor
         scope_id = request.scope_id
         if not scope_id:
-            if request.scope == BudgetScope.TENANT and hasattr(actor, "tenant_id"):
-                scope_id = actor.tenant_id
+            if request.scope == BudgetScope.TEAM and hasattr(actor, "team_id"):
+                scope_id = actor.team_id
             elif request.scope == BudgetScope.USER and hasattr(actor, "user_id"):
                 scope_id = actor.user_id
 
@@ -656,8 +668,8 @@ class BudgetTrackingService:
         """
         # Use scope_id from actor if not provided
         if not scope_id:
-            if scope == BudgetScope.TENANT and hasattr(actor, "tenant_id"):
-                scope_id = actor.tenant_id
+            if scope == BudgetScope.TEAM and hasattr(actor, "team_id"):
+                scope_id = actor.team_id
             elif scope == BudgetScope.USER and hasattr(actor, "user_id"):
                 scope_id = actor.user_id
 
@@ -742,8 +754,8 @@ class BudgetTrackingService:
         """
         # Use scope_id from actor if not provided
         if not scope_id:
-            if scope == BudgetScope.TENANT and hasattr(actor, "tenant_id"):
-                scope_id = actor.tenant_id
+            if scope == BudgetScope.TEAM and hasattr(actor, "team_id"):
+                scope_id = actor.team_id
             elif scope == BudgetScope.USER and hasattr(actor, "user_id"):
                 scope_id = actor.user_id
 
@@ -756,7 +768,7 @@ class BudgetTrackingService:
                     dimension=dimension,
                     start_date=period_start,
                     end_date=period_end,
-                    tenant_id=scope_id if scope == BudgetScope.TENANT else None,
+                    team_id=scope_id if scope == BudgetScope.TEAM else None,
                 )
                 total = sum(items.values(), Decimal("0"))
                 return SpendBreakdown(
@@ -809,8 +821,8 @@ class BudgetTrackingService:
             (BudgetScope.GLOBAL, None),
         ]
         
-        if record.tenant_id:
-            scopes_to_invalidate.append((BudgetScope.TENANT, record.tenant_id))
+        if record.team_id:
+            scopes_to_invalidate.append((BudgetScope.TEAM, record.team_id))
         if record.user_id:
             scopes_to_invalidate.append((BudgetScope.USER, record.user_id))
         if record.provider:
@@ -833,12 +845,12 @@ class BudgetTrackingService:
         # Get applicable policies
         policies: List[BudgetPolicy] = []
         
-        if record.tenant_id:
-            tenant_policies = await self._policy_repo.get_policies(
-                scope=BudgetScope.TENANT,
-                scope_id=record.tenant_id,
+        if record.team_id:
+            team_policies = await self._policy_repo.get_policies(
+                scope=BudgetScope.TEAM,
+                scope_id=record.team_id,
             )
-            policies.extend(tenant_policies)
+            policies.extend(team_policies)
         
         if record.user_id:
             user_policies = await self._policy_repo.get_policies(
@@ -954,7 +966,7 @@ class BudgetTrackingService:
                     start_date=period_start,
                     end_date=period_end,
                     user_id=scope_id if scope == BudgetScope.USER else None,
-                    tenant_id=scope_id if scope == BudgetScope.TENANT else None,
+                    team_id=scope_id if scope == BudgetScope.TEAM else None,
                     provider=scope_id if scope == BudgetScope.PROVIDER else None,
                     model=scope_id if scope == BudgetScope.MODEL else None,
                 )
@@ -990,16 +1002,28 @@ class BudgetTrackingService:
         """Check if a record matches the given scope."""
         if scope == BudgetScope.GLOBAL:
             return True
-        elif scope == BudgetScope.TENANT:
-            return record.tenant_id == scope_id
+        elif scope == BudgetScope.TEAM:
+            return record.team_id == scope_id
         elif scope == BudgetScope.USER:
             return record.user_id == scope_id
-        elif scope == BudgetScope.PERSONA:
-            return record.persona == scope_id
+        elif scope == BudgetScope.PROJECT:
+            return record.project_id == scope_id
+        elif scope == BudgetScope.JOB:
+            return record.job_id == scope_id
+        elif scope == BudgetScope.TASK:
+            return record.task_id == scope_id
+        elif scope == BudgetScope.AGENT:
+            return record.agent_id == scope_id
+        elif scope == BudgetScope.SESSION:
+            return record.session_id == scope_id
         elif scope == BudgetScope.PROVIDER:
             return record.provider == scope_id
         elif scope == BudgetScope.MODEL:
             return record.model == scope_id
+        elif scope == BudgetScope.TOOL:
+            return record.tool_id == scope_id
+        elif scope == BudgetScope.SKILL:
+            return record.skill_id == scope_id
         return False
 
     def _get_cache_key(
@@ -1136,7 +1160,6 @@ class BudgetTrackingService:
 
         actor_id = getattr(actor, "user_id", None) or getattr(actor, "id", "system")
         actor_type = getattr(actor, "actor_type", "user")
-        tenant_id = record.tenant_id or getattr(actor, "tenant_id", "default")
 
         event = BudgetUsageRecorded(
             record_id=record.id,
@@ -1144,7 +1167,6 @@ class BudgetTrackingService:
             model=record.model,
             operation_type=record.operation_type.value,
             cost_usd=record.cost_usd,
-            tenant_id=tenant_id,
             actor_id=actor_id,
             actor_type=actor_type,
             input_tokens=record.input_tokens,
@@ -1152,6 +1174,15 @@ class BudgetTrackingService:
             images_generated=record.images_generated,
             audio_seconds=record.audio_seconds,
             user_id=record.user_id,
+            team_id=record.team_id,
+            project_id=record.project_id,
+            job_id=record.job_id,
+            task_id=record.task_id,
+            agent_id=record.agent_id,
+            session_id=record.session_id,
+            conversation_id=record.conversation_id,
+            tool_id=record.tool_id,
+            skill_id=record.skill_id,
         )
 
         try:
@@ -1177,7 +1208,6 @@ class BudgetTrackingService:
             current_percent=current_percent,
             current_spend=current_spend,
             limit_amount=policy.limit_amount,
-            tenant_id=policy.scope_id or "global",
             scope=policy.scope.value,
             scope_id=policy.scope_id,
         )

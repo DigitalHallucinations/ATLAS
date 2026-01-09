@@ -2739,14 +2739,28 @@ class ProviderConfigMixin:
         """
         return self.get_config('ANTHROPIC_API_KEY')
 
-    def get_grok_api_key(self) -> str:
+    def get_xai_api_key(self) -> str:
         """
-        Retrieves the Grok API key from the configuration.
+        Retrieves the xAI API key from the configuration.
+
+        Tries XAI_API_KEY first, falls back to GROK_API_KEY for compatibility.
 
         Returns:
-            str: The Grok API key.
+            str: The xAI API key.
         """
-        return self.get_config('GROK_API_KEY')
+        return self.get_config('XAI_API_KEY') or self.get_config('GROK_API_KEY')
+
+    def get_grok_api_key(self) -> str:
+        """
+        Retrieves the Grok/xAI API key from the configuration.
+
+        Deprecated: Use get_xai_api_key() instead. This method is kept for
+        backward compatibility and delegates to get_xai_api_key().
+
+        Returns:
+            str: The xAI API key.
+        """
+        return self.get_xai_api_key()
 
     def get_cohere_api_key(self) -> str:
         """

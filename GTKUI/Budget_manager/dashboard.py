@@ -111,36 +111,56 @@ class BudgetDashboard(Gtk.Box):
         """Fetch and display current budget data."""
         async def fetch_dashboard_data() -> None:
             try:
-                from modules.budget import get_budget_manager_sync
-                from modules.budget.models import BudgetScope, BudgetPeriod
+                from core.services.budget import (
+                    get_policy_service,
+                    get_tracking_service,
+                    get_alert_service,
+                    UsageSummaryRequest,
+                    AlertListRequest,
+                    BudgetScope,
+                    BudgetPeriod,
+                )
+                from core.services.common import Actor
 
-                manager = get_budget_manager_sync()
-                if manager:
-                    # Get current spending summary
-                    summary = await manager.get_current_spend(
-                        scope=BudgetScope.GLOBAL,
-                        period=BudgetPeriod.MONTHLY,
-                    )
-                    
-                    # Get all policies
-                    policies = await manager.get_policies(enabled_only=True)
-                    
-                    # Get active alerts
-                    alerts = await manager.get_active_alerts()
-                    
-                    # Get recent usage
-                    async with manager._usage_lock:
-                        recent_usage = list(manager._usage_records[-5:])
-                    
-                    data = {
-                        "summary": summary,
-                        "policies": policies,
-                        "alerts": alerts,
-                        "recent_usage": recent_usage,
-                    }
-                    GLib.idle_add(self._on_data_loaded, data)
-                else:
-                    GLib.idle_add(self._on_data_loaded, None)
+                # Create a system actor for fetching data
+                actor = Actor(
+                    type="system",
+                    id="gtkui-dashboard",
+                    tenant_id="local",
+                    permissions={"budget:read"},
+                )
+
+                # Get services
+                policy_service = await get_policy_service()
+                tracking_service = await get_tracking_service()
+                alert_service = await get_alert_service()
+
+                # Get current spending summary
+                summary_request = UsageSummaryRequest(
+                    scope=BudgetScope.GLOBAL,
+                    period=BudgetPeriod.MONTHLY,
+                )
+                summary_result = await tracking_service.get_usage_summary(actor, summary_request)
+                summary = summary_result.data if summary_result.success else None
+
+                # Get all policies
+                policies_result = await policy_service.list_policies(actor, enabled_only=True)
+                policies = policies_result.data if policies_result.success else []
+
+                # Get active alerts
+                alert_request = AlertListRequest(active_only=True)
+                alerts = await alert_service.get_active_alerts(alert_request)
+
+                # Get recent usage from tracking service buffer
+                recent_usage = tracking_service.get_recent_records(limit=5) if hasattr(tracking_service, 'get_recent_records') else []
+
+                data = {
+                    "summary": summary,
+                    "policies": policies,
+                    "alerts": alerts,
+                    "recent_usage": recent_usage,
+                }
+                GLib.idle_add(self._on_data_loaded, data)
             except Exception as exc:
                 logger.warning("Failed to fetch dashboard data: %s", exc)
                 GLib.idle_add(self._on_data_error, str(exc))

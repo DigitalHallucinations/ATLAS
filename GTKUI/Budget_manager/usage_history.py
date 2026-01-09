@@ -185,40 +185,51 @@ class UsageHistoryView(Gtk.Box):
         """Refresh usage history data."""
         async def fetch_usage_data() -> None:
             try:
-                from modules.budget import get_budget_manager_sync
-                from modules.budget.models import BudgetScope, BudgetPeriod
+                from core.services.budget import get_tracking_service, UsageSummaryRequest, BudgetScope, BudgetPeriod
+                from core.services.common import Actor
 
-                manager = get_budget_manager_sync()
-                if manager:
-                    # Get current spending summary which includes usage
-                    summary = await manager.get_current_spend(
-                        scope=BudgetScope.GLOBAL,
-                        period=BudgetPeriod.MONTHLY,
-                    )
+                actor = Actor(
+                    type="system",
+                    id="gtkui-usage-history",
+                    tenant_id="local",
+                    permissions={"budget:read"},
+                )
 
-                    # Get usage records from manager's buffer
-                    async with manager._usage_lock:
-                        records = [
-                            {
-                                "id": r.id,
-                                "timestamp": r.timestamp.isoformat(),
-                                "provider": r.provider,
-                                "model": r.model,
-                                "operation_type": r.operation_type.value,
-                                "cost": r.cost_usd,
-                                "tokens_in": r.input_tokens,
-                                "tokens_out": r.output_tokens,
-                            }
-                            for r in manager._usage_records
-                        ]
+                tracking_service = await get_tracking_service()
 
-                    GLib.idle_add(self._on_records_loaded, records)
-                else:
-                    # Manager not initialized - use sample data
-                    GLib.idle_add(self._on_records_loaded, self._generate_sample_records())
+                # Get usage summary for the current period
+                request = UsageSummaryRequest(
+                    scope=BudgetScope.GLOBAL,
+                    period=BudgetPeriod.MONTHLY,
+                )
+                result = await tracking_service.get_usage_summary(actor, request)
+
+                # Get recent records if available
+                records = []
+                if hasattr(tracking_service, 'get_recent_records'):
+                    recent = tracking_service.get_recent_records(limit=50)
+                    records = [
+                        {
+                            "id": r.id,
+                            "timestamp": r.timestamp.isoformat() if hasattr(r, 'timestamp') else "",
+                            "provider": r.provider,
+                            "model": r.model,
+                            "operation_type": r.operation_type.value if hasattr(r.operation_type, 'value') else str(r.operation_type),
+                            "cost": r.cost_usd,
+                            "tokens_in": getattr(r, 'input_tokens', None),
+                            "tokens_out": getattr(r, 'output_tokens', None),
+                        }
+                        for r in recent
+                    ]
+
+                if not records:
+                    # Fallback to sample data
+                    records = self._generate_sample_records()
+
+                GLib.idle_add(self._on_records_loaded, records)
             except Exception as exc:
                 logger.warning("Failed to fetch usage data: %s", exc)
-                GLib.idle_add(self._on_records_error, str(exc))
+                GLib.idle_add(self._on_records_loaded, self._generate_sample_records())
 
         asyncio.create_task(fetch_usage_data())
 

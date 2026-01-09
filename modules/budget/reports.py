@@ -14,14 +14,11 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, Tuple
 
 from modules.logging.logger import setup_logger
 
 from .models import BudgetPeriod, OperationType, SpendSummary, UsageRecord
-
-if TYPE_CHECKING:
-    from .manager import BudgetManager
 
 logger = setup_logger(__name__)
 
@@ -387,7 +384,7 @@ class ReportGenerator:
 
     Usage::
 
-        generator = ReportGenerator(budget_manager)
+        generator = ReportGenerator()
 
         # Generate monthly report
         report = await generator.generate_report(
@@ -402,13 +399,8 @@ class ReportGenerator:
         md_str = report.to_markdown()
     """
 
-    def __init__(self, budget_manager: Optional["BudgetManager"] = None):
-        """Initialize the report generator.
-
-        Args:
-            budget_manager: Budget manager for data access.
-        """
-        self.budget_manager = budget_manager
+    def __init__(self):
+        """Initialize the report generator."""
         self.logger = setup_logger(__name__)
 
     async def generate_report(
@@ -497,45 +489,24 @@ class ReportGenerator:
         Returns:
             List of matching UsageRecords.
         """
-        if self.budget_manager is None:
+        try:
+            from .persistence import BudgetStore
+            store = BudgetStore.get_instance()
+            if store is None:
+                return []
+
+            records = await store.get_usage_records(
+                start_date=start_date,
+                end_date=end_date,
+                user_id=user_id,
+                tenant_id=tenant_id,
+                provider=provider,
+                model=model,
+            )
+            return records
+        except Exception as exc:
+            logger.warning("Failed to query persisted records: %s", exc)
             return []
-
-        # Get records from budget manager's buffer
-        async with self.budget_manager._usage_lock:
-            records = list(self.budget_manager._usage_records)
-
-        # Also query persisted records via persistence layer
-        if self.budget_manager._persistence is not None:
-            try:
-                persisted = await self.budget_manager._persistence.get_usage_records(
-                    start_date=start_date,
-                    end_date=end_date,
-                    user_id=user_id,
-                    tenant_id=tenant_id,
-                    provider=provider,
-                    model=model,
-                )
-                records.extend(persisted)
-            except Exception as exc:
-                logger.warning("Failed to query persisted records: %s", exc)
-
-        # Filter by date range
-        records = [
-            r for r in records
-            if start_date <= r.timestamp <= end_date
-        ]
-
-        # Apply additional filters
-        if user_id:
-            records = [r for r in records if r.user_id == user_id]
-        if tenant_id:
-            records = [r for r in records if r.tenant_id == tenant_id]
-        if provider:
-            records = [r for r in records if r.provider == provider]
-        if model:
-            records = [r for r in records if r.model == model]
-
-        return records
 
     def _aggregate_records(
         self,
@@ -805,11 +776,11 @@ class ReportGenerator:
 
         # Get current budget policies for context
         budget_context: Dict[str, Any] = {}
-        if self.budget_manager:
+        try:
+            from . import api
             from .models import BudgetScope
-            policies = await self.budget_manager.get_policies(
-                scope=BudgetScope.GLOBAL
-            )
+            
+            policies = await api.get_policies(scope=BudgetScope.GLOBAL)
             if policies:
                 policy = policies[0]
                 budget_context = {
@@ -820,6 +791,8 @@ class ReportGenerator:
                         projected_cost / policy.limit_amount * 100
                     ) if policy.limit_amount > 0 else None,
                 }
+        except Exception as e:
+            self.logger.debug(f"Could not fetch policies for projection: {e}")
 
         return {
             "analysis_period_days": actual_days,

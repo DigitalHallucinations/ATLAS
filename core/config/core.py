@@ -158,7 +158,8 @@ class ConfigCore:
             "HUGGINGFACE_API_KEY": os.getenv("HUGGINGFACE_API_KEY"),
             "GOOGLE_API_KEY": os.getenv("GOOGLE_API_KEY"),
             "ANTHROPIC_API_KEY": os.getenv("ANTHROPIC_API_KEY"),
-            "GROK_API_KEY": os.getenv("GROK_API_KEY"),
+            # xAI/Grok: prefer XAI_API_KEY, fall back to GROK_API_KEY for compatibility
+            "XAI_API_KEY": os.getenv("XAI_API_KEY") or os.getenv("GROK_API_KEY"),
             "XI_API_KEY": os.getenv("XI_API_KEY"),
             "OPENAI_BASE_URL": os.getenv("OPENAI_BASE_URL"),
             "OPENAI_ORGANIZATION": os.getenv("OPENAI_ORGANIZATION"),
