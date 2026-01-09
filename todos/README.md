@@ -140,7 +140,29 @@ All service todos share these requirements:
 2. **Testing**: >90% coverage on service layer
 3. **Documentation**: Update `docs/developer/services/` for each service
 4. **AGENTS.md**: Update ownership in relevant AGENTS.md files
-5. **Migration**: Deprecation warnings on old import paths
+5. **Delete Deprecated Code**: See policy below
+
+---
+
+## Deprecated Code Policy
+
+> ⚠️ **IMPORTANT**: ATLAS is in production with no external user base. When completing refactoring tasks:
+
+1. **No Backward Compatibility Shims**: Do not maintain deprecated APIs, facades, or compatibility layers
+2. **Delete Old Code Immediately**: When replacing components with upgrades, delete the old implementation entirely
+3. **No Deprecation Warnings**: Skip the deprecation warning phase - just remove the old code
+4. **Update All Callers**: Migrate all callers to the new API in the same PR
+5. **Clean Imports**: Remove old exports from `__init__.py` files
+
+**Rationale**: Without external users depending on our APIs, maintaining deprecated code paths:
+- Adds unnecessary complexity
+- Increases maintenance burden
+- Creates confusion about which code path to use
+- Wastes test cycles on dead code
+
+**Example** (from 02-budget completion):
+- ❌ Wrong: Keep `BudgetManager` as a facade with deprecation warnings
+- ✅ Correct: Delete `manager.py`, update all callers to use new services directly
 
 ---
 
