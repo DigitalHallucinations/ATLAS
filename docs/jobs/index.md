@@ -11,7 +11,8 @@ Jobs orchestrate collections of persona-driven tasks, scheduled runs, and automa
 
 - [Job manifests](manifest.md) — schema coverage for manifest fields, recurrence, and capability requirements.
 - [Lifecycle events and analytics](lifecycle.md) — state machine rules, dependency enforcement, and emitted metrics.
-- [Service APIs](api.md) — REST routes mapped to `JobService` operations.
+- [Service layer](service.md) — `JobService` architecture, permission model, CRUD operations, and domain events.
+- [REST APIs](api.md) — HTTP routes mapped to `JobService` operations.
 - [Scheduling patterns](scheduling.md) — recurrence metadata, scheduler controls, and monitoring guidance.
 - [Dashboard and UI workflows](ui.md) — payload shapes for analytics, schedule state, and linked task rollups.
 

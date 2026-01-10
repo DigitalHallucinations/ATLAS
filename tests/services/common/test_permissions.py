@@ -19,6 +19,9 @@ from core.services.common.permissions import (
 )
 from core.services.common.types import Actor
 
+# Mark all tests in this module as async
+pytestmark = pytest.mark.asyncio
+
 
 class TestInMemoryPermissionProvider:
     """Test the in-memory permission provider."""

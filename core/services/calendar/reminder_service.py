@@ -9,7 +9,7 @@ Date: Jan 7, 2026
 """
 
 from __future__ import annotations
-
+ 
 import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
@@ -113,7 +113,29 @@ class ReminderService(Service):
         self._processing_task: Optional[asyncio.Task] = None
         self._processing_interval = 30  # seconds
         self._shutdown_event = asyncio.Event()
-    
+        self._initialized = False
+
+    async def initialize(self) -> None:
+        """Initialize the reminder service."""
+        if self._initialized:
+            return
+        self._logger.info("Initializing ReminderService")
+        self._initialized = True
+
+    async def health_check(self) -> OperationResult[Dict[str, Any]]:
+        """Check service health."""
+        return OperationResult.success({
+            "service": "ReminderService",
+            "initialized": self._initialized,
+            "processing_active": self._processing_task is not None and not self._processing_task.done(),
+        })
+
+    async def cleanup(self) -> None:
+        """Clean up service resources."""
+        self._logger.info("Cleaning up ReminderService")
+        await self.stop_background_processing()
+        self._initialized = False
+
     async def schedule_reminder(
         self,
         actor: Actor,

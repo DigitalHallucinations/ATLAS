@@ -1,6 +1,6 @@
-# 🦅 SCOUT
+# 🌐 ATLAS
 
-## Scalable Cognitive Operations Unified Team
+## Adaptive Thinking Layers for Agentic Systems
 
 **Your Intelligence. Your Rules. Your Data.**
 
@@ -14,17 +14,17 @@
 
 ---
 
-[Quick Start](#-5-minute-quickstart) • [Philosophy](#-why-scout-exists) • [Architecture](#-architecture-at-a-glance) • [Personas](#-the-persona-ecosystem) • [Setup Tiers](#️-setup-tiers) • [Docs](#-documentation)
+[Quick Start](#-5-minute-quickstart) • [Philosophy](#-why-atlas-exists) • [Architecture](#-architecture-at-a-glance) • [Personas](#-the-persona-ecosystem) • [Setup Tiers](#️-setup-tiers) • [Docs](#-documentation)
 
 ---
 
-## 🎯 Why SCOUT Exists
+## 🎯 Why ATLAS Exists
 
 Most AI tools are powerful—but brittle, opaque, and locked into a single provider, mindset, or workflow.
 
 As someone who works across technical, operational, and service-oriented roles, I needed an assistant that could **adapt**—not just respond. I wanted a system that could reason across domains, switch providers without breaking workflows, run locally or online, and remain transparent enough that I could understand *why* it behaved the way it did.
 
-**Most assistants optimize for conversation. SCOUT was built to optimize for usefulness under constraint.**
+**Most assistants optimize for conversation. ATLAS was built to optimize for usefulness under constraint.**
 
 That meant:
 
@@ -33,7 +33,7 @@ That meant:
 - ✅ Graceful degradation when services fail
 - ✅ A system that respects user control over data, configuration, and behavior
 
-> SCOUT is not meant to replace human judgment.  
+> ATLAS is not meant to replace human judgment.  
 > It is meant to **augment it**—reliably, inspectably, and without pretending to be more than it is.
 
 ---
@@ -42,14 +42,14 @@ That meant:
 
 Sooner or later, the major labs will consolidate intelligent systems—and the everyday user will be left renting access on someone else's terms.
 
-**SCOUT exists to change that equation.**
+**ATLAS exists to change that equation.**
 
 ```Text
 ┌─────────────────────────────────────────────────────────────────┐
-│                     THE SCOUT DIFFERENCE                        │
+│                     THE ATLAS DIFFERENCE                        │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
-│   Traditional AI Services          SCOUT                        │
+│   Traditional AI Services          ATLAS                        │
 │   ─────────────────────           ─────                         │
 │   🔒 Vendor lock-in          →    🔓 Provider-agnostic          │
 │   ☁  Cloud-only              →    🏠 Local-first option         │
@@ -60,11 +60,11 @@ Sooner or later, the major labs will consolidate intelligent systems—and the e
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-Whether you're a student learning to code, a developer shipping products, or an enterprise managing compliance—SCOUT scales to your needs while keeping you in control.
+Whether you're a student learning to code, a developer shipping products, or an enterprise managing compliance—ATLAS scales to your needs while keeping you in control.
 
 ---
 
-## ✨ What Makes SCOUT Different
+## ✨ What Makes ATLAS Different
 
 ### 🎭 Persona-Driven Intelligence
 
@@ -88,7 +88,7 @@ PostgreSQL for persistence. Redis for messaging. Run it all locally, or deploy t
 
 ## 🏗 Architecture at a Glance
 
-SCOUT combines a GTK desktop shell, configurable personas, and an orchestration backend to coordinate multi-agent work across conversations, scheduled jobs, and automation services.
+ATLAS combines a GTK desktop shell, configurable personas, and an orchestration backend to coordinate multi-agent work across conversations, scheduled jobs, and automation services.
 
 ```mermaid
 flowchart TD
@@ -98,7 +98,7 @@ flowchart TD
         U3[Automation Scripts]
     end
 
-    subgraph Core["🧠 SCOUT Core Runtime"]
+    subgraph Core["🧠 ATLAS Core Runtime"]
         C1[ConfigManager]
         C2[Provider Manager]
         C3[Persona Manager]
@@ -142,7 +142,7 @@ Personas are more than prompts—they're complete cognitive profiles with their 
 ```mermaid
 flowchart LR
     subgraph System["System Personas"]
-        S1[🦅 SCOUT<br/>Flagship Orchestrator]
+        S1[🌐 ATLAS<br/>Flagship Orchestrator]
         S2[🔍 Echo<br/>Diagnostic & Debug]
         S3[⚖ ComplianceOfficer<br/>Policy Enforcement]
     end
@@ -187,7 +187,7 @@ Each persona can be configured with:
 
 ## ⚙️ Setup Tiers
 
-SCOUT adapts to your scale and requirements—from free learning environments to enterprise compliance.
+ATLAS adapts to your scale and requirements—from free learning environments to enterprise compliance.
 
 ```mermaid
 flowchart LR
@@ -216,33 +216,33 @@ flowchart LR
 
 ## ⚡ The 100x Multiplier
 
-SCOUT isn't just an assistant—it's an **orchestration engine** that multiplies your effectiveness.
+ATLAS isn't just an assistant—it's an **orchestration engine** that multiplies your effectiveness.
 
 ```mermaid
 sequenceDiagram
     participant You
-    participant SCOUT
+    participant ATLAS
     participant CodeGenius
     participant DocGenius
     participant Tools
 
-    You->>SCOUT: "Refactor auth module and update docs"
-    SCOUT->>SCOUT: Decompose task
+    You->>ATLAS: "Refactor auth module and update docs"
+    ATLAS->>ATLAS: Decompose task
     
     par Parallel Execution
-        SCOUT->>CodeGenius: Analyze & refactor code
+        ATLAS->>CodeGenius: Analyze & refactor code
         CodeGenius->>Tools: Read files, run tests
         Tools-->>CodeGenius: Results
-        CodeGenius-->>SCOUT: Refactored code
+        CodeGenius-->>ATLAS: Refactored code
     and
-        SCOUT->>DocGenius: Draft documentation updates
+        ATLAS->>DocGenius: Draft documentation updates
         DocGenius->>Tools: Fetch current docs
         Tools-->>DocGenius: Content
-        DocGenius-->>SCOUT: Updated docs
+        DocGenius-->>ATLAS: Updated docs
     end
     
-    SCOUT->>SCOUT: Synthesize results
-    SCOUT-->>You: "Done. Here's what changed..."
+    ATLAS->>ATLAS: Synthesize results
+    ATLAS-->>You: "Done. Here's what changed..."
 ```
 
 **One request. Multiple specialists. Parallel execution. Unified result.**
@@ -252,7 +252,7 @@ sequenceDiagram
 ## 🚀 5-Minute Quickstart
 
 ```bash
-# Clone SCOUT
+# Clone ATLAS
 git clone https://github.com/DigitalHallucinations/ATLAS.git
 cd ATLAS
 
@@ -271,7 +271,7 @@ source .venv/bin/activate
 # Install dependencies
 pip install -r requirements.txt
 
-# Launch SCOUT
+# Launch ATLAS
 python3 main.py
 ```
 
@@ -317,7 +317,7 @@ From web search to code execution, from calendar management to threat scanning:
 Skills combine tools and reasoning into higher-order capabilities:
 
 - **ContextualSummarizer** – Snapshot recaps of goals, blockers, and commitments
-- **SafetyScout** – Policy-aware safety review before risky actions
+- **Sentinel** – Policy-aware safety review before risky actions
 - **ResearchBrief** – Rapid web research with citations and follow-up questions
 - **DailyDigest** – Morning briefing fusing news with work context
 - **SevereWeatherAlert** – NOAA-integrated monitoring with escalation guidance
@@ -330,7 +330,7 @@ Connect to any provider—or run models locally:
 
 ```mermaid
 flowchart TD
-    subgraph SCOUT["SCOUT Runtime"]
+    subgraph ATLAS["ATLAS Runtime"]
         PM[Provider Manager]
     end
 
@@ -362,7 +362,7 @@ flowchart TD
 | Path | For |
 | ---- | --- |
 | [User Docs](docs/user/README.md) | Setup wizard, GTK navigation, daily workflows |
-| [Developer Docs](docs/developer/README.md) | Environment setup, APIs, extending SCOUT |
+| [Developer Docs](docs/developer/README.md) | Environment setup, APIs, extending ATLAS |
 | [Enterprise Docs](docs/enterprise/README.md) | Retention, policies, compliance, backups |
 
 ### Deep Dives
@@ -408,7 +408,7 @@ Contributions welcome! Whether you're building a persona, tool, or provider adap
 | Role | Scope |
 | ---- | ----- |
 | UI Agent | `GTKUI/`, `Icons/`, UI entry points |
-| Backend Agent | `ATLAS/`, `modules/`, orchestration |
+| Backend Agent | `core/`, `modules/`, orchestration |
 | Data/DB Agent | Stores, migrations, persistence |
 | Infra/Config Agent | `server/`, `config.yaml`, runtime scripts |
 | Docs Agent | `docs/` only |
@@ -417,7 +417,7 @@ Contributions welcome! Whether you're building a persona, tool, or provider adap
 
 ---
 
-## � Credits
+## 🙏 Credits
 
 Created and maintained by **Jeremy Shows**  
 Part of the **Digital Hallucinations** ecosystem
@@ -429,5 +429,3 @@ Part of the **Digital Hallucinations** ecosystem
 ---
 
 `#AI` `#AgenticFramework` `#OpenSource` `#GTK` `#MultiProvider` `#DataSovereignty` `#Python`
-
-</div>

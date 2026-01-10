@@ -6,7 +6,7 @@
     "description": "Package the evidence review so documentation specialists can translate it into discharge instructions and care pathways.",
     "required_skills": [
       "ResearchBrief",
-      "SafetyScout"
+      "Sentinel"
     ],
     "required_tools": [
       "search_pubmed",

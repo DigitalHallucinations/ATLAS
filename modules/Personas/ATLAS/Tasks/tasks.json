@@ -45,7 +45,7 @@
     "summary": "ATLAS automation policy precheck for mission tooling changes.",
     "description": "Validate automation changes touching ATLAS mission control systems against governance, audit, and privacy controls before rollout.",
     "required_skills": [
-      "SafetyScout",
+      "Sentinel",
       "RiskPulse"
     ],
     "required_tools": [
@@ -158,7 +158,7 @@
     "description": "Review readiness checklist items, document outstanding tasks, and flag compliance or safety gaps before launch.",
     "required_skills": [
       "RiskPulse",
-      "SafetyScout"
+      "Sentinel"
     ],
     "required_tools": [
       "roadmap_service",

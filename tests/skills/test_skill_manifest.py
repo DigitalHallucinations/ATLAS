@@ -21,7 +21,7 @@ def test_load_skill_metadata_includes_shared_and_persona():
 
     assert {
         "ContextualSummarizer",
-        "SafetyScout",
+        "Sentinel",
         "ResearchBrief",
         "DailyDigest",
         "SevereWeatherAlert",

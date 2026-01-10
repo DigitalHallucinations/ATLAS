@@ -6,7 +6,7 @@
     "description": "Deliver a concise evidence review that physicians can reference during rounds, emphasizing patient safety considerations.",
     "required_skills": [
       "ResearchBrief",
-      "SafetyScout"
+      "Sentinel"
     ],
     "required_tools": [
       "search_pubmed",

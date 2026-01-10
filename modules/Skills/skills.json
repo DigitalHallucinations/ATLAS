@@ -18,7 +18,7 @@
     ]
   },
   {
-    "name": "SafetyScout",
+    "name": "Sentinel",
     "version": "1.1.0",
     "instruction_prompt": "Audit planned actions for safety or policy risks before execution and flag anything requiring escalation.",
     "required_tools": [

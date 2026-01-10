@@ -5,7 +5,7 @@
     "summary": "ResumeGenius automation policy precheck for talent workflows.",
     "description": "Review resume-generation automation against privacy, consent, and brand governance rules before enabling a new workflow.",
     "required_skills": [
-      "SafetyScout",
+      "Sentinel",
       "RiskPulse"
     ],
     "required_tools": [

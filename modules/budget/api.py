@@ -68,28 +68,64 @@ from .reports import (
 )
 from .tracking import UsageTracker, TrackingContext, get_usage_tracker
 
-# Import new budget services
-from core.services.budget import (
-    BudgetPolicyService,
-    BudgetTrackingService,
-    BudgetAlertService,
-    get_policy_service,
-    get_tracking_service,
-    get_alert_service,
-)
-from core.services.budget.types import (
-    LLMUsageCreate,
-    ImageUsageCreate,
-    UsageRecordCreate,
-    BudgetPolicyCreate,
-)
-from core.services.common.types import Actor
+# NOTE: Imports from core.services.budget are done lazily within functions
+# to avoid circular import: core.services.budget.__init__ -> factory.py ->
+# modules.budget.persistence -> modules.budget.__init__ -> modules.budget.api
+# -> core.services.budget (still initializing)
+
+# Use TYPE_CHECKING for type annotations only
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from core.services.budget import (
+        BudgetPolicyService,
+        BudgetTrackingService,
+        BudgetAlertService,
+        get_policy_service,
+        get_tracking_service,
+        get_alert_service,
+    )
+    from core.services.budget.types import (
+        LLMUsageCreate,
+        ImageUsageCreate,
+        UsageRecordCreate,
+        BudgetPolicyCreate,
+    )
+    from core.services.common.types import Actor
+
+ 
+def _get_lazy_imports():
+    """Lazy import core.services.budget to break circular dependency.
+    
+    Returns a dict with the imported symbols.
+    """
+    from core.services.budget import (
+        get_policy_service,
+        get_tracking_service,
+        get_alert_service,
+    )
+    from core.services.budget.types import (
+        LLMUsageCreate,
+        ImageUsageCreate,
+        UsageRecordCreate,
+        BudgetPolicyCreate,
+    )
+    from core.services.common.types import Actor
+    return {
+        "get_policy_service": get_policy_service,
+        "get_tracking_service": get_tracking_service,
+        "get_alert_service": get_alert_service,
+        "LLMUsageCreate": LLMUsageCreate,
+        "ImageUsageCreate": ImageUsageCreate,
+        "UsageRecordCreate": UsageRecordCreate,
+        "BudgetPolicyCreate": BudgetPolicyCreate,
+        "Actor": Actor,
+    }
 
 
 def _make_actor(
     user_id: Optional[str] = None,
     tenant_id: Optional[str] = None,
-) -> Actor:
+) -> "Actor":
     """Create an Actor for service calls.
     
     Args:
@@ -99,6 +135,8 @@ def _make_actor(
     Returns:
         Actor instance for service authorization.
     """
+    imports = _get_lazy_imports()
+    Actor = imports["Actor"]
     return Actor(
         type="user" if user_id else "system",
         id=user_id or "budget_api",
@@ -145,6 +183,10 @@ async def record_llm_usage(
     Returns:
         Created UsageRecord.
     """
+    imports = _get_lazy_imports()
+    get_tracking_service = imports["get_tracking_service"]
+    LLMUsageCreate = imports["LLMUsageCreate"]
+    
     tracking = await get_tracking_service()
     actor = _make_actor(user_id, tenant_id)
     
@@ -198,6 +240,10 @@ async def record_image_usage(
     Returns:
         Created UsageRecord.
     """
+    imports = _get_lazy_imports()
+    get_tracking_service = imports["get_tracking_service"]
+    ImageUsageCreate = imports["ImageUsageCreate"]
+    
     tracking = await get_tracking_service()
     actor = _make_actor(user_id, tenant_id)
     
@@ -244,6 +290,10 @@ async def record_audio_usage(
     Returns:
         Created UsageRecord.
     """
+    imports = _get_lazy_imports()
+    get_tracking_service = imports["get_tracking_service"]
+    UsageRecordCreate = imports["UsageRecordCreate"]
+    
     tracking = await get_tracking_service()
     actor = _make_actor(user_id, tenant_id)
     
@@ -290,6 +340,10 @@ async def record_embedding_usage(
     Returns:
         Created UsageRecord.
     """
+    imports = _get_lazy_imports()
+    get_tracking_service = imports["get_tracking_service"]
+    UsageRecordCreate = imports["UsageRecordCreate"]
+    
     tracking = await get_tracking_service()
     actor = _make_actor(user_id, tenant_id)
     
@@ -344,6 +398,9 @@ async def check_budget(
     Returns:
         BudgetCheckResult with allowed status and details.
     """
+    imports = _get_lazy_imports()
+    get_policy_service = imports["get_policy_service"]
+    
     policy_service = await get_policy_service()
     actor = _make_actor(user_id, tenant_id)
     
@@ -390,10 +447,12 @@ async def get_current_spend(
     Returns:
         SpendSummary with current spending data.
     """
+    imports = _get_lazy_imports()
+    get_tracking_service = imports["get_tracking_service"]
     from core.services.budget.types import UsageSummaryRequest
     
     tracking = await get_tracking_service()
-    actor = _make_actor(scope_id=scope_id)
+    actor = _make_actor(user_id=scope_id)
     
     request = UsageSummaryRequest(
         scope=scope,
@@ -479,7 +538,7 @@ async def get_usage_report(
     # Use BudgetStore directly for report generation
     from .persistence import BudgetStore
     store = BudgetStore.get_instance()
-    generator = ReportGenerator(store)
+    generator = ReportGenerator()
 
     return await generator.generate_report(
         start_date=start_date,
@@ -516,7 +575,7 @@ async def export_usage_report(
 
     from .persistence import BudgetStore
     store = BudgetStore.get_instance()
-    generator = ReportGenerator(store)
+    generator = ReportGenerator()
     return generator.export_report(report, format)
 
 
@@ -533,7 +592,7 @@ async def get_cost_projection(
     """
     from .persistence import BudgetStore
     store = BudgetStore.get_instance()
-    generator = ReportGenerator(store)
+    generator = ReportGenerator()
     return await generator.generate_projection_report(days_to_project)
 
 
@@ -557,6 +616,9 @@ async def get_alerts(
     Returns:
         List of BudgetAlerts.
     """
+    imports = _get_lazy_imports()
+    get_alert_service = imports["get_alert_service"]
+    
     alert_service = await get_alert_service()
     actor = _make_actor()
     
@@ -590,6 +652,9 @@ async def acknowledge_alert(
     Returns:
         True if acknowledged, False if not found.
     """
+    imports = _get_lazy_imports()
+    get_alert_service = imports["get_alert_service"]
+    
     alert_service = await get_alert_service()
     actor = _make_actor(user_id=user_id)
     
@@ -653,6 +718,10 @@ async def set_budget_policy(
     Returns:
         Created BudgetPolicy.
     """
+    imports = _get_lazy_imports()
+    get_policy_service = imports["get_policy_service"]
+    BudgetPolicyCreate = imports["BudgetPolicyCreate"]
+    
     policy_service = await get_policy_service()
     actor = _make_actor(tenant_id=scope_id if scope == BudgetScope.TEAM else None)
     
@@ -689,6 +758,9 @@ async def get_policies(
     Returns:
         List of BudgetPolicies.
     """
+    imports = _get_lazy_imports()
+    get_policy_service = imports["get_policy_service"]
+    
     policy_service = await get_policy_service()
     actor = _make_actor(tenant_id=scope_id)
     
@@ -713,6 +785,9 @@ async def delete_policy(policy_id: str) -> bool:
     Returns:
         True if deleted.
     """
+    imports = _get_lazy_imports()
+    get_policy_service = imports["get_policy_service"]
+    
     policy_service = await get_policy_service()
     actor = _make_actor()
     
@@ -896,6 +971,9 @@ async def get_rollover_amount(policy_id: str) -> Decimal:
     Returns:
         Rollover amount in USD (Decimal).
     """
+    imports = _get_lazy_imports()
+    get_tracking_service = imports["get_tracking_service"]
+    
     tracking = await get_tracking_service()
     return tracking.get_rollover_amount(policy_id)
 
@@ -912,6 +990,9 @@ async def calculate_rollover(policy_id: str) -> Decimal:
     Returns:
         Calculated rollover amount (0 if policy not found or rollover disabled).
     """
+    imports = _get_lazy_imports()
+    get_policy_service = imports["get_policy_service"]
+    
     policy_service = await get_policy_service()
     actor = _make_actor()
     
@@ -924,6 +1005,7 @@ async def calculate_rollover(policy_id: str) -> Decimal:
         return Decimal("0")
     
     # Calculate based on remaining budget
+    get_tracking_service = imports["get_tracking_service"]
     tracking = await get_tracking_service()
     from core.services.budget.types import UsageSummaryRequest
     
@@ -954,6 +1036,9 @@ async def process_period_end(policy_id: str) -> Decimal:
     Returns:
         Rollover amount for next period (0 if policy not found).
     """
+    imports = _get_lazy_imports()
+    get_tracking_service = imports["get_tracking_service"]
+    
     rollover = await calculate_rollover(policy_id)
     if rollover > 0:
         tracking = await get_tracking_service()

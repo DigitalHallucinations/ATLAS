@@ -132,6 +132,8 @@ sequenceDiagram
 
 `TaskService` exposes `create_task`, `update_task`, and `transition_task`, delegating persistence to `TaskStoreRepository`. Each operation records lifecycle analytics using `modules.analytics.persona_metrics.record_task_lifecycle_event`, which persists metrics in unified `LifecycleEvent` records and publishes `task_metrics.lifecycle` messages.
 
+For comprehensive service layer documentation—including the permission model, CRUD operations, subtask and dependency management, and domain events—see the [service layer reference](service.md).
+
 ## Analytics and rollups
 
 Aggregated task metrics—including success rates, latency, reassignment counts, recent activity, and a sequential funnel describing task status conversions—are available through `get_task_lifecycle_metrics`. The `funnel` block pairs stage-by-stage conversion/abandonment percentages with average dwell time (in milliseconds) for tasks that progressed to the next status. The results surface in the `CapabilityRegistry.summary` payload alongside [job lifecycle analytics](../jobs/lifecycle.md). Operators can subscribe to both `task_metrics.lifecycle` and `jobs.metrics.lifecycle` to build composite funnels that track persona throughput from individual tasks up to recurring jobs.

@@ -408,7 +408,7 @@ class _AtlasStub:
                 "persona": None,
                 "summary": "Compliance review for automation changes.",
                 "description": "Confirm automation updates meet governance requirements before deployment.",
-                "required_skills": ["SafetyScout"],
+                "required_skills": ["Sentinel"],
                 "required_tools": ["policy_reference"],
                 "acceptance_criteria": [
                     "Confirms applicable automation policies.",

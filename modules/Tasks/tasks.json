@@ -81,7 +81,7 @@
     "description": "Aggregate guidelines, recent studies, and safety considerations relevant to the clinician's question.",
     "required_skills": [
       "ResearchBrief",
-      "SafetyScout"
+      "Sentinel"
     ],
     "required_tools": [
       "search_pubmed",
@@ -118,7 +118,7 @@
     "summary": "Pre-flight compliance review for automation changes.",
     "description": "Review automation requests against governance policies to confirm compliance before deployment.",
     "required_skills": [
-      "SafetyScout",
+      "Sentinel",
       "RiskPulse"
     ],
     "required_tools": [
@@ -197,7 +197,7 @@
     "description": "Scan live context and trusted sources to summarize critical operational or policy risks with mitigation guidance.",
     "required_skills": [
       "RiskPulse",
-      "SafetyScout"
+      "Sentinel"
     ],
     "required_tools": [
       "context_tracker",
@@ -235,7 +235,7 @@
     "description": "Review the change calendar to highlight release collisions, approval gaps, and resource contention before execution.",
     "required_skills": [
       "AtlasReporter",
-      "SafetyScout"
+      "Sentinel"
     ],
     "required_tools": [
       "context_tracker",
@@ -427,7 +427,7 @@
     "description": "Monitor recent publications and regulatory advisories, then translate validated findings into actionable updates for clinicians.",
     "required_skills": [
       "ClinicalEvidenceSynthesizer",
-      "SafetyScout"
+      "Sentinel"
     ],
     "required_tools": [
       "search_pubmed",
@@ -466,7 +466,7 @@
     "description": "Investigate a newly reported adverse event by reviewing literature, safety bulletins, and policy controls before clinician follow-up.",
     "required_skills": [
       "ResearchBrief",
-      "SafetyScout"
+      "Sentinel"
     ],
     "required_tools": [
       "google_search",

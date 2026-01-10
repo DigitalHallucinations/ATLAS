@@ -27,8 +27,8 @@ class TestOperationResult:
         assert result.data == data
         assert result.error is None
         assert result.error_code is None
-        assert result.is_success()
-        assert not result.is_failure()
+        assert result.is_success
+        assert not result.is_failure
     
     def test_failure_creation(self):
         """Test creating failed results."""
@@ -38,8 +38,8 @@ class TestOperationResult:
         assert result.data is None
         assert result.error == "Something went wrong"
         assert result.error_code == "ERROR_CODE"
-        assert not result.is_success()
-        assert result.is_failure()
+        assert not result.is_success
+        assert result.is_failure
     
     def test_failure_without_error_code(self):
         """Test failure creation without explicit error code."""

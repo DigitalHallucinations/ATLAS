@@ -157,8 +157,9 @@ class DomainEventPublisher(EventPublisher):
         
         if messages:
             logger.debug(f"Publishing {len(messages)} domain events")
-            await self._bus.publish_many(messages)
-    
+            for message in messages:
+                await self._bus.publish(message)
+     
     def _get_channel_for_event(self, event_type: str) -> str:
         """
         Map event type to appropriate channel.
@@ -315,7 +316,7 @@ def get_event_channel_mappings() -> Dict[str, str]:
     return DOMAIN_EVENT_CHANNELS.copy()
 
 
-def create_domain_event_publisher(agent_bus: AgentBus) -> EventPublisher:
+def create_domain_event_publisher(agent_bus: AgentBus) -> DomainEventPublisher:
     """
     Factory function to create a DomainEventPublisher.
     
@@ -323,6 +324,6 @@ def create_domain_event_publisher(agent_bus: AgentBus) -> EventPublisher:
         agent_bus: AgentBus instance to publish through
         
     Returns:
-        EventPublisher instance
+        DomainEventPublisher instance
     """
     return DomainEventPublisher(agent_bus)
