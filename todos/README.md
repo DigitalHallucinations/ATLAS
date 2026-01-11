@@ -17,12 +17,12 @@ This directory contains all planning documents for ATLAS development, organized 
 - [completed/02-budget/](completed/02-budget/) - ✅ **COMPLETED** Budget policies, tracking, and alerts (243 tests)
 - [completed/05-jobs-tasks/](completed/05-jobs-tasks/) - ✅ **COMPLETED** Job and Task service migration (105 tests)
 - [completed/06-personas/](completed/06-personas/) - ✅ **COMPLETED** Persona service + SOTA enhancements (111 tests)
+- [completed/07-providers/](completed/07-providers/) - ✅ **COMPLETED** Provider config & health services (11 tests)
 
 ### 📅 Domain Services
 
 - [03-library/](03-library/) - Artifact storage, collections, versioning
 - [04-accounts/](04-accounts/) - User accounts, authentication, credentials
-- [07-providers/](07-providers/) - Provider configuration and health
 - [08-skills-tools/](08-skills-tools/) - Skill and tool registry services
 - [09-knowledge/](09-knowledge/) - Knowledge base management
 - [10-speech/](10-speech/) - Speech services (TTS/STT)
@@ -50,6 +50,7 @@ This directory contains all planning documents for ATLAS development, organized 
 
 ### 📋 Cleanup & Documentation
 
+- [40-ui-integration/](40-ui-integration/) - **NEW** UI integration sprint (06-personas, 07-providers, etc.)
 - [99-cleanup/](99-cleanup/) - Final cleanup, deprecation, documentation
 
 ---
@@ -134,6 +135,7 @@ This directory contains all planning documents for ATLAS development, organized 
 | 31-mcp | Medium | 3-4 days |
 | 32-authentication | High | 1-2 weeks |
 | 33-security | High | 2-3 weeks |
+| 40-ui-integration | Medium | 5-7 days |
 | 99-cleanup | Low | 2-3 days |
 
 **Total Estimated**: 14-18 weeks
@@ -146,9 +148,12 @@ All service todos share these requirements:
 
 1. **Pattern Compliance**: Use `OperationResult[T]`, Actor-based permissions, MessageBus events
 2. **Testing**: >90% coverage on service layer
-3. **Documentation**: Update `docs/developer/services/` for each service
-4. **AGENTS.md**: Update ownership in relevant AGENTS.md files
-5. **Delete Deprecated Code**: See policy below
+3. **Static Analysis**: Run Pylance and fix all errors before marking tasks complete
+4. **Markdown Linting**: Fix all markdown lint warnings (no red/yellow files)
+5. **Documentation**: Update `docs/developer/services/` for each service
+6. **AGENTS.md**: Update ownership in relevant AGENTS.md files
+7. **Delete Deprecated Code**: See policy below
+8. **UI Integration**: All UI updates go to [40-ui-integration](40-ui-integration/) - do not include in service todos
 
 ---
 

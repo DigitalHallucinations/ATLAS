@@ -1,10 +1,11 @@
 # ATLAS/persona_manager.py
 
+import asyncio
 import os
 import json
 import copy
 from collections.abc import Iterable as IterableABC, Mapping as MappingABC
-from typing import Any, Dict, List, Mapping, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Tuple, TYPE_CHECKING
 from modules.user_accounts.user_data_manager import UserDataManager
 from core.config import ConfigManager
 from modules.logging.logger import setup_logger
@@ -20,6 +21,38 @@ from modules.Personas import (
     normalize_allowed_skills,
     persist_persona_definition,
 )
+
+if TYPE_CHECKING:
+    from core.services.personas import PersonaService
+    from core.services.common import Actor
+
+
+def _create_system_actor() -> "Actor":
+    """Create a system actor for PersonaManager operations."""
+    from core.services.common import Actor
+    return Actor(
+        type="system",
+        id="persona_manager",
+        tenant_id="system",
+        permissions={"personas:*"},
+    )
+
+
+def _run_async(coro):
+    """Run an async coroutine synchronously."""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+    
+    if loop is not None:
+        # Already in async context - create a new task
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future = executor.submit(asyncio.run, coro)
+            return future.result()
+    else:
+        return asyncio.run(coro)
 
 class PersonaManager:
     """
@@ -49,6 +82,12 @@ class PersonaManager:
         self.logger = setup_logger(__name__)
         self.user_data_manager = UserDataManager(self.user)
         self.persona_base_path = os.path.join(os.path.dirname(__file__), '..', 'modules', 'Personas')
+        
+        # Initialize PersonaService for CRUD operations
+        self._persona_service: Optional["PersonaService"] = None
+        self._actor: Optional["Actor"] = None
+        self._init_persona_service()
+        
         self.persona_names: List[str] = self.load_persona_names(self.persona_base_path)
         self.personas: Dict[str, Any] = {}  # Cache for loaded personas
         self.default_persona_name = "ATLAS"
@@ -59,6 +98,22 @@ class PersonaManager:
 
         # Load the default persona and generate the system prompt
         self.load_default_persona()
+    
+    def _init_persona_service(self) -> None:
+        """Initialize the PersonaService for CRUD operations."""
+        try:
+            from core.services.personas import PersonaService
+            message_bus = getattr(self.master, "message_bus", None)
+            self._persona_service = PersonaService(
+                config_manager=self.config_manager,
+                message_bus=message_bus,
+            )
+            self._actor = _create_system_actor()
+            self.logger.debug("PersonaService initialized successfully")
+        except Exception as e:
+            self.logger.warning("Failed to initialize PersonaService: %s", e)
+            self._persona_service = None
+            self._actor = None
 
     def load_default_persona(self):
         """Loads and personalizes the default persona."""
@@ -73,11 +128,28 @@ class PersonaManager:
         else:
             self.logger.error(f"Failed to load default persona: '{self.default_persona_name}'")
 
-    def load_persona_names(self, persona_path: str) -> List[str]:
-        """Get the list of persona directories."""
+    def load_persona_names(self, persona_path: Optional[str] = None) -> List[str]:
+        """Get the list of persona directories, preferring PersonaService when available.
+
+        The optional ``persona_path`` remains for backward compatibility and is used only
+        when falling back to on-disk enumeration.
+        """
+        # Try to use PersonaService first
+        if self._persona_service is not None and self._actor is not None:
+            try:
+                result = _run_async(self._persona_service.list_personas(self._actor))
+                if result.is_success and result.value:
+                    persona_names = [p.name for p in result.value.personas]
+                    self.logger.debug("Persona names loaded via PersonaService: %s", persona_names)
+                    return persona_names
+            except Exception as e:
+                self.logger.warning("PersonaService.list_personas failed, falling back: %s", e)
+
+        # Fallback to direct file scan
+        target_path = persona_path or self.persona_base_path
         try:
             persona_names: List[str] = []
-            for entry in os.scandir(persona_path):
+            for entry in os.scandir(target_path):
                 if not entry.is_dir():
                     continue
 
@@ -95,6 +167,13 @@ class PersonaManager:
         except OSError as e:
             self.logger.error(f"Error loading persona names: {e}")
             return []
+
+    def refresh_catalog(self) -> List[str]:
+        """Refresh cached persona names using the service when possible."""
+        names = self.load_persona_names()
+        if names:
+            self.persona_names = names
+        return self.persona_names
 
     def _get_tool_metadata(self) -> Tuple[List[str], Dict[str, Any]]:
         """Return cached shared tool metadata (order preserved)."""
@@ -116,6 +195,8 @@ class PersonaManager:
         """
         Load a single persona from its respective folder.
 
+        Uses PersonaService.get_persona() when available.
+        
         Args:
             persona_name (str): The name of the persona to load.
 
@@ -126,6 +207,22 @@ class PersonaManager:
             self.logger.debug("Persona '%s' retrieved from cache.", persona_name)
             return self.personas[persona_name]
         
+        # Try to use PersonaService first
+        if self._persona_service is not None and self._actor is not None:
+            try:
+                result = _run_async(self._persona_service.get_persona(self._actor, persona_name))
+                if result.is_success and result.value:
+                    # Convert PersonaResponse to dict format expected by callers
+                    persona_data = result.value.to_dict()
+                    self.personas[persona_name] = persona_data
+                    self.logger.debug("Persona '%s' loaded via PersonaService.", persona_name)
+                    return persona_data
+                elif not result.is_success:
+                    self.logger.warning("PersonaService.get_persona failed: %s", result.error)
+            except Exception as e:
+                self.logger.warning("PersonaService.get_persona error, falling back: %s", e)
+        
+        # Fallback to direct load
         try:
             order, _lookup = self._get_tool_metadata()
         except Exception:  # pragma: no cover - metadata load errors already logged
@@ -666,12 +763,46 @@ class PersonaManager:
         return overrides
 
     def update_persona(self, persona, *, rationale: str = "Persona manager update"):
-        """Update the persona settings and save them to the corresponding file."""
+        """Update the persona settings and save them to the corresponding file.
+        
+        Uses PersonaService.update_persona() when available.
+        """
         persona_name = persona.get("name") or ""
         if not persona_name:
             self.logger.error("Cannot persist persona without a name: %s", persona)
             return
 
+        # Try to use PersonaService first
+        if self._persona_service is not None and self._actor is not None:
+            try:
+                from core.services.personas.types import PersonaUpdate
+                update = PersonaUpdate(
+                    meaning=persona.get("meaning"),
+                    provider=persona.get("provider"),
+                    model=persona.get("model"),
+                    content=persona.get("content"),
+                    allowed_tools=persona.get("allowed_tools"),
+                    allowed_skills=persona.get("allowed_skills"),
+                    type_config=persona.get("type"),
+                    sys_info_enabled=persona.get("sys_info_enabled") == "True",
+                    user_profile_enabled=persona.get("user_profile_enabled") == "True",
+                    speech_provider=persona.get("Speech_provider"),
+                    voice=persona.get("voice"),
+                )
+                result = _run_async(
+                    self._persona_service.update_persona(self._actor, persona_name, update)
+                )
+                if result.is_success:
+                    self.logger.info("Persona '%s' updated via PersonaService.", persona_name)
+                    # Invalidate cache
+                    self.personas.pop(persona_name, None)
+                    return
+                else:
+                    self.logger.warning("PersonaService.update_persona failed: %s", result.error)
+            except Exception as e:
+                self.logger.warning("PersonaService.update_persona error, falling back: %s", e)
+        
+        # Fallback to direct persist
         try:
             persist_persona_definition(
                 persona_name,
@@ -950,7 +1081,6 @@ class PersonaManager:
         Returns:
             Dict[str, Any]: A response describing success state and optional errors.
         """
-
         errors: List[str] = []
 
         if not persona_name:
@@ -979,6 +1109,46 @@ class PersonaManager:
         if errors:
             return {"success": False, "errors": errors}
 
+        # Prefer PersonaService for end-to-end update so UI avoids direct file access.
+        if self._persona_service is not None and self._actor is not None:
+            try:
+                from core.services.personas.types import PersonaUpdate
+
+                update = PersonaUpdate(
+                    name=new_name if new_name != persona_name else None,
+                    meaning=self._normalize_string(general.get("meaning")),
+                    content=general.get("content"),
+                    provider=provider_name,
+                    model=model_name,
+                    speech_provider=speech.get("Speech_provider"),
+                    voice=speech.get("voice"),
+                    sys_info_enabled=self._as_bool(persona_type.get("sys_info_enabled")),
+                    user_profile_enabled=self._as_bool(persona_type.get("user_profile_enabled")),
+                    allowed_tools=tools or None,
+                    allowed_skills=skills or None,
+                    persona_type=persona_type.get("type"),
+                )
+
+                result = _run_async(
+                    self._persona_service.update_persona(self._actor, persona_name, update)
+                )
+
+                if result.is_success and result.value:
+                    persona_response = result.value
+                    persona_dict = persona_response.to_dict()
+                    # Refresh cache to keep UI in sync after rename
+                    self.personas.pop(persona_name, None)
+                    self.personas[persona_response.name] = persona_dict
+                    self.persona_names = self.load_persona_names()
+                    return {"success": True, "persona": persona_dict}
+
+                # If service returned an error, surface it and skip file fallback
+                errors.append(result.error or "Persona update failed.")
+                return {"success": False, "errors": errors}
+            except Exception as exc:
+                self.logger.warning("PersonaService.update_persona failed, falling back: %s", exc)
+
+        # Fallback path (legacy) — retained for offline scenarios
         persona_data = persona
         current_name = persona_name
 

@@ -1,16 +1,76 @@
 # GTKUI/Persona_manager/persona_management.py
+# pyright: reportMissingImports=false, reportMissingModuleSource=false
+from __future__ import annotations
 
 import logging
 
 import gi
 gi.require_version('Gtk', '4.0')
-from gi.repository import Gtk, Gdk, GLib
+from gi.repository import Gtk, Gdk, GLib  # type: ignore
 
 import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Mapping, Optional
+from typing import Any, Callable, Dict, List, Mapping, Optional, Protocol, Tuple, cast, runtime_checkable, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from gi.repository import Gtk as GtkType  # type: ignore[import]
+
+
+@runtime_checkable
+class PersonaFacade(Protocol):
+    """Minimal persona-facing surface exposed by the ATLAS core.
+
+    Keeping this lightweight protocol helps Pylance reason about the
+    dynamic ATLAS object without pulling backend dependencies into the UI agent.
+    """
+
+    @property
+    def persona_manager(self) -> Any: ...
+    def register_message_dispatcher(self, handler: Callable[[str, str], None]) -> None: ...
+    def show_persona_message(self, role: str, message: str) -> None: ...
+    def get_persona_names(self) -> List[str]: ...
+    def load_persona(self, persona: str) -> None: ...
+    def get_current_persona_prompt(self) -> str: ...
+    def get_persona_editor_state(self, persona_name: str) -> Optional[Dict[str, Any]]: ...
+    def update_persona_from_editor(
+        self,
+        persona_name: str,
+        general: Optional[Dict[str, Any]] = None,
+        persona_type: Optional[Dict[str, Any]] = None,
+        provider: Optional[Dict[str, Any]] = None,
+        speech: Optional[Dict[str, Any]] = None,
+        tools: Optional[List[str]] = None,
+        skills: Optional[List[str]] = None,
+    ) -> Dict[str, Any]: ...
+    def export_persona_bundle(self, persona_name: str, *, signing_key: str) -> Dict[str, Any]: ...
+    def import_persona_bundle(self, *, bundle_bytes: bytes, signing_key: str, rationale: str) -> Dict[str, Any]: ...
+    def attest_persona_review(self, persona_name: str) -> Dict[str, Any]: ...
+    def get_persona_review_status(self, persona_name: str) -> Dict[str, Any]: ...
+    def get_persona_audit_history(
+        self, persona_name: str, limit: int, offset: int
+    ) -> Tuple[List[Dict[str, Any]], int]: ...
+    def get_persona_metrics(
+        self,
+        persona_name: str,
+        tool_name: Optional[str] = None,
+        skill_name: Optional[str] = None,
+        start: Optional[datetime] = None,
+        end: Optional[datetime] = None,
+        limit: int = 10,
+        metric_type: Optional[str] = None,
+        category: Optional[str] = None,
+        recent: bool = False,
+    ) -> Dict[str, Any]: ...
+    def get_persona_comparison_summary(
+        self,
+        persona_names: List[str] = [],
+        metric_type: Optional[str] = None,
+        limit: int = 5,
+        category: Optional[str] = None,
+        recent: Optional[int] = None,
+    ) -> Dict[str, Any]: ...
 
 from .General_Tab.general_tab import GeneralTab
 from .Persona_Type_Tab.persona_type_tab import PersonaTypeTab
@@ -29,7 +89,7 @@ class PersonaManagement:
     opening the settings for each persona.
     """
 
-    def __init__(self, ATLAS, parent_window):
+    def __init__(self, ATLAS: PersonaFacade, parent_window: Gtk.Window):
         """
         Initializes the PersonaManagement.
 
@@ -37,8 +97,8 @@ class PersonaManagement:
             ATLAS (ATLAS): The main ATLAS instance.
             parent_window (Gtk.Window): The parent window for the persona menu.
         """
-        self.ATLAS = ATLAS
-        self.parent_window = parent_window
+        self.ATLAS: PersonaFacade = ATLAS
+        self.parent_window: Gtk.Window = parent_window
         self.persona_window = None
         self._persona_page = None
         self.settings_window = None
@@ -86,12 +146,47 @@ class PersonaManagement:
         self._review_persona_name: Optional[str] = None
         self._persona_metadata: Dict[str, Mapping[str, Any]] = {}
 
+        self.provider_entry: Optional[Gtk.Entry] = None
+        self.model_entry: Optional[Gtk.Entry] = None
+        self.speech_provider_entry: Optional[Gtk.Entry] = None
+        self.voice_entry: Optional[Gtk.Entry] = None
+
+
     # --------------------------- Helpers ---------------------------
 
     def _abs_icon(self, rel_path: str) -> str:
         """Resolve absolute path to an icon from project root."""
         base = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
         return os.path.join(base, rel_path)
+
+    def _safe_set_text(self, widget: Any, text: str) -> None:
+        """Safely set text on a widget if possible."""
+        if widget is None:
+            return
+        if hasattr(widget, "set_text"):
+            # Use getattr to avoid static analysis errors on specific widget types
+            getattr(widget, "set_text")(text)
+        elif hasattr(widget, "set_label"):
+            getattr(widget, "set_label")(text)
+
+    def _safe_get_text(self, widget: Any) -> str:
+        """Safely get text from a widget if possible."""
+        if widget is None:
+            return ""
+        if hasattr(widget, "get_text"):
+            return str(getattr(widget, "get_text")())
+        if hasattr(widget, "get_label"):
+            return str(getattr(widget, "get_label")())
+        return ""
+
+    def _safe_get_active(self, widget: Any) -> bool:
+        """Safely check if a widget is active."""
+        if widget is None:
+            return False
+        if hasattr(widget, "get_active"):
+            return bool(getattr(widget, "get_active")())
+        return False
+
 
     def _style_dialog(self, dialog: Gtk.Dialog) -> None:
         """Ensure dialogs inherit the app styling and dark theme classes."""
@@ -187,14 +282,18 @@ class PersonaManagement:
         else:
             setattr(widget, "_visible", bool(visible))
 
-    def _set_widget_error_state(self, widget: Optional[Gtk.Widget], enabled: bool) -> None:
-        if not isinstance(widget, Gtk.Widget):
+    def _set_widget_error_state(self, widget: Any, enabled: bool) -> None:
+        if widget is None:
+            return
+        add_class = getattr(widget, "add_css_class", None)
+        remove_class = getattr(widget, "remove_css_class", None)
+        if not callable(add_class) or not callable(remove_class):
             return
         try:
             if enabled:
-                widget.add_css_class("error")
+                add_class("error")
             else:
-                widget.remove_css_class("error")
+                remove_class("error")
         except Exception:
             return
 
@@ -210,14 +309,13 @@ class PersonaManagement:
             self._set_widget_error_state(check, False)
             self._set_widget_error_state(row, False)
 
-            if isinstance(check, Gtk.CheckButton):
-                if default_tooltip:
-                    check.set_tooltip_text(default_tooltip)
-                else:
-                    check.set_tooltip_text(None)
+            set_tooltip = getattr(check, "set_tooltip_text", None)
+            if callable(set_tooltip):
+                set_tooltip(default_tooltip if default_tooltip else None)
 
-            if isinstance(hint, Gtk.Label) and default_hint is not None:
-                hint.set_text(default_hint)
+            set_text = getattr(hint, "set_text", None)
+            if callable(set_text) and default_hint is not None:
+                set_text(default_hint)
 
     def _apply_skill_dependency_highlights(self, conflicts: Dict[str, List[str]]) -> None:
         if not conflicts:
@@ -242,19 +340,21 @@ class PersonaManagement:
             self._set_widget_error_state(check, True)
             self._set_widget_error_state(row, True)
 
-            if isinstance(check, Gtk.CheckButton):
+            set_tooltip = getattr(check, "set_tooltip_text", None)
+            if callable(set_tooltip):
                 tooltip_text = default_tooltip
                 if tooltip_text:
                     tooltip_text = f"{tooltip_text}\n\n{message}"
                 else:
                     tooltip_text = message
-                check.set_tooltip_text(tooltip_text)
+                set_tooltip(tooltip_text)
 
-            if isinstance(hint, Gtk.Label):
+            set_text = getattr(hint, "set_text", None)
+            if callable(set_text):
                 if default_hint:
-                    hint.set_text(f"{default_hint}\n⚠ Missing tools: {', '.join(missing_tools)}")
+                    set_text(f"{default_hint}\n⚠ Missing tools: {', '.join(missing_tools)}")
                 else:
-                    hint.set_text(f"⚠ Missing tools: {', '.join(missing_tools)}")
+                    set_text(f"⚠ Missing tools: {', '.join(missing_tools)}")
 
     def _handle_skill_dependency_errors(self, error_messages: List[str]) -> tuple[bool, str]:
         pattern = re.compile(r"Skill '([^']+)' requires missing tools: ([^\n]+)")
@@ -294,8 +394,8 @@ class PersonaManagement:
             )
             return
 
-        self._review_status = status
-        self._update_review_banner(persona_name, status)
+        self._review_status = dict(status) if isinstance(status, dict) else None
+        self._update_review_banner(persona_name, self._review_status)
 
     def _update_review_banner(self, persona_name: str, status: Optional[Dict[str, Any]]) -> None:
         box = self._review_banner_box
@@ -519,16 +619,13 @@ class PersonaManagement:
 
     def _refresh_persona_catalog(self) -> None:
         manager = getattr(self.ATLAS, "persona_manager", None)
-        loader = getattr(manager, "load_persona_names", None)
-        base_path = getattr(manager, "persona_base_path", None)
+        refresher = getattr(manager, "refresh_catalog", None)
 
-        if callable(loader) and base_path is not None:
+        if callable(refresher):
             try:
-                names = loader(base_path)
+                refresher()
             except Exception:
-                names = None
-            else:
-                setattr(manager, "persona_names", names)
+                pass
 
         self._persona_page = None
 
@@ -755,7 +852,7 @@ class PersonaManagement:
         self.persona_window.set_child(self._build_persona_list_widget())
         self.persona_window.present()
 
-    def select_persona(self, persona):
+    def select_persona(self, persona: str) -> None:
         """
         Loads the specified persona.
 
@@ -763,7 +860,8 @@ class PersonaManagement:
             persona (str): The name of the persona to select.
         """
         self.ATLAS.load_persona(persona)
-        print(f"Persona '{persona}' selected with system prompt:\n{self.ATLAS.get_current_persona_prompt()}")
+        prompt = self.ATLAS.get_current_persona_prompt()
+        print(f"Persona '{persona}' selected with system prompt:\n{prompt}")
 
     # --------------------------- Settings ---------------------------
 
@@ -946,9 +1044,10 @@ class PersonaManagement:
             self.open_persona_settings(persona_name)
 
         window = self.settings_window
-        if isinstance(window, Gtk.Window):
+        present = getattr(window, "present", None)
+        if callable(present):
             try:
-                window.present()
+                present()
             except Exception:
                 pass
 
@@ -997,12 +1096,49 @@ class PersonaManagement:
             return False
 
         window = self.settings_window
-        if isinstance(window, Gtk.Window):
+        present = getattr(window, "present", None)
+        if callable(present):
             try:
-                window.present()
+                present()
             except Exception:
                 pass
         return True
+
+    def _safe_append(self, container: Any, child: Any) -> None:
+        """Safely append child to container, handling GTK4/Partial Stub issues."""
+        if container is None or child is None:
+            return
+        
+        appender = getattr(container, "append", None)
+        if callable(appender):
+            try:
+                appender(child)
+                return
+            except Exception:
+                pass
+
+    def _safe_add_css_class(self, widget: Any, class_name: str) -> None:
+        """Safely add CSS class to widget."""
+        if widget is None or not class_name:
+            return
+        
+        adder = getattr(widget, "add_css_class", None)
+        if callable(adder):
+            try:
+                adder(class_name)
+            except Exception:
+                pass
+        else:
+            # Fallback for GTK3 style contexts if stubs/runtime allow
+            style_ctx = getattr(widget, "get_style_context", None)
+            if callable(style_ctx):
+                try:
+                    ctx = style_ctx()
+                    add_cls = getattr(ctx, "add_class", None)
+                    if callable(add_cls):
+                        add_cls(class_name)
+                except Exception:
+                    pass
 
     def _focus_editor_row(self, list_box: Optional[Gtk.ListBox], info: Dict[str, Any]) -> None:
         if not isinstance(list_box, Gtk.ListBox):
@@ -1010,22 +1146,31 @@ class PersonaManagement:
 
         row = info.get('row')
         if isinstance(row, Gtk.ListBoxRow):
-            try:
-                list_box.select_row(row)
-            except Exception:
-                pass
+            # Safe selection
+            select_func = getattr(list_box, 'select_row', None)
+            if callable(select_func):
+                try:
+                    select_func(row)
+                except Exception:
+                    pass
 
         focus_widget = info.get('check')
+        # Try checking widget first
         if isinstance(focus_widget, Gtk.Widget):
             try:
-                focus_widget.grab_focus()
+                grab_focus = getattr(focus_widget, 'grab_focus', None)
+                if callable(grab_focus):
+                    grab_focus()
                 return
             except Exception:
                 pass
 
+        # Fallback to row focus
         if isinstance(row, Gtk.Widget):
             try:
-                row.grab_focus()
+                grab_focus = getattr(row, 'grab_focus', None)
+                if callable(grab_focus):
+                    grab_focus()
             except Exception:
                 pass
 
@@ -1062,27 +1207,41 @@ class PersonaManagement:
         provider_label.set_xalign(0.0)
         provider_label.set_tooltip_text("LLM provider key, e.g., 'OpenAI', 'Anthropic', 'HuggingFace', etc.")
         self.provider_entry = Gtk.Entry()
-        self.provider_entry.set_placeholder_text("e.g., OpenAI")
+        # Cast for static analysis
+        p_entry = cast(Gtk.Entry, self.provider_entry)
+        if hasattr(p_entry, "set_placeholder_text"):
+            getattr(p_entry, "set_placeholder_text")("e.g., OpenAI")
+            
         provider_defaults = persona_state.get('provider', {})
-        self.provider_entry.set_text(provider_defaults.get("provider", "openai"))
-        self.provider_entry.set_tooltip_text("Set which backend/provider this persona uses by default.")
+        self._safe_set_text(self.provider_entry, provider_defaults.get("provider", "openai"))
+        
+        if hasattr(p_entry, "set_tooltip_text"):
+            getattr(p_entry, "set_tooltip_text")("Set which backend/provider this persona uses by default.")
+            
         provider_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        provider_box.append(provider_label)
-        provider_box.append(self.provider_entry)
-        provider_model_box.append(provider_box)
+        self._safe_append(provider_box, provider_label)
+        self._safe_append(provider_box, self.provider_entry)
+        self._safe_append(provider_model_box, provider_box)
 
         # Model
         model_label = Gtk.Label(label="Model")
         model_label.set_xalign(0.0)
         model_label.set_tooltip_text("Model identifier, e.g., 'gpt-4o', 'claude-3-opus', 'meta-llama-3-70b'.")
         self.model_entry = Gtk.Entry()
-        self.model_entry.set_placeholder_text("e.g., gpt-4o")
-        self.model_entry.set_text(provider_defaults.get("model", "gpt-4"))
-        self.model_entry.set_tooltip_text("Exact model name to request from the provider.")
+        m_entry = cast(Gtk.Entry, self.model_entry)
+        
+        if hasattr(m_entry, "set_placeholder_text"):
+            getattr(m_entry, "set_placeholder_text")("e.g., gpt-4o")
+            
+        self._safe_set_text(self.model_entry, provider_defaults.get("model", "gpt-4"))
+        
+        if hasattr(m_entry, "set_tooltip_text"):
+            getattr(m_entry, "set_tooltip_text")("Exact model name to request from the provider.")
+            
         model_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        model_box.append(model_label)
-        model_box.append(self.model_entry)
-        provider_model_box.append(model_box)
+        self._safe_append(model_box, model_label)
+        self._safe_append(model_box, self.model_entry)
+        self._safe_append(provider_model_box, model_box)
 
         return provider_model_box
 
@@ -1103,27 +1262,40 @@ class PersonaManagement:
         speech_provider_label.set_xalign(0.0)
         speech_provider_label.set_tooltip_text("TTS/STT provider key, e.g., '11labs', 'openai_tts', 'google_tts'.")
         self.speech_provider_entry = Gtk.Entry()
-        self.speech_provider_entry.set_placeholder_text("e.g., 11labs")
+        sp_entry = cast(Gtk.Entry, self.speech_provider_entry)
+        if hasattr(sp_entry, "set_placeholder_text"):
+            getattr(sp_entry, "set_placeholder_text")("e.g., 11labs")
+            
         speech_defaults = persona_state.get('speech', {})
-        self.speech_provider_entry.set_text(speech_defaults.get("Speech_provider", "11labs"))
-        self.speech_provider_entry.set_tooltip_text("Default speech provider for this persona.")
+        self._safe_set_text(self.speech_provider_entry, speech_defaults.get("Speech_provider", "11labs"))
+        
+        if hasattr(sp_entry, "set_tooltip_text"):
+            getattr(sp_entry, "set_tooltip_text")("Default speech provider for this persona.")
+            
         speech_provider_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        speech_provider_box.append(speech_provider_label)
-        speech_provider_box.append(self.speech_provider_entry)
-        speech_voice_box.append(speech_provider_box)
+        self._safe_append(speech_provider_box, speech_provider_label)
+        self._safe_append(speech_provider_box, self.speech_provider_entry)
+        self._safe_append(speech_voice_box, speech_provider_box)
 
         # Voice
         voice_label = Gtk.Label(label="Voice")
         voice_label.set_xalign(0.0)
         voice_label.set_tooltip_text("Voice identifier (depends on the provider).")
         self.voice_entry = Gtk.Entry()
-        self.voice_entry.set_placeholder_text("e.g., Jack")
-        self.voice_entry.set_text(speech_defaults.get("voice", "jack"))
-        self.voice_entry.set_tooltip_text("Default voice to synthesize for this persona.")
+        v_entry = cast(Gtk.Entry, self.voice_entry)
+        
+        if hasattr(v_entry, "set_placeholder_text"):
+            getattr(v_entry, "set_placeholder_text")("e.g., Jack")
+            
+        self._safe_set_text(self.voice_entry, speech_defaults.get("voice", "jack"))
+        
+        if hasattr(v_entry, "set_tooltip_text"):
+            getattr(v_entry, "set_tooltip_text")("Default voice to synthesize for this persona.")
+            
         voice_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        voice_box.append(voice_label)
-        voice_box.append(self.voice_entry)
-        speech_voice_box.append(voice_box)
+        self._safe_append(voice_box, voice_label)
+        self._safe_append(voice_box, self.voice_entry)
+        self._safe_append(speech_voice_box, voice_box)
 
         return speech_voice_box
 
@@ -1171,7 +1343,7 @@ class PersonaManagement:
 
         summary_label = Gtk.Label(label=self._format_history_entry(entry))
         summary_label.set_xalign(0.0)
-        container.append(summary_label)
+        self._safe_append(container, summary_label)
 
         old_tools = entry.get("old_tools") or []
         new_tools = entry.get("new_tools") or []
@@ -1182,13 +1354,13 @@ class PersonaManagement:
             )
         )
         tools_label.set_xalign(0.0)
-        container.append(tools_label)
+        self._safe_append(container, tools_label)
 
         rationale_label = Gtk.Label(
             label=self._format_rationale(str(entry.get("rationale") or ""))
         )
         rationale_label.set_xalign(0.0)
-        container.append(rationale_label)
+        self._safe_append(container, rationale_label)
 
         row = Gtk.ListBoxRow()
         setter = getattr(row, "set_child", None)
@@ -1233,7 +1405,7 @@ class PersonaManagement:
         if reset and not entries:
             placeholder = Gtk.Label(label="No persona changes recorded yet.")
             placeholder.set_xalign(0.0)
-            list_box.append(placeholder)
+            self._safe_append(list_box, placeholder)
             self._history_placeholder = placeholder
         else:
             if self._history_placeholder is not None:
@@ -1245,7 +1417,7 @@ class PersonaManagement:
 
             for entry in entries:
                 row = self._build_history_row(entry)
-                list_box.append(row)
+                self._safe_append(list_box, row)
 
             self._history_offset += len(entries)
 
@@ -1273,10 +1445,12 @@ class PersonaManagement:
         scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
         scroll.set_hexpand(True)
         scroll.set_vexpand(True)
-        history_container.append(scroll)
+        self._safe_append(history_container, scroll)
 
         self.history_list_box = Gtk.ListBox()
-        self.history_list_box.set_selection_mode(Gtk.SelectionMode.NONE)
+        hist_box = cast(Gtk.ListBox, self.history_list_box)
+        if hasattr(hist_box, "set_selection_mode"):
+             getattr(hist_box, "set_selection_mode")(Gtk.SelectionMode.NONE)
         scroll.set_child(self.history_list_box)
 
         controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
@@ -1284,8 +1458,8 @@ class PersonaManagement:
         load_more_btn = Gtk.Button(label="Load More")
         load_more_btn.set_tooltip_text("Load older persona change events.")
         load_more_btn.connect("clicked", lambda _btn: self._load_history_page())
-        controls.append(load_more_btn)
-        history_container.append(controls)
+        self._safe_append(controls, load_more_btn)
+        self._safe_append(history_container, controls)
 
         self._history_persona_name = persona_name
         self._history_offset = 0
@@ -1545,7 +1719,8 @@ class PersonaManagement:
             height_getter = getattr(row, "get_allocated_height", None)
             if callable(height_getter):
                 try:
-                    measured_height = float(height_getter())
+                    val = height_getter()
+                    measured_height = float(val) if isinstance(val, (int, float)) else 0.0
                 except Exception:
                     measured_height = 0.0
                 if measured_height > 0.0:
@@ -1623,11 +1798,11 @@ class PersonaManagement:
         header.set_tooltip_text(
             "Toggle tools to enable or disable them. Drag rows or use Ctrl+↑/↓ to change invocation order."
         )
-        tools_box.append(header)
+        self._safe_append(tools_box, header)
 
         list_box = Gtk.ListBox()
         list_box.set_selection_mode(Gtk.SelectionMode.NONE)
-        list_box.add_css_class("boxed-list")
+        self._safe_add_css_class(list_box, "boxed-list")
         self.tool_list_box = list_box
 
         for entry in sorted_entries:
@@ -1673,10 +1848,10 @@ class PersonaManagement:
             )
             if tooltip_parts:
                 check.set_tooltip_text("\n\n".join(tooltip_parts))
-            controls.append(check)
+            self._safe_append(controls, check)
 
             workspace_btn = Gtk.Button()
-            workspace_btn.add_css_class("flat")
+            self._safe_add_css_class(workspace_btn, "flat")
             workspace_btn.set_can_focus(True)
             workspace_btn.set_tooltip_text("Open this tool in the management workspace.")
             accessible_label = f"Open {display_name} in tool manager"
@@ -1703,28 +1878,28 @@ class PersonaManagement:
                     )
             workspace_btn.set_child(self._ensure_tool_row_icons("document-open-symbolic"))
             workspace_btn.connect("clicked", lambda _b, tname=name: self._open_tool_management(tname))
-            controls.append(workspace_btn)
+            self._safe_append(controls, workspace_btn)
 
             badge_widget: Optional[Gtk.Widget] = None
             if reason_text:
                 badge = Gtk.Label(label=reason_text)
                 badge.set_xalign(0.0)
-                badge.add_css_class("tag")
-                badge.add_css_class("warning")
+                self._safe_add_css_class(badge, "tag")
+                self._safe_add_css_class(badge, "warning")
                 badge.set_tooltip_text(reason_text)
-                controls.append(badge)
+                self._safe_append(controls, badge)
                 badge_widget = badge
 
-            row_box.append(controls)
+            self._safe_append(row_box, controls)
 
             hint = Gtk.Label(label=self._format_tool_hint(metadata))
             hint.set_xalign(0.0)
-            hint.get_style_context().add_class("dim-label")
-            row_box.append(hint)
+            self._safe_add_css_class(hint, "dim-label")
+            self._safe_append(row_box, hint)
 
             list_row = Gtk.ListBoxRow()
             list_row.set_child(row_box)
-            list_box.append(list_row)
+            self._safe_append(list_box, list_row)
 
             self.tool_rows[name] = {
                 'row': list_row,
@@ -1747,7 +1922,7 @@ class PersonaManagement:
         scroller = Gtk.ScrolledWindow()
         scroller.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
         scroller.set_child(list_box)
-        tools_box.append(scroller)
+        self._safe_append(tools_box, scroller)
 
         return tools_box
 
@@ -1773,11 +1948,11 @@ class PersonaManagement:
         header.set_tooltip_text(
             "Toggle skills to include them in the persona's prompt capabilities. Drag rows or use Ctrl+↑/↓ to change order."
         )
-        skills_box.append(header)
+        self._safe_append(skills_box, header)
 
         list_box = Gtk.ListBox()
         list_box.set_selection_mode(Gtk.SelectionMode.NONE)
-        list_box.add_css_class("boxed-list")
+        self._safe_add_css_class(list_box, "boxed-list")
         self.skill_list_box = list_box
 
         for entry in sorted_entries:
@@ -1825,10 +2000,10 @@ class PersonaManagement:
             if tooltip_parts:
                 tooltip_text = "\n\n".join(tooltip_parts)
                 check.set_tooltip_text(tooltip_text)
-            controls.append(check)
+            self._safe_append(controls, check)
 
             workspace_btn = Gtk.Button()
-            workspace_btn.add_css_class("flat")
+            self._safe_add_css_class(workspace_btn, "flat")
             workspace_btn.set_can_focus(True)
             workspace_btn.set_tooltip_text("Open this skill in the management workspace.")
             accessible_label = f"Open {display_name} in skill manager"
@@ -1855,28 +2030,28 @@ class PersonaManagement:
                     )
             workspace_btn.set_child(self._ensure_tool_row_icons("document-open-symbolic"))
             workspace_btn.connect("clicked", lambda _b, sname=name: self._open_skill_management(sname))
-            controls.append(workspace_btn)
+            self._safe_append(controls, workspace_btn)
 
             badge_widget: Optional[Gtk.Widget] = None
             if reason_text:
                 badge = Gtk.Label(label=reason_text)
                 badge.set_xalign(0.0)
-                badge.add_css_class("tag")
-                badge.add_css_class("warning")
+                self._safe_add_css_class(badge, "tag")
+                self._safe_add_css_class(badge, "warning")
                 badge.set_tooltip_text(reason_text)
-                controls.append(badge)
+                self._safe_append(controls, badge)
                 badge_widget = badge
 
-            row_box.append(controls)
+            self._safe_append(row_box, controls)
 
             hint = Gtk.Label(label=self._format_skill_hint(metadata))
             hint.set_xalign(0.0)
-            hint.get_style_context().add_class("dim-label")
-            row_box.append(hint)
+            self._safe_add_css_class(hint, "dim-label")
+            self._safe_append(row_box, hint)
 
             list_row = Gtk.ListBoxRow()
             list_row.set_child(row_box)
-            list_box.append(list_row)
+            self._safe_append(list_box, list_row)
 
             self.skill_rows[name] = {
                 'row': list_row,
@@ -1902,7 +2077,7 @@ class PersonaManagement:
         scroller = Gtk.ScrolledWindow()
         scroller.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
         scroller.set_child(list_box)
-        skills_box.append(scroller)
+        self._safe_append(skills_box, scroller)
 
         return skills_box
 
@@ -1956,7 +2131,7 @@ class PersonaManagement:
             if not info:
                 continue
             check = info.get('check')
-            if isinstance(check, Gtk.CheckButton) and check.get_active():
+            if self._safe_get_active(check):
                 allowed.append(name)
         return allowed
 
@@ -2010,28 +2185,54 @@ class PersonaManagement:
             if not info:
                 continue
             check = info.get('check')
-            if isinstance(check, Gtk.CheckButton) and check.get_active():
+            if self._safe_get_active(check):
                 allowed.append(name)
         return allowed
 
     def _clear_list_box(self, list_box: Optional[Gtk.ListBox]) -> None:
         if not isinstance(list_box, Gtk.ListBox):
             return
-        child = list_box.get_first_child()
-        while child is not None:
-            next_child = child.get_next_sibling()
-            try:
-                list_box.remove(child)
-            except Exception:  # pragma: no cover - GTK runtime guard
-                pass
-            child = next_child
+        
+        # GTK4 style
+        getter = getattr(list_box, "get_first_child", None)
+        if callable(getter):
+            child = getter()
+            while child is not None:
+                next_sib_func = getattr(child, "get_next_sibling", None)
+                next_sib = next_sib_func() if callable(next_sib_func) else None
+                try:
+                    remover = getattr(list_box, "remove", None)
+                    if callable(remover):
+                        remover(child)
+                except Exception:
+                    pass
+                child = next_sib
+            return
+
+        # GTK3 style fallback
+        getter = getattr(list_box, "get_children", None)
+        if callable(getter):
+            children = getter()
+            if children is not None:
+                try:
+                    # Specific cast to handle the dynamic return type
+                    child_list = cast(List[Gtk.Widget], children)
+                    remover = getattr(list_box, "remove", None)
+                    if callable(remover):
+                        for child in child_list:
+                            try:
+                                remover(child)
+                            except Exception:
+                                pass
+                except TypeError:
+                    pass
 
     def _parse_analytics_date_entry(
         self, entry: Optional[Gtk.Entry]
     ) -> tuple[Optional[datetime], bool]:
         if not isinstance(entry, Gtk.Entry):
             return (None, True)
-        text = entry.get_text().strip()
+        text = self._safe_get_text(entry).strip()
         if not text:
             return (None, True)
         try:
@@ -2099,7 +2300,9 @@ class PersonaManagement:
                 best_row = row
         if best_row is not None and best_delta is not None and best_delta <= tolerance_seconds:
             try:
-                self._analytics_anomaly_list.select_row(best_row)
+                select_func = getattr(self._analytics_anomaly_list, "select_row", None)
+                if callable(select_func):
+                    select_func(best_row)
             except Exception:
                 return False
             return True
@@ -2137,7 +2340,9 @@ class PersonaManagement:
             entry_ts = self._parse_analytics_timestamp(entry.get("timestamp"))
             if entry_ts is not None and entry_ts.date() == target_date:
                 try:
-                    self._analytics_anomaly_list.select_row(row)
+                    select_func = getattr(self._analytics_anomaly_list, "select_row", None)
+                    if callable(select_func):
+                        select_func(row)
                 except Exception:
                     pass
                 return
@@ -2181,8 +2386,7 @@ class PersonaManagement:
 
         def _set_label(key: str, text: str) -> None:
             widget = self._analytics_comparison_labels.get(key)
-            if isinstance(widget, Gtk.Label):
-                widget.set_text(text)
+            self._safe_set_text(widget, text)
 
         _set_label("top", "Top Performer: —")
         _set_label("worst", "Highest Failure Rate: —")
@@ -2300,30 +2504,25 @@ class PersonaManagement:
             totals = {}
 
         calls_label = self._analytics_summary_labels.get('calls')
-        if isinstance(calls_label, Gtk.Label):
-            calls_label.set_text(str(int(totals.get('calls') or 0)))
+        self._safe_set_text(calls_label, str(int(totals.get('calls') or 0)))
 
         success_label = self._analytics_summary_labels.get('success')
-        if isinstance(success_label, Gtk.Label):
-            success_label.set_text(str(int(totals.get('success') or 0)))
+        self._safe_set_text(success_label, str(int(totals.get('success') or 0)))
 
         failure_label = self._analytics_summary_labels.get('failure')
-        if isinstance(failure_label, Gtk.Label):
-            failure_label.set_text(str(int(totals.get('failure') or 0)))
+        self._safe_set_text(failure_label, str(int(totals.get('failure') or 0)))
 
         success_rate = metrics.get('success_rate') if isinstance(metrics, dict) else 0.0
         if not isinstance(success_rate, (int, float)):
             success_rate = 0.0
         rate_label = self._analytics_summary_labels.get('success_rate')
-        if isinstance(rate_label, Gtk.Label):
-            rate_label.set_text(f"{success_rate * 100:.1f}%")
+        self._safe_set_text(rate_label, f"{success_rate * 100:.1f}%")
 
         avg_latency = metrics.get('average_latency_ms') if isinstance(metrics, dict) else 0.0
         if not isinstance(avg_latency, (int, float)):
             avg_latency = 0.0
         latency_label = self._analytics_summary_labels.get('average_latency_ms')
-        if isinstance(latency_label, Gtk.Label):
-            latency_label.set_text(f"{avg_latency:.1f} ms")
+        self._safe_set_text(latency_label, f"{avg_latency:.1f} ms")
 
         comparison_summary: Dict[str, Any] = {}
         if hasattr(self.ATLAS, 'get_persona_comparison_summary'):
@@ -2392,7 +2591,9 @@ class PersonaManagement:
         self._analytics_anomaly_rows.clear()
         if isinstance(self._analytics_anomaly_list, Gtk.ListBox):
             try:
-                self._analytics_anomaly_list.unselect_all()
+                unselect_func = getattr(self._analytics_anomaly_list, "unselect_all", None)
+                if callable(unselect_func):
+                    unselect_func()
             except Exception:
                 pass
 
@@ -2404,7 +2605,7 @@ class PersonaManagement:
                 placeholder_row.set_selectable(False)
                 placeholder_row.set_activatable(False)
                 placeholder_row.set_child(placeholder_label)
-                self._analytics_anomaly_list.append(placeholder_row)
+                self._safe_append(self._analytics_anomaly_list, placeholder_row)
                 self._analytics_anomaly_placeholder = placeholder_row
         else:
             for entry in anomaly_entries:
@@ -2453,28 +2654,28 @@ class PersonaManagement:
                 metric_label.set_xalign(0.0)
                 time_label = Gtk.Label(label=timestamp)
                 time_label.set_xalign(1.0)
-                time_label.get_style_context().add_class('dim-label')
-                header_box.append(metric_label)
-                header_box.append(time_label)
+                self._safe_add_css_class(time_label, 'dim-label')
+                self._safe_append(header_box, metric_label)
+                self._safe_append(header_box, time_label)
 
                 summary_label = Gtk.Label(label=summary)
                 summary_label.set_xalign(0.0)
-                summary_label.get_style_context().add_class('dim-label')
+                self._safe_add_css_class(summary_label, 'dim-label')
                 summary_label.set_wrap(True)
 
-                row_box.append(header_box)
-                row_box.append(summary_label)
+                self._safe_append(row_box, header_box)
+                self._safe_append(row_box, summary_label)
 
                 if action_text:
                     action_label = Gtk.Label(label=action_text)
                     action_label.set_xalign(0.0)
-                    action_label.get_style_context().add_class('dim-label')
+                    self._safe_add_css_class(action_label, 'dim-label')
                     action_label.set_wrap(True)
-                    row_box.append(action_label)
+                    self._safe_append(row_box, action_label)
 
                 row.set_child(row_box)
                 if isinstance(self._analytics_anomaly_list, Gtk.ListBox):
-                    self._analytics_anomaly_list.append(row)
+                    self._safe_append(self._analytics_anomaly_list, row)
                     self._analytics_anomaly_rows[row] = entry
 
         tool_entries = metrics.get('totals_by_tool') if isinstance(metrics, dict) else []
@@ -2495,7 +2696,7 @@ class PersonaManagement:
             placeholder = Gtk.Label(label="No tool activity for this range.")
             placeholder.set_xalign(0.0)
             if isinstance(self._analytics_tool_list, Gtk.ListBox):
-                self._analytics_tool_list.append(placeholder)
+                self._safe_append(self._analytics_tool_list, placeholder)
             self._analytics_tool_placeholder = placeholder
         else:
             for entry in tool_entries:
@@ -2521,12 +2722,12 @@ class PersonaManagement:
                     )
                 )
                 metrics_label.set_xalign(1.0)
-                metrics_label.get_style_context().add_class('dim-label')
-                box.append(name_label)
-                box.append(metrics_label)
+                self._safe_add_css_class(metrics_label, 'dim-label')
+                self._safe_append(box, name_label)
+                self._safe_append(box, metrics_label)
                 row.set_child(box)
                 if isinstance(self._analytics_tool_list, Gtk.ListBox):
-                    self._analytics_tool_list.append(row)
+                    self._safe_append(self._analytics_tool_list, row)
 
         if not isinstance(skill_metrics, dict):
             skill_metrics = {}
@@ -2551,7 +2752,7 @@ class PersonaManagement:
             placeholder = Gtk.Label(label="No skill activity for this range.")
             placeholder.set_xalign(0.0)
             if isinstance(self._analytics_skill_list, Gtk.ListBox):
-                self._analytics_skill_list.append(placeholder)
+                self._safe_append(self._analytics_skill_list, placeholder)
             self._analytics_skill_placeholder = placeholder
         else:
             for entry in skill_entries:
@@ -2577,12 +2778,12 @@ class PersonaManagement:
                     )
                 )
                 metrics_label.set_xalign(1.0)
-                metrics_label.get_style_context().add_class('dim-label')
-                box.append(name_label)
-                box.append(metrics_label)
+                self._safe_add_css_class(metrics_label, 'dim-label')
+                self._safe_append(box, name_label)
+                self._safe_append(box, metrics_label)
                 row.set_child(box)
                 if isinstance(self._analytics_skill_list, Gtk.ListBox):
-                    self._analytics_skill_list.append(row)
+                    self._safe_append(self._analytics_skill_list, row)
 
         recent_entries = metrics.get('recent') if isinstance(metrics, dict) else []
         if not isinstance(recent_entries, list):
@@ -2610,7 +2811,7 @@ class PersonaManagement:
             placeholder = Gtk.Label(label="No recent executions.")
             placeholder.set_xalign(0.0)
             if isinstance(self._analytics_recent_list, Gtk.ListBox):
-                self._analytics_recent_list.append(placeholder)
+                self._safe_append(self._analytics_recent_list, placeholder)
             self._analytics_recent_placeholder = placeholder
         else:
             for entry in recent_entries:
@@ -2629,16 +2830,16 @@ class PersonaManagement:
                 time_label.set_xalign(0.0)
                 status_label = Gtk.Label(label=f"{status} • {latency:.1f} ms")
                 status_label.set_xalign(1.0)
-                status_label.get_style_context().add_class('dim-label')
-                header.append(time_label)
-                header.append(status_label)
+                self._safe_add_css_class(status_label, 'dim-label')
+                self._safe_append(header, time_label)
+                self._safe_append(header, status_label)
                 detail = Gtk.Label(label=tool_name or "(unknown tool)")
                 detail.set_xalign(0.0)
-                box.append(header)
-                box.append(detail)
+                self._safe_append(box, header)
+                self._safe_append(box, detail)
                 row.set_child(box)
                 if isinstance(self._analytics_recent_list, Gtk.ListBox):
-                    self._analytics_recent_list.append(row)
+                    self._safe_append(self._analytics_recent_list, row)
 
     def create_analytics_tab(self, persona_state) -> Gtk.Box:
         persona_name = ""
@@ -2660,19 +2861,19 @@ class PersonaManagement:
         start_entry = Gtk.Entry()
         start_entry.set_placeholder_text("Start (YYYY-MM-DD)")
         start_entry.set_tooltip_text("Filter analytics to timestamps on or after this value.")
-        controls.append(start_entry)
+        self._safe_append(controls, start_entry)
 
         end_entry = Gtk.Entry()
         end_entry.set_placeholder_text("End (YYYY-MM-DD)")
         end_entry.set_tooltip_text("Filter analytics to timestamps on or before this value.")
-        controls.append(end_entry)
+        self._safe_append(controls, end_entry)
 
         refresh_button = Gtk.Button(label="Refresh")
         refresh_button.set_tooltip_text("Reload analytics for the selected date range.")
         refresh_button.connect("clicked", lambda _btn: self._refresh_persona_analytics())
-        controls.append(refresh_button)
+        self._safe_append(controls, refresh_button)
 
-        container.append(controls)
+        self._safe_append(container, controls)
 
         summary_grid = Gtk.Grid()
         summary_grid.set_column_spacing(12)
@@ -2692,12 +2893,12 @@ class PersonaManagement:
             label_widget.set_xalign(0.0)
             value_widget = Gtk.Label(label="0")
             value_widget.set_xalign(1.0)
-            value_widget.get_style_context().add_class('dim-label')
+            self._safe_add_css_class(value_widget, 'dim-label')
             summary_grid.attach(label_widget, 0, row_index, 1, 1)
             summary_grid.attach(value_widget, 1, row_index, 1, 1)
             summary_labels[key] = value_widget
 
-        container.append(summary_grid)
+        self._safe_append(container, summary_grid)
 
         chart_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         chart_row.set_hexpand(True)
@@ -2706,42 +2907,42 @@ class PersonaManagement:
 
         heatmap = AnomalyHeatmap()
         heatmap.set_activate_handler(self._on_heatmap_day_selected)
-        chart_row.append(heatmap)
+        self._safe_append(chart_row, heatmap)
 
         latency_chart = LatencyTimeline()
         latency_chart.set_activate_handler(self._on_timeline_point_selected)
-        chart_row.append(latency_chart)
+        self._safe_append(chart_row, latency_chart)
 
-        container.append(chart_row)
+        self._safe_append(container, chart_row)
 
         comparison_label = Gtk.Label(label="Comparison Highlights")
         comparison_label.set_xalign(0.0)
-        container.append(comparison_label)
+        self._safe_append(container, comparison_label)
 
         comparison_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         comparison_box.set_hexpand(True)
-        comparison_box.get_style_context().add_class('boxed-list')
+        self._safe_add_css_class(comparison_box, 'boxed-list')
 
         top_label = Gtk.Label(label="Top Performer: —")
         top_label.set_xalign(0.0)
-        top_label.get_style_context().add_class('dim-label')
-        comparison_box.append(top_label)
+        self._safe_add_css_class(top_label, 'dim-label')
+        self._safe_append(comparison_box, top_label)
 
         worst_label = Gtk.Label(label="Highest Failure Rate: —")
         worst_label.set_xalign(0.0)
-        worst_label.get_style_context().add_class('dim-label')
-        comparison_box.append(worst_label)
+        self._safe_add_css_class(worst_label, 'dim-label')
+        self._safe_append(comparison_box, worst_label)
 
         fastest_label = Gtk.Label(label="Fastest Avg Latency: —")
         fastest_label.set_xalign(0.0)
-        fastest_label.get_style_context().add_class('dim-label')
-        comparison_box.append(fastest_label)
+        self._safe_add_css_class(fastest_label, 'dim-label')
+        self._safe_append(comparison_box, fastest_label)
 
-        container.append(comparison_box)
+        self._safe_append(container, comparison_box)
 
         anomaly_label = Gtk.Label(label="Recent Anomalies")
         anomaly_label.set_xalign(0.0)
-        container.append(anomaly_label)
+        self._safe_append(container, anomaly_label)
 
         anomaly_scroll = Gtk.ScrolledWindow()
         anomaly_scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
@@ -2750,14 +2951,14 @@ class PersonaManagement:
         anomaly_scroll.set_vexpand(True)
         anomaly_list = Gtk.ListBox()
         anomaly_list.set_selection_mode(Gtk.SelectionMode.SINGLE)
-        anomaly_list.add_css_class('boxed-list')
+        self._safe_add_css_class(anomaly_list, 'boxed-list')
         anomaly_list.connect('row-selected', self._on_anomaly_row_selected)
         anomaly_scroll.set_child(anomaly_list)
-        container.append(anomaly_scroll)
+        self._safe_append(container, anomaly_scroll)
 
         tool_label = Gtk.Label(label="Tool Breakdown")
         tool_label.set_xalign(0.0)
-        container.append(tool_label)
+        self._safe_append(container, tool_label)
 
         tool_scroll = Gtk.ScrolledWindow()
         tool_scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
@@ -2766,13 +2967,13 @@ class PersonaManagement:
         tool_scroll.set_vexpand(True)
         tool_list = Gtk.ListBox()
         tool_list.set_selection_mode(Gtk.SelectionMode.NONE)
-        tool_list.add_css_class('boxed-list')
+        self._safe_add_css_class(tool_list, 'boxed-list')
         tool_scroll.set_child(tool_list)
-        container.append(tool_scroll)
+        self._safe_append(container, tool_scroll)
 
         skill_label = Gtk.Label(label="Skill Breakdown")
         skill_label.set_xalign(0.0)
-        container.append(skill_label)
+        self._safe_append(container, skill_label)
 
         skill_scroll = Gtk.ScrolledWindow()
         skill_scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
@@ -2781,13 +2982,13 @@ class PersonaManagement:
         skill_scroll.set_vexpand(True)
         skill_list = Gtk.ListBox()
         skill_list.set_selection_mode(Gtk.SelectionMode.NONE)
-        skill_list.add_css_class('boxed-list')
+        self._safe_add_css_class(skill_list, 'boxed-list')
         skill_scroll.set_child(skill_list)
-        container.append(skill_scroll)
+        self._safe_append(container, skill_scroll)
 
         recent_label = Gtk.Label(label="Recent Activity")
         recent_label.set_xalign(0.0)
-        container.append(recent_label)
+        self._safe_append(container, recent_label)
 
         recent_scroll = Gtk.ScrolledWindow()
         recent_scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
@@ -2796,9 +2997,9 @@ class PersonaManagement:
         recent_scroll.set_vexpand(True)
         recent_list = Gtk.ListBox()
         recent_list.set_selection_mode(Gtk.SelectionMode.NONE)
-        recent_list.add_css_class('boxed-list')
+        self._safe_add_css_class(recent_list, 'boxed-list')
         recent_scroll.set_child(recent_list)
-        container.append(recent_scroll)
+        self._safe_append(container, recent_scroll)
 
         self._analytics_persona_name = persona_name
         self._analytics_start_entry = start_entry
@@ -2895,13 +3096,13 @@ class PersonaManagement:
         persona_type_payload = self.persona_type_tab.get_values() or {}
 
         provider_payload = {
-            'provider': self.provider_entry.get_text(),
-            'model': self.model_entry.get_text(),
+            'provider': self._safe_get_text(self.provider_entry),
+            'model': self._safe_get_text(self.model_entry),
         }
 
         speech_payload = {
-            'Speech_provider': self.speech_provider_entry.get_text(),
-            'voice': self.voice_entry.get_text(),
+            'Speech_provider': self._safe_get_text(self.speech_provider_entry),
+            'voice': self._safe_get_text(self.voice_entry),
         }
 
         tools_payload = self._collect_tool_payload()

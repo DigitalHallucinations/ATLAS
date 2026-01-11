@@ -1,10 +1,11 @@
 # Provider Services
 
-> **Status**: 📋 Planning  
+> **Status**: � Service Layer Complete (UI deferred to [40-ui-integration](../40-ui-integration/))  
 > **Priority**: Medium  
 > **Complexity**: Medium  
 > **Effort**: 3-4 days  
-> **Created**: 2026-01-07
+> **Created**: 2026-01-07  
+> **Updated**: 2026-01-11
 
 ---
 
@@ -12,46 +13,45 @@
 
 Extract provider management from `GTKUI/Provider_manager/` and `modules/Providers/` into two focused services:
 
-1. **ProviderConfigService** - Provider configuration and credentials
-2. **ProviderHealthService** - Provider health monitoring
+1. **ProviderConfigService** - Provider configuration and credentials ✅
+2. **ProviderHealthService** - Provider health monitoring ✅
 
 ---
 
 ## Phases
 
-### Phase 1: ProviderConfigService
+### Phase 1: ProviderConfigService ✅
 
-- [ ] **1.1** Create `core/services/providers/` package
-- [ ] **1.2** Implement ProviderConfigService:
+- [x] **1.1** Create `core/services/providers/` package
+- [x] **1.2** Implement ProviderConfigService:
   - `list_providers()` - Get all providers
   - `get_provider(provider_id)` - Get provider config
   - `configure_provider(actor, provider_id, config)` - Update config
   - `enable_provider(actor, provider_id)` - Enable
   - `disable_provider(actor, provider_id)` - Disable
   - `set_credentials(actor, provider_id, credentials)` - Set API keys
-  - `validate_credentials(provider_id)` - Test credentials
-  - `get_default_provider(operation_type)` - Get default for ops
-  - `set_default_provider(actor, operation_type, provider_id)`
-- [ ] **1.3** Add MessageBus events:
-  - `provider.configured`
-  - `provider.enabled`
-  - `provider.disabled`
-- [ ] **1.4** Write unit tests
+  - ~~`validate_credentials(provider_id)`~~ - Deferred
+  - ~~`get_default_provider(operation_type)`~~ - Deferred
+  - ~~`set_default_provider(actor, operation_type, provider_id)`~~ - Deferred
+- [x] **1.3** Add MessageBus events:
+  - `ProviderConfigEvent`
+  - `ProviderStateEvent` (enabled/disabled)
+- [x] **1.4** Write unit tests (6 tests)
 
-### Phase 2: ProviderHealthService
+### Phase 2: ProviderHealthService ✅
 
-- [ ] **2.1** Implement ProviderHealthService:
+- [x] **2.1** Implement ProviderHealthService:
   - `check_health(provider_id)` - Single health check
   - `check_all_health()` - Check all enabled providers
   - `get_status(provider_id)` - Get current status
   - `get_all_statuses()` - Get all statuses
-- [ ] **2.2** Add MessageBus events:
-  - `provider.health_changed`
-  - `provider.error`
-- [ ] **2.3** Background health check scheduling
-- [ ] **2.4** Write unit tests
+- [x] **2.2** Add MessageBus events:
+  - `ProviderHealthEvent`
+  - `ProviderErrorEvent`
+- [ ] **2.3** Background health check scheduling (stub only)
+- [x] **2.4** Write unit tests (5 tests)
 
-### Phase 3: UI Integration
+### Phase 3: UI Integration → Deferred to [40-ui-integration](../40-ui-integration/)
 
 - [ ] **3.1** Update UI and provider_manager to use services
 - [ ] **3.2** Remove direct config access from UI

@@ -41,8 +41,9 @@ Extract knowledge base management from `GTKUI/KnowledgeBase/` into `core/service
   - `knowledge.document_removed`
   - `knowledge.indexing_started`
   - `knowledge.indexing_completed`
-- [ ] **1.5** Update UI to use service
-- [ ] **1.6** Write unit tests
+- [ ] **1.5** Write unit tests
+
+> **UI Integration**: See [40-ui-integration](../40-ui-integration/)
 
 ---
 

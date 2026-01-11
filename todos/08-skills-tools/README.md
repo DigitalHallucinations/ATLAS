@@ -36,8 +36,9 @@ Extract skill and tool management from `GTKUI/Skill_manager/`, `GTKUI/Tool_manag
   - `skill.registered`, `skill.unregistered`
   - `skill.enabled`, `skill.disabled`
   - `skill.invoked`, `skill.completed`, `skill.failed`
-- [ ] **1.4** Update UI to use service
-- [ ] **1.5** Write unit tests
+- [ ] **1.4** Write unit tests
+
+> **UI Integration**: See [40-ui-integration](../40-ui-integration/)
 
 ### Phase 2: ToolService
 
@@ -58,8 +59,9 @@ Extract skill and tool management from `GTKUI/Skill_manager/`, `GTKUI/Tool_manag
   - `tool.enabled`, `tool.disabled`
   - `tool.invoked`, `tool.completed`, `tool.failed`
 - [ ] **2.4** Integrate with permission system (tool-level permissions)
-- [ ] **2.5** Update UI and ToolManager to use service
-- [ ] **2.6** Write unit tests
+- [ ] **2.5** Write unit tests
+
+> **UI Integration**: See [40-ui-integration](../40-ui-integration/)
 
 ---
 

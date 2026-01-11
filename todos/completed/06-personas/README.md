@@ -1,11 +1,11 @@
 # Persona Service
 
-> **Status**: ✅ Complete (Service Layer)  
+> **Status**: ✅ Complete (Service Layer) | 🔧 Phase 2 In Progress  
 > **Priority**: Medium  
 > **Complexity**: Medium  
 > **Effort**: 3-4 days  
 > **Created**: 2026-01-07  
-> **Completed**: 2026-01-11
+> **Completed**: 2026-01-11 (Phase 1)
 
 ---
 
@@ -25,7 +25,7 @@ Extract persona management from `GTKUI/Persona_manager/` and `modules/Personas/`
 ### Phase 1: Service Creation ✅
 
 - [x] **1.1** Create `core/services/personas/` package:
-  - `types.py` - PersonaConfig, PersonaEvent
+  - `types.py` - PersonaConfig, PersonaEvent, PersonaResponse with `to_dict()`
   - `permissions.py` - Persona permission checker
   - `service.py` - PersonaService
   - `validation.py` - Schema validation (from persona_manager.py)
@@ -49,12 +49,10 @@ Extract persona management from `GTKUI/Persona_manager/` and `modules/Personas/`
   - `persona.validated`
 - [x] **1.4** Write unit tests - **111 tests passing** (42 core + 69 SOTA enhancements)
 
-### Phase 2: UI Integration (Deferred)
+### Phase 2: UI Integration → [40-ui-integration](../40-ui-integration/)
 
-> **Note**: UI integration deferred to a future UI-focused sprint. Core service layer is complete.
-
-- [ ] **2.1** Update `GTKUI/Persona_manager/` to use service
-- [ ] **2.2** Update `core/persona_manager.py` to delegate to service
+> UI integration tasks moved to consolidated UI sprint.
+- [ ] **2.2** Update `GTKUI/Persona_manager/` to use service (via updated PersonaManager)
 - [ ] **2.3** Remove direct file access from UI
 
 ---

@@ -342,6 +342,28 @@ class PersonaResponse:
             ui_state=persona.get("ui_state"),
         )
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert PersonaResponse back to a persona dictionary format."""
+        result: Dict[str, Any] = {
+            "name": self.name,
+            "meaning": self.meaning,
+            "content": self.content,
+            "provider": self.provider,
+            "model": self.model,
+            "Speech_provider": self.speech_provider,
+            "voice": self.voice,
+            "sys_info_enabled": self.sys_info_enabled,
+            "user_profile_enabled": self.user_profile_enabled,
+            "allowed_tools": self.allowed_tools,
+            "allowed_skills": self.allowed_skills,
+            "type": self.persona_type,
+        }
+        if self.image_generation is not None:
+            result["image_generation"] = self.image_generation
+        if self.ui_state is not None:
+            result["ui_state"] = self.ui_state
+        return result
+
 
 @dataclass
 class PersonaListResponse:

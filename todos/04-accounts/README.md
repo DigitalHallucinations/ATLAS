@@ -44,10 +44,9 @@ Migrate `modules/user_accounts/user_account_service.py` to `core/services/accoun
 - [ ] **1.4** Add permission checks (actor parameter)
 - [ ] **1.5** Write unit tests
 
-### Phase 2: UI Integration
+### Phase 2: UI Integration → [40-ui-integration](../40-ui-integration/)
 
-- [ ] **2.1** Update all callers to use new location
-- [ ] **2.2** Keep `modules/user_accounts/` for repository only
+> UI integration tasks moved to consolidated UI sprint.
 - [ ] **2.3** Update GTKUI/UserAccounts to use service
 - [ ] **2.4** Deprecate old import path with warning
 
