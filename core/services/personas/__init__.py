@@ -47,6 +47,13 @@ from .analytics import (
     PersonaAnalyticsService,
     PersonaAnalyticsError,
 )
+from .reporting import (
+    PersonaReportGenerator,
+    ReportConfig,
+    ReportResult,
+    ReportFormat,
+    ReportFrequency,
+)
 from .switching import (
     PersonaSwitchingService,
     PersonaSwitchingError,
@@ -97,6 +104,8 @@ from .types import (
     TokenUsage,
     PersonaVariant,
     PromptRefinement,
+    RefinementStatus,
+    ImprovementArea,
     # Switching types
     PersonaHandoff,
     HandoffContext,
@@ -187,6 +196,14 @@ __all__ = [
     "TokenUsage",
     "PersonaVariant",
     "PromptRefinement",
+    "RefinementStatus",
+    "ImprovementArea",
+    # Reporting
+    "PersonaReportGenerator",
+    "ReportConfig",
+    "ReportResult",
+    "ReportFormat",
+    "ReportFrequency",
     # Switching types
     "PersonaHandoff",
     "HandoffContext",

@@ -697,6 +697,27 @@ class PromptRefinement:
     applied_by: Optional[str] = None
 
 
+class RefinementStatus:
+    """Status values for prompt refinements."""
+    PENDING = "pending"
+    APPLIED = "applied"
+    REJECTED = "rejected"
+    ROLLED_BACK = "rolled_back"
+
+
+@dataclass
+class ImprovementArea:
+    """An identified area for persona improvement."""
+    
+    area: str = ""  # e.g., "response_time", "success_rate", "escalations"
+    priority: str = "medium"  # low, medium, high, critical
+    current_value: float = 0.0
+    target_value: float = 0.0
+    suggestions: List[str] = field(default_factory=list)
+    estimated_effort: str = ""  # e.g., "quick fix", "medium", "major"
+    identified_at: datetime = field(default_factory=_now_utc)
+
+
 # =============================================================================
 # SOTA Enhancement Types - Switching & Handoff
 # =============================================================================

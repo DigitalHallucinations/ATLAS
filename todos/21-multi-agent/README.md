@@ -190,6 +190,58 @@ Implement multi-agent orchestration patterns based on state-of-the-art research:
 
 ---
 
+## Deferred from 06-personas SOTA Enhancements
+
+> The following was deferred from [06-personas/SOTA-ENHANCEMENTS.md](../06-personas/SOTA-ENHANCEMENTS.md) Phase 3.
+
+### Persona as Multi-Agent Workers
+
+The SOTA persona enhancements include types for personas to participate in multi-agent orchestration:
+
+```python
+@dataclass
+class PersonaAgentManifest:
+    """Persona capabilities for multi-agent orchestration."""
+    persona_id: str
+    capabilities: List[str]
+    specializations: List[str]  # Domains of expertise
+    max_parallel_tasks: int
+    can_delegate: bool
+    can_be_delegated_to: bool
+    orchestration_role: OrchestratorRole  # worker, orchestrator, hybrid
+```
+
+### PersonaOrchestrator Requirements
+
+- [ ] **P.1** Implement `PersonaOrchestrator` in `core/services/orchestration/persona_orchestrator.py`:
+  - `spawn_worker(persona_id, task)` - Create worker instance from persona
+  - `delegate_task(to_persona, task, context)` - Assign work to persona
+  - `collect_results(task_ids)` - Gather persona worker outputs
+  - `synthesize(results)` - Combine into coherent response
+- [ ] **P.2** Task decomposition with persona assignment based on specializations
+- [ ] **P.3** Parallel execution across personas with rate limiting
+- [ ] **P.4** Result aggregation strategies per persona type
+
+### Persona Ledger Integration (Magentic-One Style)
+
+- [ ] **P.5** Per-persona task ledger tracking assigned subtasks
+- [ ] **P.6** Per-persona progress ledger with completion status
+- [ ] **P.7** Cross-persona coordination via shared ledgers
+- [ ] **P.8** Persona escalation paths when task exceeds capabilities
+
+### Integration with Existing Persona Services
+
+The following services from `core/services/personas/` should be leveraged:
+
+| Service | Integration Point |
+|---------|-------------------|
+| `PersonaSwitchingService` | Use handoff protocol for persona-to-persona delegation |
+| `PersonaMemoryService` | Share working memory context during orchestration |
+| `PersonaSafetyService` | Apply per-persona safety policies to delegated tasks |
+| `PersonaAnalyticsService` | Track orchestration performance metrics per persona |
+
+---
+
 ## Success Criteria
 
 1. Complex tasks decomposed automatically

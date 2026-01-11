@@ -211,8 +211,16 @@ class PersonaPerformanceMetrics:
   - `get_metrics(persona_id, period)` - Retrieve analytics
   - `get_comparison(persona_ids, period)` - Compare personas
   - `identify_improvement_areas(persona_id)` - Suggest improvements
-- [ ] **4.2.2** Dashboard integration for GTKUI
-- [ ] **4.2.3** Automated reporting
+- [x] **4.2.2** Dashboard integration for GTKUI
+  - `GTKUI/Persona_manager/analytics_adapter.py` - Bridge between service and UI
+  - Synchronous wrappers for async service methods
+  - Format conversion from DTOs to UI dictionaries
+  - Caching for dashboard refresh
+- [x] **4.2.3** Automated reporting
+  - `core/services/personas/reporting.py` - Report generator
+  - JSON, CSV, Markdown, HTML output formats
+  - Scheduled (daily/weekly/monthly) and on-demand generation
+  - Report retention and cleanup
 
 ### 4.3 Automatic Prompt Refinement
 
