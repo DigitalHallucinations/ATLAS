@@ -1,6 +1,6 @@
 # ATLAS Todo Index
 
-> **Last Updated**: 2026-01-10
+> **Last Updated**: 2026-01-11
 
 This directory contains all planning documents for ATLAS development, organized by domain.
 
@@ -16,12 +16,12 @@ This directory contains all planning documents for ATLAS development, organized 
 - [completed/01-calendar/](completed/01-calendar/) - ✅ **COMPLETED** Calendar, sync, and reminder services
 - [completed/02-budget/](completed/02-budget/) - ✅ **COMPLETED** Budget policies, tracking, and alerts (243 tests)
 - [completed/05-jobs-tasks/](completed/05-jobs-tasks/) - ✅ **COMPLETED** Job and Task service migration (105 tests)
+- [completed/06-personas/](completed/06-personas/) - ✅ **COMPLETED** Persona service + SOTA enhancements (111 tests)
 
 ### 📅 Domain Services
 
 - [03-library/](03-library/) - Artifact storage, collections, versioning
 - [04-accounts/](04-accounts/) - User accounts, authentication, credentials
-- [06-personas/](06-personas/) - Persona management service (Phase 1 ✅ 42 tests, Phase 2 pending)
 - [07-providers/](07-providers/) - Provider configuration and health
 - [08-skills-tools/](08-skills-tools/) - Skill and tool registry services
 - [09-knowledge/](09-knowledge/) - Knowledge base management
@@ -163,12 +163,14 @@ All service todos share these requirements:
 5. **Clean Imports**: Remove old exports from `__init__.py` files
 
 **Rationale**: Without external users depending on our APIs, maintaining deprecated code paths:
+
 - Adds unnecessary complexity
 - Increases maintenance burden
 - Creates confusion about which code path to use
 - Wastes test cycles on dead code
 
 **Example** (from 02-budget completion):
+
 - ❌ Wrong: Keep `BudgetManager` as a facade with deprecation warnings
 - ✅ Correct: Delete `manager.py`, update all callers to use new services directly
 
