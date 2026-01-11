@@ -21,13 +21,30 @@ from core.services.personas.types import (
     RefinementStatus,
     ImprovementArea,
 )
+from core.services.common.types import OperationResult
 
+from typing import TYPE_CHECKING, cast
 
 # Import the adapter (handle import error gracefully for test discovery)
+_PersonaAnalyticsAdapterType: Any = None
 try:
-    from GTKUI.Persona_manager.analytics_adapter import PersonaAnalyticsAdapter
+    from GTKUI.Persona_manager.analytics_adapter import (
+        PersonaAnalyticsAdapter as _RealAdapter,
+    )
+    _PersonaAnalyticsAdapterType = _RealAdapter
 except ImportError:
-    PersonaAnalyticsAdapter = None  # type: ignore
+    pass
+
+# Skip all tests in this module if the adapter couldn't be imported
+pytestmark = pytest.mark.skipif(
+    _PersonaAnalyticsAdapterType is None,
+    reason="PersonaAnalyticsAdapter not available (GTKUI not installed)",
+)
+
+if TYPE_CHECKING:
+    from GTKUI.Persona_manager.analytics_adapter import PersonaAnalyticsAdapter
+else:
+    PersonaAnalyticsAdapter = _PersonaAnalyticsAdapterType
 
 
 @pytest.fixture
@@ -82,7 +99,7 @@ class TestPersonaAnalyticsAdapter:
         sample_metrics: PersonaPerformanceMetrics,
     ) -> None:
         """Test getting persona metrics successfully."""
-        mock_analytics_service.get_metrics.return_value = sample_metrics
+        mock_analytics_service.get_metrics.return_value = OperationResult.success(sample_metrics)
         adapter = PersonaAnalyticsAdapter(mock_analytics_service)
         
         result = adapter.get_persona_metrics("test-persona", use_cache=False)
@@ -100,7 +117,7 @@ class TestPersonaAnalyticsAdapter:
         sample_metrics: PersonaPerformanceMetrics,
     ) -> None:
         """Test that metrics are cached."""
-        mock_analytics_service.get_metrics.return_value = sample_metrics
+        mock_analytics_service.get_metrics.return_value = OperationResult.success(sample_metrics)
         adapter = PersonaAnalyticsAdapter(mock_analytics_service)
         
         # First call
@@ -119,7 +136,7 @@ class TestPersonaAnalyticsAdapter:
         sample_metrics: PersonaPerformanceMetrics,
     ) -> None:
         """Test bypassing cache."""
-        mock_analytics_service.get_metrics.return_value = sample_metrics
+        mock_analytics_service.get_metrics.return_value = OperationResult.success(sample_metrics)
         adapter = PersonaAnalyticsAdapter(mock_analytics_service)
         
         # First call
@@ -156,7 +173,7 @@ class TestPersonaAnalyticsAdapter:
             period_end=datetime.now(timezone.utc),
             total_interactions=50,
             avg_response_time_ms=1000.0,
-            token_usage=None,
+            token_usage=TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0),
             task_success_rate=0.8,
             escalation_rate=0.4,  # High
             retry_rate=0.05,
@@ -181,7 +198,7 @@ class TestPersonaAnalyticsAdapter:
             period_end=datetime.now(timezone.utc),
             total_interactions=50,
             avg_response_time_ms=1000.0,
-            token_usage=None,
+            token_usage=TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0),
             task_success_rate=0.5,  # Low
             escalation_rate=0.1,
             retry_rate=0.05,
@@ -209,7 +226,7 @@ class TestPersonaAnalyticsAdapter:
                 period_end=datetime.now(timezone.utc),
                 total_interactions=80,
                 avg_response_time_ms=1200.0,
-                token_usage=None,
+                token_usage=TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0),
                 task_success_rate=0.9,
                 escalation_rate=0.05,
                 retry_rate=0.02,
@@ -218,7 +235,7 @@ class TestPersonaAnalyticsAdapter:
                 capability_gaps=[],
             ),
         }
-        mock_analytics_service.compare_personas.return_value = comparison
+        mock_analytics_service.compare_personas.return_value = OperationResult.success(comparison)
         adapter = PersonaAnalyticsAdapter(mock_analytics_service)
         
         result = adapter.get_comparison_summary(["persona1", "persona2"])
@@ -240,7 +257,7 @@ class TestPersonaAnalyticsAdapter:
                 suggestions=["Optimize prompts", "Use faster model"],
             ),
         ]
-        mock_analytics_service.identify_improvement_areas.return_value = areas
+        mock_analytics_service.identify_improvement_areas.return_value = OperationResult.success(areas)
         adapter = PersonaAnalyticsAdapter(mock_analytics_service)
         
         result = adapter.get_improvement_areas("test-persona")
@@ -265,7 +282,7 @@ class TestPersonaAnalyticsAdapter:
                 created_at=datetime.now(timezone.utc),
             ),
         ]
-        mock_analytics_service.get_variants.return_value = variants
+        mock_analytics_service.get_variants.return_value = OperationResult.success(variants)
         adapter = PersonaAnalyticsAdapter(mock_analytics_service)
         
         result = adapter.get_variants("test-persona")
@@ -280,7 +297,7 @@ class TestPersonaAnalyticsAdapter:
         sample_metrics: PersonaPerformanceMetrics,
     ) -> None:
         """Test invalidating cache for specific persona."""
-        mock_analytics_service.get_metrics.return_value = sample_metrics
+        mock_analytics_service.get_metrics.return_value = OperationResult.success(sample_metrics)
         adapter = PersonaAnalyticsAdapter(mock_analytics_service)
         
         # Populate cache
@@ -295,7 +312,8 @@ class TestPersonaAnalyticsAdapter:
         adapter.get_persona_metrics("persona2")
         
         # persona1 called twice, persona2 called once
-        calls = [call[0][0] for call in mock_analytics_service.get_metrics.call_args_list]
+        # get_metrics is called with (actor, persona_id, ...) - persona_id is second arg
+        calls = [call[0][1] for call in mock_analytics_service.get_metrics.call_args_list]
         assert calls.count("persona1") == 2
         assert calls.count("persona2") == 1
     
@@ -305,7 +323,7 @@ class TestPersonaAnalyticsAdapter:
         sample_metrics: PersonaPerformanceMetrics,
     ) -> None:
         """Test invalidating entire cache."""
-        mock_analytics_service.get_metrics.return_value = sample_metrics
+        mock_analytics_service.get_metrics.return_value = OperationResult.success(sample_metrics)
         adapter = PersonaAnalyticsAdapter(mock_analytics_service)
         
         # Populate cache

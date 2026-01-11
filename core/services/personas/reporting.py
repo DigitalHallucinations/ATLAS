@@ -25,10 +25,21 @@ if TYPE_CHECKING:
         PersonaAnalyticsService,
         PersonaPerformanceMetrics,
     )
-    from core.services.common import Actor
     from core.config import ConfigManager
 
+from core.services.common import Actor
+
 logger = logging.getLogger(__name__)
+
+
+def _create_system_actor() -> Actor:
+    """Create a system actor for reporting operations."""
+    return Actor(
+        type="system",
+        id="system_reporting",
+        tenant_id="system",
+        permissions={"personas:read", "analytics:read"},
+    )
 
 
 class ReportFormat(Enum):
@@ -93,6 +104,7 @@ class PersonaReportGenerator:
         self,
         analytics_service: "PersonaAnalyticsService",
         config_manager: Optional["ConfigManager"] = None,
+        actor: Optional[Actor] = None,
     ) -> None:
         """
         Initialize the report generator.
@@ -100,9 +112,11 @@ class PersonaReportGenerator:
         Args:
             analytics_service: The analytics service for data
             config_manager: Optional config manager for settings
+            actor: Actor for service calls (defaults to system actor)
         """
         self._service = analytics_service
         self._config = config_manager
+        self._actor = actor or _create_system_actor()
         self._report_configs: Dict[str, ReportConfig] = {}
         self._generators: Dict[ReportFormat, Callable[..., str]] = {
             ReportFormat.JSON: self._generate_json,
@@ -274,9 +288,23 @@ class PersonaReportGenerator:
         # Collect metrics for each persona
         for persona_id in persona_ids:
             try:
-                metrics = await self._service.get_metrics(persona_id, start, end)
-                if metrics:
-                    data["personas"][persona_id] = self._metrics_to_dict(metrics)
+                # Calculate period_days from start/end
+                period_days = (end - start).days or 7
+                op_result = await self._service.get_metrics(
+                    self._actor,
+                    persona_id,
+                    period_days=period_days,
+                    start_date=start,
+                    end_date=end,
+                )
+                # Handle OperationResult
+                if hasattr(op_result, 'is_success') and op_result.is_success:
+                    metrics = op_result.value
+                    if metrics:
+                        data["personas"][persona_id] = self._metrics_to_dict(metrics)
+                else:
+                    error_msg = getattr(op_result, 'error', 'Unknown error') if op_result else 'No result'
+                    data["personas"][persona_id] = {"error": str(error_msg)}
             except Exception as e:
                 logger.warning("Failed to get metrics for %s: %s", persona_id, e)
                 data["personas"][persona_id] = {"error": str(e)}
@@ -284,13 +312,19 @@ class PersonaReportGenerator:
         # Collect comparison data
         if config.include_comparisons and len(persona_ids) > 1:
             try:
-                comparison = await self._service.compare_personas(
-                    persona_ids, start, end
+                period_days = (end - start).days or 7
+                op_result = await self._service.compare_personas(
+                    self._actor,
+                    persona_ids,
+                    period_days=period_days,
                 )
-                data["comparison"] = {
-                    pid: self._metrics_to_dict(m)
-                    for pid, m in comparison.items()
-                }
+                # Handle OperationResult
+                if hasattr(op_result, 'is_success') and op_result.is_success:
+                    comparison = op_result.value or {}
+                    data["comparison"] = {
+                        pid: self._metrics_to_dict(m)
+                        for pid, m in comparison.items()
+                    }
             except Exception as e:
                 logger.warning("Failed to get comparison: %s", e)
         
@@ -307,15 +341,20 @@ class PersonaReportGenerator:
         if config.include_improvements:
             for persona_id in persona_ids:
                 try:
-                    areas = await self._service.identify_improvement_areas(persona_id)
-                    data["improvements"][persona_id] = [
-                        {
-                            "area": a.area,
-                            "priority": a.priority,
-                            "suggestions": list(a.suggestions or []),
-                        }
-                        for a in areas
-                    ]
+                    op_result = await self._service.identify_improvement_areas(
+                        self._actor, persona_id
+                    )
+                    # Handle OperationResult
+                    if hasattr(op_result, 'is_success') and op_result.is_success:
+                        areas = op_result.value or []
+                        data["improvements"][persona_id] = [
+                            {
+                                "area": getattr(a, 'area', str(a)),
+                                "priority": getattr(a, 'priority', 'medium'),
+                                "suggestions": list(getattr(a, 'suggestions', []) or []),
+                            }
+                            for a in areas
+                        ]
                 except Exception as e:
                     logger.warning("Failed to get improvements for %s: %s", persona_id, e)
         

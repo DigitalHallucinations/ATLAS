@@ -21,9 +21,20 @@ if TYPE_CHECKING:
         PersonaAnalyticsService,
         PersonaPerformanceMetrics,
     )
-    from core.services.common import Actor
+    from core.services.common import Actor, OperationResult
 
 logger = logging.getLogger(__name__)
+
+
+def _create_default_actor() -> "Actor":
+    """Create a default system actor for UI operations."""
+    from core.services.common import Actor
+    return Actor(
+        type="system",
+        id="gtkui-adapter",
+        tenant_id="default",
+        permissions={"personas:read", "analytics:read"},
+    )
 
 
 class PersonaAnalyticsAdapter:
@@ -50,7 +61,7 @@ class PersonaAnalyticsAdapter:
             actor: The actor for permission checks
         """
         self._service = analytics_service
-        self._actor = actor
+        self._actor = actor or _create_default_actor()
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         
         # Cache for dashboard updates
@@ -120,9 +131,22 @@ class PersonaAnalyticsAdapter:
                 return self._metrics_cache[cache_key]
         
         try:
-            metrics = self._run_async(
-                self._service.get_metrics(persona_id, start, end)
+            op_result = self._run_async(
+                self._service.get_metrics(
+                    self._actor,
+                    persona_id,
+                    period_days=7,
+                    start_date=start,
+                    end_date=end,
+                )
             )
+            
+            # Extract metrics from OperationResult
+            if hasattr(op_result, 'is_success') and op_result.is_success:
+                metrics = op_result.value
+            else:
+                metrics = None
+                
             result = self._format_metrics_for_ui(persona_id, metrics, start, end)
             
             # Cache the result
@@ -282,13 +306,19 @@ class PersonaAnalyticsAdapter:
         """
         try:
             # Get comparison data from service
-            comparison = self._run_async(
+            op_result = self._run_async(
                 self._service.compare_personas(
+                    self._actor,
                     persona_ids or [],
-                    start=None,
-                    end=None,
+                    period_days=7,
                 )
             )
+            
+            # Extract comparison from OperationResult
+            if hasattr(op_result, 'is_success') and op_result.is_success:
+                comparison = op_result.value
+            else:
+                comparison = None
             
             if not comparison:
                 return self._empty_comparison()
@@ -349,18 +379,28 @@ class PersonaAnalyticsAdapter:
         Returns list of improvement areas with priority and suggestions.
         """
         try:
-            areas = self._run_async(
-                self._service.identify_improvement_areas(persona_id)
+            op_result = self._run_async(
+                self._service.identify_improvement_areas(
+                    self._actor,
+                    persona_id,
+                )
             )
+            
+            # Extract areas from OperationResult
+            if hasattr(op_result, 'is_success') and op_result.is_success:
+                areas = op_result.value or []
+            else:
+                areas = []
+            
             return [
                 {
-                    "area": area.area,
-                    "priority": area.priority,
-                    "current_value": area.current_value,
-                    "target_value": area.target_value,
-                    "suggestions": list(area.suggestions or []),
+                    "area": area.get("area", "") if isinstance(area, dict) else getattr(area, "area", ""),
+                    "priority": area.get("priority", "medium") if isinstance(area, dict) else getattr(area, "priority", "medium"),
+                    "current_value": area.get("current_value", 0) if isinstance(area, dict) else getattr(area, "current_value", 0),
+                    "target_value": area.get("target_value", 0) if isinstance(area, dict) else getattr(area, "target_value", 0),
+                    "suggestions": list(area.get("suggestions", []) if isinstance(area, dict) else getattr(area, "suggestions", [])),
                 }
-                for area in (areas or [])
+                for area in areas
             ]
         except Exception as e:
             logger.warning("Failed to get improvement areas: %s", e)
@@ -373,7 +413,16 @@ class PersonaAnalyticsAdapter:
     def get_variants(self, persona_id: str) -> List[Dict[str, Any]]:
         """Get A/B test variants for a persona."""
         try:
-            variants = self._run_async(self._service.get_variants(persona_id))
+            op_result = self._run_async(
+                self._service.get_variants(self._actor, persona_id)
+            )
+            
+            # Extract variants from OperationResult
+            if hasattr(op_result, 'is_success') and op_result.is_success:
+                variants = op_result.value or []
+            else:
+                variants = []
+                
             return [
                 {
                     "variant_id": v.variant_id,
@@ -383,12 +432,12 @@ class PersonaAnalyticsAdapter:
                     "is_active": v.is_active,
                     "created_at": v.created_at.isoformat() if v.created_at else None,
                 }
-                for v in (variants or [])
+                for v in variants
             ]
         except Exception as e:
             logger.warning("Failed to get variants: %s", e)
             return []
-    
+
     # =========================================================================
     # Pending Refinements Widget
     # =========================================================================
@@ -396,17 +445,24 @@ class PersonaAnalyticsAdapter:
     def get_pending_refinements(self, persona_id: str) -> List[Dict[str, Any]]:
         """Get pending prompt refinements for review."""
         try:
-            refinements = self._run_async(
-                self._service.get_pending_refinements(persona_id)
+            op_result = self._run_async(
+                self._service.get_pending_refinements(self._actor, persona_id)
             )
+            
+            # Extract refinements from OperationResult
+            if hasattr(op_result, 'is_success') and op_result.is_success:
+                refinements = op_result.value or []
+            else:
+                refinements = []
+                
             return [
                 {
                     "refinement_id": r.refinement_id,
                     "persona_id": r.persona_id,
-                    "suggestion": r.suggestion,
-                    "rationale": r.rationale,
-                    "expected_improvement": r.expected_improvement,
-                    "status": r.status.value if hasattr(r.status, "value") else str(r.status),
+                    "suggestion": getattr(r, 'suggested_value', ''),
+                    "rationale": getattr(r, 'reason', ''),
+                    "expected_improvement": getattr(r, 'impact_score', None),
+                    "status": r.status if isinstance(r.status, str) else str(r.status),
                     "created_at": r.created_at.isoformat() if r.created_at else None,
                 }
                 for r in (refinements or [])
