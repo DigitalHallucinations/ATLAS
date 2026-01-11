@@ -153,7 +153,7 @@ Implement multi-agent orchestration patterns based on state-of-the-art research:
 ## MessageBus Events
 
 | Event Type | Payload | Emitted By |
-| ------------ | --------- | ------------ |
+| ---------- | ------- | ---------- |
 | `orchestration.plan_started` | `PlanEvent` | OrchestratorService |
 | `orchestration.task_assigned` | `TaskAssignmentEvent` | OrchestratorService |
 | `orchestration.task_completed` | `TaskResultEvent` | OrchestratorService |
