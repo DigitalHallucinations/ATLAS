@@ -29,6 +29,51 @@ if 'modules.Tools.Base_Tools' not in sys.modules:
     base_tools_stub.__path__ = []
     sys.modules['modules.Tools.Base_Tools'] = base_tools_stub
 
+# Stub vector_store to prevent deep import chain
+if 'modules.Tools.Base_Tools.vector_store' not in sys.modules:
+    vector_store_stub = types.ModuleType('modules.Tools.Base_Tools.vector_store')
+    
+    class _StubQueryMatch:
+        pass
+    
+    class _StubVectorRecord:
+        pass
+    
+    class _StubVectorStoreService:
+        def __init__(self, *args, **kwargs):
+            pass
+    
+    vector_store_stub.QueryMatch = _StubQueryMatch
+    vector_store_stub.VectorRecord = _StubVectorRecord
+    vector_store_stub.VectorStoreService = _StubVectorStoreService
+    sys.modules['modules.Tools.Base_Tools.vector_store'] = vector_store_stub
+
+# Stub tool_event_system
+if 'modules.Tools.tool_event_system' not in sys.modules:
+    tool_event_stub = types.ModuleType('modules.Tools.tool_event_system')
+    tool_event_stub.publish_bus_event = lambda *args, **kwargs: None
+    sys.modules['modules.Tools.tool_event_system'] = tool_event_stub
+
+# Stub task_queue
+if 'modules.Tools.Base_Tools.task_queue' not in sys.modules:
+    task_queue_stub = types.ModuleType('modules.Tools.Base_Tools.task_queue')
+    
+    class _StubBackgroundQueue:
+        def __init__(self, *args, **kwargs):
+            pass
+        def submit(self, *args, **kwargs):
+            pass
+    
+    class _StubTaskQueueService:
+        def __init__(self, *args, **kwargs):
+            pass
+    
+    task_queue_stub.BackgroundQueue = _StubBackgroundQueue
+    task_queue_stub.TaskQueueService = _StubTaskQueueService
+    task_queue_stub.get_background_queue = lambda *args, **kwargs: _StubBackgroundQueue()
+    task_queue_stub.get_default_task_queue_service = lambda *args, **kwargs: _StubTaskQueueService()
+    sys.modules['modules.Tools.Base_Tools.task_queue'] = task_queue_stub
+
 if 'modules.Tools.Base_Tools.Google_search' not in sys.modules:
     google_search_stub = types.ModuleType('modules.Tools.Base_Tools.Google_search')
 
@@ -194,7 +239,9 @@ def _write_skill_metadata(root: Path, entries: list[dict]) -> None:
 
 
 def _copy_schema(root: Path) -> None:
-    schema_src = Path(__file__).resolve().parents[1] / 'modules' / 'Personas' / 'schema.json'
+    # Schema is at project_root/modules/Personas/schema.json
+    project_root = Path(__file__).resolve().parents[2]
+    schema_src = project_root / 'modules' / 'Personas' / 'schema.json'
     schema_dst = root / 'modules' / 'Personas' / 'schema.json'
     schema_dst.parent.mkdir(parents=True, exist_ok=True)
     schema_dst.write_text(schema_src.read_text(encoding='utf-8'), encoding='utf-8')

@@ -5,10 +5,9 @@ from __future__ import annotations
 import copy
 import inspect
 import types
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from typing import Any, Callable, Dict, List, Optional
 
-from core import ToolManager as ToolManagerModule
 from core.config import ConfigManager
 from core.persona_manager import PersonaManager
 from core.utils import normalize_sequence
@@ -248,10 +247,11 @@ class ToolingService:
             return
 
         runners = self._build_task_runners()
-        task_manager = TaskManager(runners, message_bus=self.message_bus)
-        job_manager = JobManager(task_manager, message_bus=self.message_bus)
+        task_manager = TaskManager(runners, agent_bus=self.message_bus)
+        job_manager = JobManager(task_manager, agent_bus=self.message_bus)
         scheduler = JobScheduler(
-            job_manager, queue_service, repository, tenant_id=self.tenant_id
+            job_manager, queue_service, repository,  # type: ignore[arg-type]
+            tenant_id=self.tenant_id,
         )
 
         if callable(manager_setter):
@@ -510,7 +510,7 @@ class ToolingService:
         )
 
         for entry in serialized_entries:
-            name = entry.get("name")
+            name = entry.get("name", "")
             config_record = snapshot.get(name, {})
             entry["settings"] = copy.deepcopy(config_record.get("settings", {}))
             entry["credentials"] = copy.deepcopy(

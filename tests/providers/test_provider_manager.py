@@ -447,6 +447,7 @@ if "torch" not in sys.modules:
 
     torch_nn_module = types.ModuleType("torch.nn")
     torch_nn_module.Linear = type("Linear", (), {})
+    torch_nn_module.Module = type("Module", (), {})  # Base class for neural network modules
 
     torch_nn_utils_module = types.ModuleType("torch.nn.utils")
     torch_nn_utils_prune_module = types.ModuleType("torch.nn.utils.prune")

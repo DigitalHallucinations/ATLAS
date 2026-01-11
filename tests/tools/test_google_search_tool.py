@@ -21,7 +21,7 @@ if "dotenv" not in sys.modules:
     dotenv_module.find_dotenv = lambda *_args, **_kwargs: ""
     sys.modules["dotenv"] = dotenv_module
 
-MODULE_PATH = Path(__file__).resolve().parents[1] / "modules" / "Tools" / "Base_Tools"
+MODULE_PATH = Path(__file__).resolve().parents[2] / "modules" / "Tools" / "Base_Tools"
 
 if "modules" not in sys.modules:
     modules_pkg = types.ModuleType("modules")

@@ -26,7 +26,7 @@ from sqlalchemy.orm import sessionmaker
 
 from modules.conversation_store import ConversationStoreRepository
 
-from core import core as atlas_module
+import core.ATLAS as atlas_module
 from core.ATLAS import ATLAS
 from modules.user_accounts import user_account_facade as user_account_facade_module
 

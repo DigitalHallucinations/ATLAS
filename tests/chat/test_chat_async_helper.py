@@ -8,9 +8,9 @@ from unittest.mock import Mock
 from typing import Callable
 import importlib.util
 
-_atlas_config_spec = importlib.util.find_spec("ATLAS.config")
-if "ATLAS.config" not in sys.modules and _atlas_config_spec is None:
-    config_stub = types.ModuleType("ATLAS.config")
+_atlas_config_spec = importlib.util.find_spec("core.config")
+if "core.config" not in sys.modules and _atlas_config_spec is None:
+    config_stub = types.ModuleType("core.config")
 
     class _ConfigManager:
         UNSET = object()
@@ -25,7 +25,7 @@ if "ATLAS.config" not in sys.modules and _atlas_config_spec is None:
             return None
 
     config_stub.ConfigManager = _ConfigManager
-    sys.modules["ATLAS.config"] = config_stub
+    sys.modules["core.config"] = config_stub
 
 if "sqlalchemy" not in sys.modules:
     sqlalchemy_stub = types.ModuleType("sqlalchemy")
@@ -66,8 +66,8 @@ if "modules.user_accounts.user_account_service" not in sys.modules:
     sys.modules["modules.user_accounts.user_account_service"] = user_service_stub
 
 import pytest
-import tests.test_speech_settings_facade  # noqa: F401 - ensure baseline GTK stubs
-import tests.test_provider_manager  # noqa: F401 - ensure extended GTK stubs
+import tests.speech.test_speech_settings_facade  # noqa: F401 - ensure baseline GTK stubs
+import tests.providers.test_provider_manager  # noqa: F401 - ensure extended GTK stubs
 
 
 gi_repository = sys.modules.setdefault("gi.repository", types.ModuleType("gi.repository"))

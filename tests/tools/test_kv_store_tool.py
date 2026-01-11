@@ -51,7 +51,7 @@ def _load_module(name: str, path: Path):
     return module
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 _ensure_stub_modules()
 _ensure_package("modules", ROOT / "modules")
 _ensure_package("modules.Tools", ROOT / "modules" / "Tools")

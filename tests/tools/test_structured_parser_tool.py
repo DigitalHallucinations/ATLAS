@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 
-MODULE_PATH = Path(__file__).resolve().parents[1] / "modules" / "Tools" / "Base_Tools" / "structured_parser.py"
+MODULE_PATH = Path(__file__).resolve().parents[2] / "modules" / "Tools" / "Base_Tools" / "structured_parser.py"
 
 spec = importlib.util.spec_from_file_location("test_structured_parser_module", MODULE_PATH)
 assert spec and spec.loader

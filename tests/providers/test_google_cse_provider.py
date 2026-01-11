@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 
-MODULE_ROOT = Path(__file__).resolve().parents[1] / "modules"
+MODULE_ROOT = Path(__file__).resolve().parents[2] / "modules"
 BASE_TOOLS_PATH = MODULE_ROOT / "Tools" / "Base_Tools"
 PROVIDERS_PATH = MODULE_ROOT / "Tools" / "providers"
 

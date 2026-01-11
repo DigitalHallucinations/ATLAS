@@ -19,7 +19,7 @@ if "ATLAS.ToolManager" not in sys.modules:
     tool_manager_stub.call_model_with_new_prompt = lambda *_args, **_kwargs: None
     sys.modules["ATLAS.ToolManager"] = tool_manager_stub
 
-from core.ATLAS import core as AtlasApplication
+from core.ATLAS import ATLAS as AtlasApplication
 
 
 class DummyLogger:

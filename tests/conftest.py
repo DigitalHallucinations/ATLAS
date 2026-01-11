@@ -410,8 +410,36 @@ if "dotenv" not in sys.modules:
 if "pytz" not in sys.modules:
     sys.modules["pytz"] = types.SimpleNamespace(timezone=lambda *_args, **_kwargs: None, utc=None)
 
+# Ensure torch stub has nn.Module if torch is stubbed
+if "torch" in sys.modules:
+    torch_module = sys.modules["torch"]
+    if hasattr(torch_module, "nn") and not hasattr(torch_module.nn, "Module"):
+        class _DummyModule:
+            pass
+        torch_module.nn.Module = _DummyModule
+elif "torch.nn" in sys.modules:
+    nn_module = sys.modules["torch.nn"]
+    if not hasattr(nn_module, "Module"):
+        class _DummyModule:
+            pass
+        nn_module.Module = _DummyModule
+
 if "aiohttp" not in sys.modules:
     aiohttp_module = types.ModuleType("aiohttp")
+
+    class _DummyClientResponse:
+        """Stub for aiohttp.ClientResponse."""
+        status = 200
+        headers = {}
+        
+        async def text(self):
+            return ""
+        
+        async def json(self):
+            return {}
+        
+        async def read(self):
+            return b""
 
     class _DummySession:
         async def __aenter__(self):  # pragma: no cover - stub
@@ -424,6 +452,7 @@ if "aiohttp" not in sys.modules:
             raise RuntimeError("aiohttp stub is not implemented")
 
     aiohttp_module.ClientSession = _DummySession
+    aiohttp_module.ClientResponse = _DummyClientResponse
     sys.modules["aiohttp"] = aiohttp_module
 
 if "apscheduler" not in sys.modules:

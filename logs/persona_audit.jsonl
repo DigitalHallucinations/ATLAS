@@ -1,0 +1,204 @@
+{"timestamp": "2026-01-11T14:21:56.033764Z", "persona_name": "Explorer", "username": "unknown", "old_tools": ["alpha_tool"], "new_tools": ["alpha_tool"], "rationale": "Test import"}
+{"timestamp": "2026-01-11T14:21:56.059292Z", "persona_name": "Explorer", "username": "unknown", "old_tools": [], "new_tools": ["alpha_tool"], "rationale": "Imported persona bundle"}
+{"timestamp": "2026-01-11T14:33:26.427849Z", "persona_name": "Explorer", "username": "unknown", "old_tools": ["alpha_tool"], "new_tools": ["alpha_tool"], "rationale": "Test import"}
+{"timestamp": "2026-01-11T14:33:26.453328Z", "persona_name": "Explorer", "username": "unknown", "old_tools": [], "new_tools": ["alpha_tool"], "rationale": "Imported persona bundle"}
+{"timestamp": "2026-01-11T14:40:36.850615Z", "persona_name": "StudyBuddy", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona general information via persona manager"}
+{"timestamp": "2026-01-11T14:40:36.858451Z", "persona_name": "StudyBuddy", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'sys_info_enabled' via persona manager"}
+{"timestamp": "2026-01-11T14:40:36.865550Z", "persona_name": "StudyBuddy", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'user_profile_enabled' via persona manager"}
+{"timestamp": "2026-01-11T14:40:36.871605Z", "persona_name": "StudyBuddy", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'educational_persona' via persona manager"}
+{"timestamp": "2026-01-11T14:40:36.878764Z", "persona_name": "StudyBuddy", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated provider defaults via persona manager"}
+{"timestamp": "2026-01-11T14:40:36.885040Z", "persona_name": "StudyBuddy", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated speech defaults via persona manager"}
+{"timestamp": "2026-01-11T14:40:36.905749Z", "persona_name": "ATLAS", "username": "unknown", "old_tools": [], "new_tools": ["alpha_tool"], "rationale": "Updated allowed tools via persona manager"}
+{"timestamp": "2026-01-11T14:40:36.928148Z", "persona_name": "ATLAS", "username": "unknown", "old_tools": [], "new_tools": ["alpha_tool"], "rationale": "Updated allowed tools via persona manager"}
+{"timestamp": "2026-01-11T14:40:36.951704Z", "persona_name": "ATLAS", "username": "unknown", "old_tools": [], "new_tools": ["beta_tool"], "rationale": "Updated allowed tools via persona manager"}
+{"timestamp": "2026-01-11T14:40:36.962214Z", "persona_name": "ATLAS", "username": "unknown", "old_tools": ["beta_tool"], "new_tools": ["beta_tool"], "rationale": "Updated allowed skills via persona manager"}
+{"timestamp": "2026-01-11T14:40:37.097684Z", "persona_name": "Coach", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona general information via persona manager"}
+{"timestamp": "2026-01-11T14:40:37.103596Z", "persona_name": "Coach", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'sys_info_enabled' via persona manager"}
+{"timestamp": "2026-01-11T14:40:37.109594Z", "persona_name": "Coach", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'user_profile_enabled' via persona manager"}
+{"timestamp": "2026-01-11T14:40:37.116642Z", "persona_name": "Coach", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'fitness_persona' via persona manager"}
+{"timestamp": "2026-01-11T14:40:37.122547Z", "persona_name": "Coach", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated provider defaults via persona manager"}
+{"timestamp": "2026-01-11T14:40:37.129145Z", "persona_name": "Coach", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated speech defaults via persona manager"}
+{"timestamp": "2026-01-11T14:40:37.150175Z", "persona_name": "Narrator", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona general information via persona manager"}
+{"timestamp": "2026-01-11T14:40:37.156151Z", "persona_name": "Narrator", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'sys_info_enabled' via persona manager"}
+{"timestamp": "2026-01-11T14:40:37.163921Z", "persona_name": "Narrator", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'user_profile_enabled' via persona manager"}
+{"timestamp": "2026-01-11T14:40:37.169986Z", "persona_name": "Narrator", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated provider defaults via persona manager"}
+{"timestamp": "2026-01-11T14:40:37.176191Z", "persona_name": "Narrator", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated speech defaults via persona manager"}
+{"timestamp": "2026-01-11T14:46:28.279892Z", "persona_name": "Explorer", "username": "unknown", "old_tools": ["alpha_tool"], "new_tools": ["alpha_tool"], "rationale": "Test import"}
+{"timestamp": "2026-01-11T14:46:28.301099Z", "persona_name": "Explorer", "username": "unknown", "old_tools": [], "new_tools": ["alpha_tool"], "rationale": "Imported persona bundle"}
+{"timestamp": "2026-01-11T14:46:36.269007Z", "persona_name": "StudyBuddy", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona general information via persona manager"}
+{"timestamp": "2026-01-11T14:46:36.290271Z", "persona_name": "StudyBuddy", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'sys_info_enabled' via persona manager"}
+{"timestamp": "2026-01-11T14:46:36.302557Z", "persona_name": "StudyBuddy", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'user_profile_enabled' via persona manager"}
+{"timestamp": "2026-01-11T14:46:36.314606Z", "persona_name": "StudyBuddy", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'educational_persona' via persona manager"}
+{"timestamp": "2026-01-11T14:46:36.325502Z", "persona_name": "StudyBuddy", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated provider defaults via persona manager"}
+{"timestamp": "2026-01-11T14:46:36.337480Z", "persona_name": "StudyBuddy", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated speech defaults via persona manager"}
+{"timestamp": "2026-01-11T14:46:36.374897Z", "persona_name": "ATLAS", "username": "unknown", "old_tools": [], "new_tools": ["alpha_tool"], "rationale": "Updated allowed tools via persona manager"}
+{"timestamp": "2026-01-11T14:46:36.413064Z", "persona_name": "ATLAS", "username": "unknown", "old_tools": [], "new_tools": ["alpha_tool"], "rationale": "Updated allowed tools via persona manager"}
+{"timestamp": "2026-01-11T14:46:36.452046Z", "persona_name": "ATLAS", "username": "unknown", "old_tools": [], "new_tools": ["beta_tool"], "rationale": "Updated allowed tools via persona manager"}
+{"timestamp": "2026-01-11T14:46:36.466337Z", "persona_name": "ATLAS", "username": "unknown", "old_tools": ["beta_tool"], "new_tools": ["beta_tool"], "rationale": "Updated allowed skills via persona manager"}
+{"timestamp": "2026-01-11T14:46:36.539374Z", "persona_name": "Coach", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona general information via persona manager"}
+{"timestamp": "2026-01-11T14:46:36.561830Z", "persona_name": "Coach", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'sys_info_enabled' via persona manager"}
+{"timestamp": "2026-01-11T14:46:36.584062Z", "persona_name": "Coach", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'user_profile_enabled' via persona manager"}
+{"timestamp": "2026-01-11T14:46:36.596630Z", "persona_name": "Coach", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'fitness_persona' via persona manager"}
+{"timestamp": "2026-01-11T14:46:36.607097Z", "persona_name": "Coach", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated provider defaults via persona manager"}
+{"timestamp": "2026-01-11T14:46:36.618090Z", "persona_name": "Coach", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated speech defaults via persona manager"}
+{"timestamp": "2026-01-11T14:46:36.674629Z", "persona_name": "Narrator", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona general information via persona manager"}
+{"timestamp": "2026-01-11T14:46:36.683366Z", "persona_name": "Narrator", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'sys_info_enabled' via persona manager"}
+{"timestamp": "2026-01-11T14:46:36.693266Z", "persona_name": "Narrator", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'user_profile_enabled' via persona manager"}
+{"timestamp": "2026-01-11T14:46:36.703195Z", "persona_name": "Narrator", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated provider defaults via persona manager"}
+{"timestamp": "2026-01-11T14:46:36.712201Z", "persona_name": "Narrator", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated speech defaults via persona manager"}
+{"timestamp": "2026-01-11T15:03:25.344989Z", "persona_name": "Atlas", "username": "unknown", "old_tools": ["alpha_tool", "beta_tool"], "new_tools": ["alpha_tool", "beta_tool"], "rationale": "Server skill update"}
+{"timestamp": "2026-01-11T15:03:45.283823Z", "persona_name": "Atlas", "username": "unknown", "old_tools": ["alpha_tool", "beta_tool"], "new_tools": ["alpha_tool", "beta_tool"], "rationale": "Server skill update"}
+{"timestamp": "2026-01-11T15:03:45.524580Z", "persona_name": "Explorer", "username": "unknown", "old_tools": ["alpha_tool"], "new_tools": ["alpha_tool"], "rationale": "Test import"}
+{"timestamp": "2026-01-11T15:03:45.550607Z", "persona_name": "Explorer", "username": "unknown", "old_tools": [], "new_tools": ["alpha_tool"], "rationale": "Imported persona bundle"}
+{"timestamp": "2026-01-11T15:09:06.236039Z", "persona_name": "Atlas", "username": "unknown", "old_tools": ["alpha_tool", "beta_tool"], "new_tools": ["alpha_tool", "beta_tool"], "rationale": "Server skill update"}
+{"timestamp": "2026-01-11T15:09:21.512097Z", "persona_name": "Atlas", "username": "unknown", "old_tools": ["alpha_tool", "beta_tool"], "new_tools": ["alpha_tool", "beta_tool"], "rationale": "Server skill update"}
+{"timestamp": "2026-01-11T15:09:21.787990Z", "persona_name": "Explorer", "username": "unknown", "old_tools": ["alpha_tool"], "new_tools": ["alpha_tool"], "rationale": "Test import"}
+{"timestamp": "2026-01-11T15:09:21.805988Z", "persona_name": "Explorer", "username": "unknown", "old_tools": [], "new_tools": ["alpha_tool"], "rationale": "Imported persona bundle"}
+{"timestamp": "2026-01-11T15:09:30.528569Z", "persona_name": "StudyBuddy", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona general information via persona manager"}
+{"timestamp": "2026-01-11T15:09:30.534957Z", "persona_name": "StudyBuddy", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'sys_info_enabled' via persona manager"}
+{"timestamp": "2026-01-11T15:09:30.542323Z", "persona_name": "StudyBuddy", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'user_profile_enabled' via persona manager"}
+{"timestamp": "2026-01-11T15:09:30.548360Z", "persona_name": "StudyBuddy", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'educational_persona' via persona manager"}
+{"timestamp": "2026-01-11T15:09:30.554278Z", "persona_name": "StudyBuddy", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated provider defaults via persona manager"}
+{"timestamp": "2026-01-11T15:09:30.561123Z", "persona_name": "StudyBuddy", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated speech defaults via persona manager"}
+{"timestamp": "2026-01-11T15:09:30.581303Z", "persona_name": "ATLAS", "username": "unknown", "old_tools": [], "new_tools": ["alpha_tool"], "rationale": "Updated allowed tools via persona manager"}
+{"timestamp": "2026-01-11T15:09:30.601693Z", "persona_name": "ATLAS", "username": "unknown", "old_tools": [], "new_tools": ["alpha_tool"], "rationale": "Updated allowed tools via persona manager"}
+{"timestamp": "2026-01-11T15:09:30.628027Z", "persona_name": "ATLAS", "username": "unknown", "old_tools": [], "new_tools": ["beta_tool"], "rationale": "Updated allowed tools via persona manager"}
+{"timestamp": "2026-01-11T15:09:30.635613Z", "persona_name": "ATLAS", "username": "unknown", "old_tools": ["beta_tool"], "new_tools": ["beta_tool"], "rationale": "Updated allowed skills via persona manager"}
+{"timestamp": "2026-01-11T15:09:30.678839Z", "persona_name": "Coach", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona general information via persona manager"}
+{"timestamp": "2026-01-11T15:09:30.684518Z", "persona_name": "Coach", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'sys_info_enabled' via persona manager"}
+{"timestamp": "2026-01-11T15:09:30.691142Z", "persona_name": "Coach", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'user_profile_enabled' via persona manager"}
+{"timestamp": "2026-01-11T15:09:30.696805Z", "persona_name": "Coach", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'fitness_persona' via persona manager"}
+{"timestamp": "2026-01-11T15:09:30.703134Z", "persona_name": "Coach", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated provider defaults via persona manager"}
+{"timestamp": "2026-01-11T15:09:30.709698Z", "persona_name": "Coach", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated speech defaults via persona manager"}
+{"timestamp": "2026-01-11T15:09:30.729448Z", "persona_name": "Narrator", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona general information via persona manager"}
+{"timestamp": "2026-01-11T15:09:30.735571Z", "persona_name": "Narrator", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'sys_info_enabled' via persona manager"}
+{"timestamp": "2026-01-11T15:09:30.742810Z", "persona_name": "Narrator", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'user_profile_enabled' via persona manager"}
+{"timestamp": "2026-01-11T15:09:30.748372Z", "persona_name": "Narrator", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated provider defaults via persona manager"}
+{"timestamp": "2026-01-11T15:09:30.754192Z", "persona_name": "Narrator", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated speech defaults via persona manager"}
+{"timestamp": "2026-01-11T15:11:33.780494Z", "persona_name": "Atlas", "username": "unknown", "old_tools": ["alpha_tool", "beta_tool"], "new_tools": ["alpha_tool", "beta_tool"], "rationale": "Server skill update"}
+{"timestamp": "2026-01-11T15:11:33.929451Z", "persona_name": "Explorer", "username": "unknown", "old_tools": ["alpha_tool"], "new_tools": ["alpha_tool"], "rationale": "Test import"}
+{"timestamp": "2026-01-11T15:11:33.952062Z", "persona_name": "Explorer", "username": "unknown", "old_tools": [], "new_tools": ["alpha_tool"], "rationale": "Imported persona bundle"}
+{"timestamp": "2026-01-11T15:11:47.670441Z", "persona_name": "Atlas", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "CLI test"}
+{"timestamp": "2026-01-11T15:11:48.712112Z", "persona_name": "StudyBuddy", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona general information via persona manager"}
+{"timestamp": "2026-01-11T15:11:48.724320Z", "persona_name": "StudyBuddy", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'sys_info_enabled' via persona manager"}
+{"timestamp": "2026-01-11T15:11:48.733043Z", "persona_name": "StudyBuddy", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'user_profile_enabled' via persona manager"}
+{"timestamp": "2026-01-11T15:11:48.742048Z", "persona_name": "StudyBuddy", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'educational_persona' via persona manager"}
+{"timestamp": "2026-01-11T15:11:48.749539Z", "persona_name": "StudyBuddy", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated provider defaults via persona manager"}
+{"timestamp": "2026-01-11T15:11:48.758583Z", "persona_name": "StudyBuddy", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated speech defaults via persona manager"}
+{"timestamp": "2026-01-11T15:11:48.787907Z", "persona_name": "ATLAS", "username": "unknown", "old_tools": [], "new_tools": ["alpha_tool"], "rationale": "Updated allowed tools via persona manager"}
+{"timestamp": "2026-01-11T15:11:48.817630Z", "persona_name": "ATLAS", "username": "unknown", "old_tools": [], "new_tools": ["alpha_tool"], "rationale": "Updated allowed tools via persona manager"}
+{"timestamp": "2026-01-11T15:11:48.846353Z", "persona_name": "ATLAS", "username": "unknown", "old_tools": [], "new_tools": ["beta_tool"], "rationale": "Updated allowed tools via persona manager"}
+{"timestamp": "2026-01-11T15:11:48.858597Z", "persona_name": "ATLAS", "username": "unknown", "old_tools": ["beta_tool"], "new_tools": ["beta_tool"], "rationale": "Updated allowed skills via persona manager"}
+{"timestamp": "2026-01-11T15:11:48.918963Z", "persona_name": "Coach", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona general information via persona manager"}
+{"timestamp": "2026-01-11T15:11:48.925301Z", "persona_name": "Coach", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'sys_info_enabled' via persona manager"}
+{"timestamp": "2026-01-11T15:11:48.931343Z", "persona_name": "Coach", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'user_profile_enabled' via persona manager"}
+{"timestamp": "2026-01-11T15:11:48.938331Z", "persona_name": "Coach", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'fitness_persona' via persona manager"}
+{"timestamp": "2026-01-11T15:11:48.943977Z", "persona_name": "Coach", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated provider defaults via persona manager"}
+{"timestamp": "2026-01-11T15:11:48.949662Z", "persona_name": "Coach", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated speech defaults via persona manager"}
+{"timestamp": "2026-01-11T15:11:48.970973Z", "persona_name": "Narrator", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona general information via persona manager"}
+{"timestamp": "2026-01-11T15:11:48.976679Z", "persona_name": "Narrator", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'sys_info_enabled' via persona manager"}
+{"timestamp": "2026-01-11T15:11:48.982576Z", "persona_name": "Narrator", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'user_profile_enabled' via persona manager"}
+{"timestamp": "2026-01-11T15:11:48.990601Z", "persona_name": "Narrator", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated provider defaults via persona manager"}
+{"timestamp": "2026-01-11T15:11:48.998523Z", "persona_name": "Narrator", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated speech defaults via persona manager"}
+{"timestamp": "2026-01-11T15:12:34.922657Z", "persona_name": "Atlas", "username": "unknown", "old_tools": ["alpha_tool", "beta_tool"], "new_tools": ["alpha_tool", "beta_tool"], "rationale": "Server skill update"}
+{"timestamp": "2026-01-11T15:12:50.402234Z", "persona_name": "Atlas", "username": "unknown", "old_tools": ["alpha_tool", "beta_tool"], "new_tools": ["alpha_tool", "beta_tool"], "rationale": "Server skill update"}
+{"timestamp": "2026-01-11T15:12:50.696950Z", "persona_name": "Explorer", "username": "unknown", "old_tools": ["alpha_tool"], "new_tools": ["alpha_tool"], "rationale": "Test import"}
+{"timestamp": "2026-01-11T15:12:50.722554Z", "persona_name": "Explorer", "username": "unknown", "old_tools": [], "new_tools": ["alpha_tool"], "rationale": "Imported persona bundle"}
+{"timestamp": "2026-01-11T15:13:06.437621Z", "persona_name": "Atlas", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "CLI test"}
+{"timestamp": "2026-01-11T15:13:07.486879Z", "persona_name": "StudyBuddy", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona general information via persona manager"}
+{"timestamp": "2026-01-11T15:13:07.493929Z", "persona_name": "StudyBuddy", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'sys_info_enabled' via persona manager"}
+{"timestamp": "2026-01-11T15:13:07.500418Z", "persona_name": "StudyBuddy", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'user_profile_enabled' via persona manager"}
+{"timestamp": "2026-01-11T15:13:07.508136Z", "persona_name": "StudyBuddy", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'educational_persona' via persona manager"}
+{"timestamp": "2026-01-11T15:13:07.515211Z", "persona_name": "StudyBuddy", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated provider defaults via persona manager"}
+{"timestamp": "2026-01-11T15:13:07.524342Z", "persona_name": "StudyBuddy", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated speech defaults via persona manager"}
+{"timestamp": "2026-01-11T15:13:07.547290Z", "persona_name": "ATLAS", "username": "unknown", "old_tools": [], "new_tools": ["alpha_tool"], "rationale": "Updated allowed tools via persona manager"}
+{"timestamp": "2026-01-11T15:13:07.578880Z", "persona_name": "ATLAS", "username": "unknown", "old_tools": [], "new_tools": ["alpha_tool"], "rationale": "Updated allowed tools via persona manager"}
+{"timestamp": "2026-01-11T15:13:07.605507Z", "persona_name": "ATLAS", "username": "unknown", "old_tools": [], "new_tools": ["beta_tool"], "rationale": "Updated allowed tools via persona manager"}
+{"timestamp": "2026-01-11T15:13:07.614149Z", "persona_name": "ATLAS", "username": "unknown", "old_tools": ["beta_tool"], "new_tools": ["beta_tool"], "rationale": "Updated allowed skills via persona manager"}
+{"timestamp": "2026-01-11T15:13:07.680099Z", "persona_name": "Coach", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona general information via persona manager"}
+{"timestamp": "2026-01-11T15:13:07.687631Z", "persona_name": "Coach", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'sys_info_enabled' via persona manager"}
+{"timestamp": "2026-01-11T15:13:07.693763Z", "persona_name": "Coach", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'user_profile_enabled' via persona manager"}
+{"timestamp": "2026-01-11T15:13:07.699336Z", "persona_name": "Coach", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'fitness_persona' via persona manager"}
+{"timestamp": "2026-01-11T15:13:07.708105Z", "persona_name": "Coach", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated provider defaults via persona manager"}
+{"timestamp": "2026-01-11T15:13:07.714292Z", "persona_name": "Coach", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated speech defaults via persona manager"}
+{"timestamp": "2026-01-11T15:13:07.737163Z", "persona_name": "Narrator", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona general information via persona manager"}
+{"timestamp": "2026-01-11T15:13:07.743930Z", "persona_name": "Narrator", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'sys_info_enabled' via persona manager"}
+{"timestamp": "2026-01-11T15:13:07.753563Z", "persona_name": "Narrator", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'user_profile_enabled' via persona manager"}
+{"timestamp": "2026-01-11T15:13:07.762013Z", "persona_name": "Narrator", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated provider defaults via persona manager"}
+{"timestamp": "2026-01-11T15:13:07.768153Z", "persona_name": "Narrator", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated speech defaults via persona manager"}
+{"timestamp": "2026-01-11T15:17:10.771811Z", "persona_name": "Atlas", "username": "unknown", "old_tools": ["alpha_tool", "beta_tool"], "new_tools": ["alpha_tool", "beta_tool"], "rationale": "Server skill update"}
+{"timestamp": "2026-01-11T15:17:10.900984Z", "persona_name": "Explorer", "username": "unknown", "old_tools": ["alpha_tool"], "new_tools": ["alpha_tool"], "rationale": "Test import"}
+{"timestamp": "2026-01-11T15:17:10.923630Z", "persona_name": "Explorer", "username": "unknown", "old_tools": [], "new_tools": ["alpha_tool"], "rationale": "Imported persona bundle"}
+{"timestamp": "2026-01-11T15:17:25.139047Z", "persona_name": "Atlas", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "CLI test"}
+{"timestamp": "2026-01-11T15:17:26.233152Z", "persona_name": "StudyBuddy", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona general information via persona manager"}
+{"timestamp": "2026-01-11T15:17:26.241337Z", "persona_name": "StudyBuddy", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'sys_info_enabled' via persona manager"}
+{"timestamp": "2026-01-11T15:17:26.251121Z", "persona_name": "StudyBuddy", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'user_profile_enabled' via persona manager"}
+{"timestamp": "2026-01-11T15:17:26.258941Z", "persona_name": "StudyBuddy", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'educational_persona' via persona manager"}
+{"timestamp": "2026-01-11T15:17:26.266655Z", "persona_name": "StudyBuddy", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated provider defaults via persona manager"}
+{"timestamp": "2026-01-11T15:17:26.275383Z", "persona_name": "StudyBuddy", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated speech defaults via persona manager"}
+{"timestamp": "2026-01-11T15:17:26.304797Z", "persona_name": "ATLAS", "username": "unknown", "old_tools": [], "new_tools": ["alpha_tool"], "rationale": "Updated allowed tools via persona manager"}
+{"timestamp": "2026-01-11T15:17:26.339747Z", "persona_name": "ATLAS", "username": "unknown", "old_tools": [], "new_tools": ["alpha_tool"], "rationale": "Updated allowed tools via persona manager"}
+{"timestamp": "2026-01-11T15:17:26.372284Z", "persona_name": "ATLAS", "username": "unknown", "old_tools": [], "new_tools": ["beta_tool"], "rationale": "Updated allowed tools via persona manager"}
+{"timestamp": "2026-01-11T15:17:26.382722Z", "persona_name": "ATLAS", "username": "unknown", "old_tools": ["beta_tool"], "new_tools": ["beta_tool"], "rationale": "Updated allowed skills via persona manager"}
+{"timestamp": "2026-01-11T15:17:26.427856Z", "persona_name": "Coach", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona general information via persona manager"}
+{"timestamp": "2026-01-11T15:17:26.434837Z", "persona_name": "Coach", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'sys_info_enabled' via persona manager"}
+{"timestamp": "2026-01-11T15:17:26.441279Z", "persona_name": "Coach", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'user_profile_enabled' via persona manager"}
+{"timestamp": "2026-01-11T15:17:26.449077Z", "persona_name": "Coach", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'fitness_persona' via persona manager"}
+{"timestamp": "2026-01-11T15:17:26.457986Z", "persona_name": "Coach", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated provider defaults via persona manager"}
+{"timestamp": "2026-01-11T15:17:26.468231Z", "persona_name": "Coach", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated speech defaults via persona manager"}
+{"timestamp": "2026-01-11T15:17:26.492219Z", "persona_name": "Narrator", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona general information via persona manager"}
+{"timestamp": "2026-01-11T15:17:26.499985Z", "persona_name": "Narrator", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'sys_info_enabled' via persona manager"}
+{"timestamp": "2026-01-11T15:17:26.507718Z", "persona_name": "Narrator", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'user_profile_enabled' via persona manager"}
+{"timestamp": "2026-01-11T15:17:26.515131Z", "persona_name": "Narrator", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated provider defaults via persona manager"}
+{"timestamp": "2026-01-11T15:17:26.522505Z", "persona_name": "Narrator", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated speech defaults via persona manager"}
+{"timestamp": "2026-01-11T15:49:40.759142Z", "persona_name": "Atlas", "username": "unknown", "old_tools": ["alpha_tool", "beta_tool"], "new_tools": ["alpha_tool", "beta_tool"], "rationale": "Server skill update"}
+{"timestamp": "2026-01-11T15:49:40.884337Z", "persona_name": "Explorer", "username": "unknown", "old_tools": ["alpha_tool"], "new_tools": ["alpha_tool"], "rationale": "Test import"}
+{"timestamp": "2026-01-11T15:49:40.902983Z", "persona_name": "Explorer", "username": "unknown", "old_tools": [], "new_tools": ["alpha_tool"], "rationale": "Imported persona bundle"}
+{"timestamp": "2026-01-11T15:49:55.134175Z", "persona_name": "Atlas", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "CLI test"}
+{"timestamp": "2026-01-11T15:49:56.575626Z", "persona_name": "StudyBuddy", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona general information via persona manager"}
+{"timestamp": "2026-01-11T15:49:56.583266Z", "persona_name": "StudyBuddy", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'sys_info_enabled' via persona manager"}
+{"timestamp": "2026-01-11T15:49:56.590812Z", "persona_name": "StudyBuddy", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'user_profile_enabled' via persona manager"}
+{"timestamp": "2026-01-11T15:49:56.599389Z", "persona_name": "StudyBuddy", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'educational_persona' via persona manager"}
+{"timestamp": "2026-01-11T15:49:56.606366Z", "persona_name": "StudyBuddy", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated provider defaults via persona manager"}
+{"timestamp": "2026-01-11T15:49:56.613529Z", "persona_name": "StudyBuddy", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated speech defaults via persona manager"}
+{"timestamp": "2026-01-11T15:49:56.638795Z", "persona_name": "ATLAS", "username": "unknown", "old_tools": [], "new_tools": ["alpha_tool"], "rationale": "Updated allowed tools via persona manager"}
+{"timestamp": "2026-01-11T15:49:56.662751Z", "persona_name": "ATLAS", "username": "unknown", "old_tools": [], "new_tools": ["alpha_tool"], "rationale": "Updated allowed tools via persona manager"}
+{"timestamp": "2026-01-11T15:49:56.685996Z", "persona_name": "ATLAS", "username": "unknown", "old_tools": [], "new_tools": ["beta_tool"], "rationale": "Updated allowed tools via persona manager"}
+{"timestamp": "2026-01-11T15:49:56.693870Z", "persona_name": "ATLAS", "username": "unknown", "old_tools": ["beta_tool"], "new_tools": ["beta_tool"], "rationale": "Updated allowed skills via persona manager"}
+{"timestamp": "2026-01-11T15:49:56.739575Z", "persona_name": "Coach", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona general information via persona manager"}
+{"timestamp": "2026-01-11T15:49:56.746412Z", "persona_name": "Coach", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'sys_info_enabled' via persona manager"}
+{"timestamp": "2026-01-11T15:49:56.753355Z", "persona_name": "Coach", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'user_profile_enabled' via persona manager"}
+{"timestamp": "2026-01-11T15:49:56.759776Z", "persona_name": "Coach", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'fitness_persona' via persona manager"}
+{"timestamp": "2026-01-11T15:49:56.768901Z", "persona_name": "Coach", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated provider defaults via persona manager"}
+{"timestamp": "2026-01-11T15:49:56.774621Z", "persona_name": "Coach", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated speech defaults via persona manager"}
+{"timestamp": "2026-01-11T15:49:56.797855Z", "persona_name": "Narrator", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona general information via persona manager"}
+{"timestamp": "2026-01-11T15:49:56.805798Z", "persona_name": "Narrator", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'sys_info_enabled' via persona manager"}
+{"timestamp": "2026-01-11T15:49:56.816149Z", "persona_name": "Narrator", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'user_profile_enabled' via persona manager"}
+{"timestamp": "2026-01-11T15:49:56.822345Z", "persona_name": "Narrator", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated provider defaults via persona manager"}
+{"timestamp": "2026-01-11T15:49:56.829121Z", "persona_name": "Narrator", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated speech defaults via persona manager"}
+{"timestamp": "2026-01-11T15:49:58.453063Z", "persona_name": "Explorer", "username": "unknown", "old_tools": ["alpha_tool"], "new_tools": ["alpha_tool"], "rationale": "Regression test"}
+{"timestamp": "2026-01-11T15:50:17.913541Z", "persona_name": "Atlas", "username": "unknown", "old_tools": ["alpha_tool", "beta_tool"], "new_tools": ["alpha_tool", "beta_tool"], "rationale": "Server skill update"}
+{"timestamp": "2026-01-11T15:50:18.191859Z", "persona_name": "Explorer", "username": "unknown", "old_tools": ["alpha_tool"], "new_tools": ["alpha_tool"], "rationale": "Test import"}
+{"timestamp": "2026-01-11T15:50:18.212695Z", "persona_name": "Explorer", "username": "unknown", "old_tools": [], "new_tools": ["alpha_tool"], "rationale": "Imported persona bundle"}
+{"timestamp": "2026-01-11T15:50:32.668426Z", "persona_name": "Atlas", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "CLI test"}
+{"timestamp": "2026-01-11T15:50:33.747961Z", "persona_name": "StudyBuddy", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona general information via persona manager"}
+{"timestamp": "2026-01-11T15:50:33.754942Z", "persona_name": "StudyBuddy", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'sys_info_enabled' via persona manager"}
+{"timestamp": "2026-01-11T15:50:33.763893Z", "persona_name": "StudyBuddy", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'user_profile_enabled' via persona manager"}
+{"timestamp": "2026-01-11T15:50:33.770882Z", "persona_name": "StudyBuddy", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'educational_persona' via persona manager"}
+{"timestamp": "2026-01-11T15:50:33.778506Z", "persona_name": "StudyBuddy", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated provider defaults via persona manager"}
+{"timestamp": "2026-01-11T15:50:33.787579Z", "persona_name": "StudyBuddy", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated speech defaults via persona manager"}
+{"timestamp": "2026-01-11T15:50:33.812762Z", "persona_name": "ATLAS", "username": "unknown", "old_tools": [], "new_tools": ["alpha_tool"], "rationale": "Updated allowed tools via persona manager"}
+{"timestamp": "2026-01-11T15:50:33.839204Z", "persona_name": "ATLAS", "username": "unknown", "old_tools": [], "new_tools": ["alpha_tool"], "rationale": "Updated allowed tools via persona manager"}
+{"timestamp": "2026-01-11T15:50:33.874876Z", "persona_name": "ATLAS", "username": "unknown", "old_tools": [], "new_tools": ["beta_tool"], "rationale": "Updated allowed tools via persona manager"}
+{"timestamp": "2026-01-11T15:50:33.888789Z", "persona_name": "ATLAS", "username": "unknown", "old_tools": ["beta_tool"], "new_tools": ["beta_tool"], "rationale": "Updated allowed skills via persona manager"}
+{"timestamp": "2026-01-11T15:50:33.943297Z", "persona_name": "Coach", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona general information via persona manager"}
+{"timestamp": "2026-01-11T15:50:33.949536Z", "persona_name": "Coach", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'sys_info_enabled' via persona manager"}
+{"timestamp": "2026-01-11T15:50:33.956124Z", "persona_name": "Coach", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'user_profile_enabled' via persona manager"}
+{"timestamp": "2026-01-11T15:50:33.963081Z", "persona_name": "Coach", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'fitness_persona' via persona manager"}
+{"timestamp": "2026-01-11T15:50:33.970379Z", "persona_name": "Coach", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated provider defaults via persona manager"}
+{"timestamp": "2026-01-11T15:50:33.977500Z", "persona_name": "Coach", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated speech defaults via persona manager"}
+{"timestamp": "2026-01-11T15:50:33.998935Z", "persona_name": "Narrator", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona general information via persona manager"}
+{"timestamp": "2026-01-11T15:50:34.006023Z", "persona_name": "Narrator", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'sys_info_enabled' via persona manager"}
+{"timestamp": "2026-01-11T15:50:34.014830Z", "persona_name": "Narrator", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated persona flag 'user_profile_enabled' via persona manager"}
+{"timestamp": "2026-01-11T15:50:34.023980Z", "persona_name": "Narrator", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated provider defaults via persona manager"}
+{"timestamp": "2026-01-11T15:50:34.032572Z", "persona_name": "Narrator", "username": "unknown", "old_tools": [], "new_tools": [], "rationale": "Updated speech defaults via persona manager"}

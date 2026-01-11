@@ -46,7 +46,7 @@ if execution_module is None:
         setattr(execution_module, name, _stub_function)
     sys.modules["ATLAS.tools.execution"] = execution_module
 
-import tests.test_chat_async_helper as chat_helper  # noqa: F401 - ensure GTK stubs
+import tests.chat.test_chat_async_helper as chat_helper  # noqa: F401 - ensure GTK stubs
 from GTKUI.Chat.chat_page import ChatPage, Gtk
 from tests.test_tool_management_ui import _ParentWindowStub
 

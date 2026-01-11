@@ -30,11 +30,9 @@ SENTENCE_ENDINGS = re.compile(
 )
 
 # More aggressive pattern that handles more edge cases
+# Note: Lookbehind requires fixed-width pattern, so we can't include optional quotes
 SENTENCE_PATTERN_DETAILED = re.compile(
-    r'(?<='
-    r'[.!?]'           # Sentence ending punctuation
-    r'[\"\'\)\]]*'     # Optional closing quotes/parens
-    r')'
+    r'(?<=[.!?])'      # Sentence ending punctuation
     r'\s+'             # Whitespace
     r'(?='
     r'[\"\'\(\[]*'     # Optional opening quotes/parens

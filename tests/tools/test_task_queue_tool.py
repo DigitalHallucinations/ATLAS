@@ -48,7 +48,7 @@ if "pytz" not in sys.modules:
 import importlib.util
 
 
-_TASK_QUEUE_MODULE_PATH = Path(__file__).resolve().parent.parent / "modules" / "Tools" / "Base_Tools" / "task_queue.py"
+_TASK_QUEUE_MODULE_PATH = Path(__file__).resolve().parents[2] / "modules" / "Tools" / "Base_Tools" / "task_queue.py"
 
 spec = importlib.util.spec_from_file_location("_task_queue_tool", _TASK_QUEUE_MODULE_PATH)
 task_queue = importlib.util.module_from_spec(spec)

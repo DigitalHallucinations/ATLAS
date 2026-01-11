@@ -3,7 +3,31 @@ import sys
 import types
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, Optional
+from typing import Any, Dict, Iterable, List, Optional
+
+import pytest
+
+# Check if GTK4 is available - skip entire module if not
+try:
+    import gi
+    gi.require_version('Gtk', '4.0')
+    from gi.repository import Gtk, Gdk, GLib
+    _GTK_AVAILABLE = True
+except (ImportError, ValueError):
+    _GTK_AVAILABLE = False
+
+pytestmark = pytest.mark.skipif(not _GTK_AVAILABLE, reason="GTK4 not available")
+
+
+def _get_gtk4_children(widget: "Gtk.Widget") -> List["Gtk.Widget"]:
+    """Get children of a GTK4 widget using the proper API."""
+    children = []
+    child = widget.get_first_child()
+    while child is not None:
+        children.append(child)
+        child = child.get_next_sibling()
+    return children
+
 
 if "jsonschema" not in sys.modules:  # pragma: no cover - lightweight stub for tests
     jsonschema_stub = types.ModuleType("jsonschema")
@@ -24,67 +48,27 @@ if "jsonschema" not in sys.modules:  # pragma: no cover - lightweight stub for t
     jsonschema_stub.exceptions = types.SimpleNamespace(SchemaError=_ValidationError)
     sys.modules["jsonschema"] = jsonschema_stub
 
-import pytest
+# If GTK is available, do the imports - otherwise module is skipped via pytestmark
+if _GTK_AVAILABLE:
+    from modules.Personas import (
+        PersonaValidationError,
+        load_persona_definition,
+        persist_persona_definition,
+    )
+    from modules.logging import audit
+    from modules.logging.audit import PersonaAuditLogger, SkillAuditLogger
+    from modules.Server.routes import AtlasServer
+    from modules.Server.conversation_routes import RequestContext
+    from GTKUI.Persona_manager.persona_management import PersonaManagement
 
-import tests.test_chat_async_helper  # noqa: F401 - ensure GTK stubs are available
-sys.modules.setdefault("gi.repository.Pango", types.ModuleType("Pango"))
-sys.modules.setdefault("Pango", sys.modules["gi.repository.Pango"])
-from gi.repository import Gtk
 
-if not hasattr(Gtk, "Switch"):
-    class _DummySwitch:
-        def __init__(self, *args, **kwargs):
-            self._active = False
-
-        def set_active(self, value: bool) -> None:
-            self._active = bool(value)
-
-        def get_active(self) -> bool:  # pragma: no cover - compatibility helper
-            return self._active
-
-    Gtk.Switch = _DummySwitch
-
-if not hasattr(Gtk, "Dialog"):
-    class _DummyDialog:
-        def __init__(self, *args, **kwargs):
-            self.visible = True
-
-        def close(self):  # pragma: no cover - compatibility helper
-            self.visible = False
-
-    Gtk.Dialog = _DummyDialog
-
-if not hasattr(Gtk, "SelectionMode"):
-    Gtk.SelectionMode = types.SimpleNamespace(NONE=0, SINGLE=1, MULTIPLE=2)
-
-if not hasattr(Gtk, "ListBoxRow"):
-    class _DummyListBoxRow:
-        def __init__(self, *args, **kwargs):
-            self.children = []
-
-        def set_child(self, child):
-            self.children = [child]
-
-    Gtk.ListBoxRow = _DummyListBoxRow
-
-Gtk.ListBoxRow = type(
-    "ListBoxRow",
-    (),
-    {
-        "__init__": lambda self, *args, **kwargs: setattr(self, "children", []),
-        "set_child": lambda self, child: setattr(self, "children", [child]),
-    },
-)
-
-from modules.Personas import (
-    PersonaValidationError,
-    load_persona_definition,
-    persist_persona_definition,
-)
-from modules.logging import audit
-from modules.logging.audit import PersonaAuditLogger, SkillAuditLogger
-from modules.Server.routes import AtlasServer
-from GTKUI.Persona_manager.persona_management import PersonaManagement
+def _admin_context() -> "RequestContext":
+    """Create an authenticated admin context for testing."""
+    return RequestContext.from_authenticated_claims(
+        tenant_id="default",
+        user_id="test_admin",
+        roles=("admin",),
+    )
 
 
 class _ConfigStub:
@@ -114,7 +98,9 @@ def _write_persona_file(base: Path, persona: Dict[str, Any]) -> None:
 
 
 def _copy_schema(base: Path) -> None:
-    schema_src = Path(__file__).resolve().parents[1] / "modules" / "Personas" / "schema.json"
+    # Schema is at project_root/modules/Personas/schema.json
+    project_root = Path(__file__).resolve().parents[2]
+    schema_src = project_root / "modules" / "Personas" / "schema.json"
     schema_dst = base / "modules" / "Personas" / "schema.json"
     schema_dst.parent.mkdir(parents=True, exist_ok=True)
     schema_dst.write_text(schema_src.read_text(encoding="utf-8"), encoding="utf-8")
@@ -162,7 +148,7 @@ def persona_payload() -> Dict[str, Any]:
 
 
 @pytest.fixture
-def audit_logger(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> PersonaAuditLogger:
+def audit_logger(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> "PersonaAuditLogger":
     logger = PersonaAuditLogger(
         log_path=tmp_path / "persona_audit.jsonl",
         user_service_factory=lambda: _UserServiceStub("auditor"),
@@ -176,7 +162,7 @@ def audit_logger(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> PersonaAudi
 @pytest.fixture
 def skill_audit_logger(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> SkillAuditLogger:
+) -> "SkillAuditLogger":
     logger = SkillAuditLogger(
         log_path=tmp_path / "skill_audit.jsonl",
         user_service_factory=lambda: _UserServiceStub("reviewer"),
@@ -189,7 +175,7 @@ def skill_audit_logger(
 
 def test_persist_persona_definition_records_audit_entry(
     tmp_path: Path,
-    audit_logger: PersonaAuditLogger,
+    audit_logger: "PersonaAuditLogger",
     persona_payload: Dict[str, Any],
 ) -> None:
     _copy_schema(tmp_path)
@@ -220,7 +206,7 @@ def test_persist_persona_definition_records_audit_entry(
 
 def test_server_route_logs_persona_update(
     tmp_path: Path,
-    audit_logger: PersonaAuditLogger,
+    audit_logger: "PersonaAuditLogger",
     persona_payload: Dict[str, Any],
 ) -> None:
     _copy_schema(tmp_path)
@@ -234,6 +220,7 @@ def test_server_route_logs_persona_update(
         "/personas/Atlas/tools",
         method="POST",
         query={"tools": ["beta_tool", "gamma_tool"], "rationale": "Server update"},
+        context=_admin_context(),
     )
 
     assert response["success"] is True
@@ -288,6 +275,7 @@ def test_server_route_updates_persona_skills(
             "skills": ["shared_skill", "atlas_insight"],
             "rationale": "Server skill update",
         },
+        context=_admin_context(),
     )
 
     assert response["success"] is True
@@ -302,7 +290,7 @@ def test_server_route_updates_persona_skills(
 
 
 def test_list_tool_changes_supports_filters(
-    audit_logger: PersonaAuditLogger,
+    audit_logger: "PersonaAuditLogger",
 ) -> None:
     audit_logger.clear()
     audit_logger.record_change(
@@ -353,7 +341,7 @@ def test_list_tool_changes_supports_filters(
 
 
 def test_list_skill_changes_supports_filters(
-    skill_audit_logger: SkillAuditLogger,
+    skill_audit_logger: "SkillAuditLogger",
 ) -> None:
     skill_audit_logger.clear()
     skill_audit_logger.record_change(
@@ -412,7 +400,7 @@ def test_list_skill_changes_supports_filters(
 
 def test_server_route_rejects_invalid_tool_update(
     tmp_path: Path,
-    audit_logger: PersonaAuditLogger,
+    audit_logger: "PersonaAuditLogger",
     persona_payload: Dict[str, Any],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -454,6 +442,7 @@ def test_server_route_rejects_invalid_tool_update(
         "/personas/Atlas/tools",
         method="POST",
         query={"tools": ["alpha_tool", "invalid_tool"], "rationale": "Bad update"},
+        context=_admin_context(),
     )
 
     assert response["success"] is False
@@ -561,7 +550,7 @@ class _AtlasStub:
 
 
 def test_history_view_renders_entries(
-    audit_logger: PersonaAuditLogger,
+    audit_logger: "PersonaAuditLogger",
 ) -> None:
     audit_logger.clear()
     audit_logger.record_change(
@@ -602,18 +591,20 @@ def test_history_view_renders_entries(
 
     list_box = manager.history_list_box
     assert list_box is not None
-    rows = list(getattr(list_box, "children", []))
+    rows = _get_gtk4_children(list_box)
     assert len(rows) == 2
 
     first_row = rows[0]
-    container = first_row.children[0]
-    summary_label = container.children[0]
-    tools_label = container.children[1]
-    rationale_label = container.children[2]
+    # In GTK4, use get_child() to get the child of a ListBoxRow
+    container = first_row.get_child()
+    children = _get_gtk4_children(container)
+    summary_label = children[0]
+    tools_label = children[1]
+    rationale_label = children[2]
 
-    assert summary_label.label == "2024-01-02 12:00 UTC — auditor"
-    assert tools_label.label == "Tools: beta → gamma"
-    assert rationale_label.label == "Rationale: Follow-up change"
+    assert summary_label.get_label() == "2024-01-02 12:00 UTC — auditor"
+    assert tools_label.get_label() == "Tools: beta → gamma"
+    assert rationale_label.get_label() == "Rationale: Follow-up change"
 
     assert manager._history_load_more_button is not None
-    assert manager._history_load_more_button.visible is False
+    assert manager._history_load_more_button.get_visible() is False

@@ -37,6 +37,21 @@ try:
     CALENDAR_PACKAGE_AVAILABLE = True
 except ImportError:
     CALENDAR_PACKAGE_AVAILABLE = False
+    # Define stub types to allow module to be parsed
+    CalendarBackend = type("CalendarBackend", (), {})
+    CalendarBackendType = type("CalendarBackendType", (), {})
+    CalendarConfig = type("CalendarConfig", (), {})
+    CalendarEvent = type("CalendarEvent", (), {})
+    CalendarProviderRegistry = type("CalendarProviderRegistry", (), {})
+    CalendarsGlobalConfig = type("CalendarsGlobalConfig", (), {})
+    CompositeCalendarBackend = type("CompositeCalendarBackend", (), {})
+    CompositeCalendarError = Exception
+    EventNotFoundError = Exception
+    ICSCalendarBackend = type("ICSCalendarBackend", (), {})
+    NoWritableCalendarError = Exception
+    NullCalendarBackend = type("NullCalendarBackend", (), {})
+    SyncMode = type("SyncMode", (), {})
+    create_registry_with_defaults = lambda *a, **k: None
 
 
 pytestmark = pytest.mark.skipif(

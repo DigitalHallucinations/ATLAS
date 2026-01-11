@@ -39,7 +39,7 @@ if "tenacity" not in sys.modules:
         wait_exponential=lambda *_a, **_k: None,
     )
 
-MODULE_PATH = Path(__file__).resolve().parents[1] / "modules" / "Providers" / "OpenAI" / "OA_gen_response.py"
+MODULE_PATH = Path(__file__).resolve().parents[2] / "modules" / "Providers" / "OpenAI" / "OA_gen_response.py"
 _spec = importlib.util.spec_from_file_location("oa_module", MODULE_PATH)
 oa_module = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(oa_module)

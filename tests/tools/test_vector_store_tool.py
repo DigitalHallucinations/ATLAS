@@ -52,7 +52,7 @@ def _load_module(name: str, path: Path):
 
 _ensure_stub_modules()
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 _ensure_package("modules", ROOT / "modules")
 _ensure_package("modules.Tools", ROOT / "modules" / "Tools")
 _ensure_package("modules.Tools.Base_Tools", ROOT / "modules" / "Tools" / "Base_Tools")

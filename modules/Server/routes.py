@@ -508,7 +508,7 @@ class AtlasServer:
         configured_tenant = self._resolve_configured_tenant_id()
 
         if context is not None:
-            resolved = self._resolve_request_context(context)
+            resolved = self._coerce_context(context)
         else:
             if configured_tenant:
                 raise ConversationAuthorizationError(

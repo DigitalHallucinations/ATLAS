@@ -48,7 +48,9 @@ def _write_json(path: Path, payload: object) -> None:
 
 
 def _copy_persona_schema(root: Path) -> None:
-    schema_src = Path(__file__).resolve().parents[1] / "modules" / "Personas" / "schema.json"
+    # Schema is at project_root/modules/Personas/schema.json
+    project_root = Path(__file__).resolve().parents[2]
+    schema_src = project_root / "modules" / "Personas" / "schema.json"
     schema_dest = root / "modules" / "Personas" / "schema.json"
     schema_dest.parent.mkdir(parents=True, exist_ok=True)
     schema_dest.write_text(schema_src.read_text(encoding="utf-8"), encoding="utf-8")

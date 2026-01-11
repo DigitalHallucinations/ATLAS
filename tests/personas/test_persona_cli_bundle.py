@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -14,7 +15,9 @@ def _write_json(path: Path, payload: object) -> None:
 @pytest.fixture
 def persona_cli_fixture(tmp_path: Path) -> Path:
     root = tmp_path / "app"
-    schema_src = Path(__file__).resolve().parents[1] / "modules" / "Personas" / "schema.json"
+    # Schema is at project_root/modules/Personas/schema.json
+    project_root = Path(__file__).resolve().parents[2]
+    schema_src = project_root / "modules" / "Personas" / "schema.json"
     schema_dst = root / "modules" / "Personas" / "schema.json"
     schema_dst.parent.mkdir(parents=True, exist_ok=True)
     schema_dst.write_text(schema_src.read_text(encoding="utf-8"), encoding="utf-8")
@@ -47,7 +50,7 @@ def persona_cli_fixture(tmp_path: Path) -> Path:
 
 
 def test_cli_export_import_round_trip(persona_cli_fixture: Path, tmp_path: Path) -> None:
-    repo_root = Path(__file__).resolve().parents[1]
+    repo_root = Path(__file__).resolve().parents[2]  # Go up to project root
     bundle_path = tmp_path / "bundle.json"
     key_path = tmp_path / "signing.key"
     key_path.write_text("super-secret", encoding="utf-8")
@@ -55,20 +58,24 @@ def test_cli_export_import_round_trip(persona_cli_fixture: Path, tmp_path: Path)
     export_cmd = [
         sys.executable,
         "scripts/persona_tools.py",
+        "--app-root",
+        str(persona_cli_fixture),
         "export",
         "Atlas",
         str(bundle_path),
         "--signing-key-file",
         str(key_path),
-        "--app-root",
-        str(persona_cli_fixture),
     ]
+    # Ensure PYTHONPATH includes repo root for module imports
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(repo_root)
     export_proc = subprocess.run(
         export_cmd,
         cwd=str(repo_root),
         capture_output=True,
         text=True,
         check=False,
+        env=env,
     )
     assert export_proc.returncode == 0, export_proc.stderr
     assert bundle_path.exists()
@@ -88,12 +95,12 @@ def test_cli_export_import_round_trip(persona_cli_fixture: Path, tmp_path: Path)
     import_cmd = [
         sys.executable,
         "scripts/persona_tools.py",
+        "--app-root",
+        str(persona_cli_fixture),
         "import",
         str(bundle_path),
         "--signing-key-file",
         str(key_path),
-        "--app-root",
-        str(persona_cli_fixture),
         "--rationale",
         "CLI test",
     ]
@@ -103,6 +110,7 @@ def test_cli_export_import_round_trip(persona_cli_fixture: Path, tmp_path: Path)
         capture_output=True,
         text=True,
         check=False,
+        env=env,
     )
     assert import_proc.returncode == 0, import_proc.stderr
     assert "WARNING: Missing tools pruned" in import_proc.stdout

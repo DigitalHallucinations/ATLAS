@@ -6,7 +6,7 @@ from pathlib import Path
 import subprocess
 import sys
 
-MODULE_PATH = Path(__file__).resolve().parent.parent / "modules/Tools/Base_Tools/labor_market_feed.py"
+MODULE_PATH = Path(__file__).resolve().parents[2] / "modules/Tools/Base_Tools/labor_market_feed.py"
 
 spec = importlib.util.spec_from_file_location("labor_market_feed", MODULE_PATH)
 assert spec and spec.loader

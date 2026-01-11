@@ -95,7 +95,7 @@ os.environ.setdefault("OPENAI_API_KEY", "test-openai")
 os.environ.setdefault("MISTRAL_API_KEY", "test-mistral")
 
 MODULE_PATH = (
-    Path(__file__).resolve().parents[1]
+    Path(__file__).resolve().parents[2]
     / "modules"
     / "Providers"
     / "Mistral"

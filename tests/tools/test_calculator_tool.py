@@ -37,7 +37,7 @@ pytz_stub = ModuleType("pytz")
 pytz_stub.timezone = lambda name: _StubTimezone(name)
 sys.modules.setdefault("pytz", pytz_stub)
 
-MODULE_PATH = Path(__file__).resolve().parents[1] / "modules" / "Tools" / "Base_Tools" / "calculator.py"
+MODULE_PATH = Path(__file__).resolve().parents[2] / "modules" / "Tools" / "Base_Tools" / "calculator.py"
 spec = importlib.util.spec_from_file_location("calculator_test_module", MODULE_PATH)
 calculator_module = importlib.util.module_from_spec(spec)
 assert spec.loader is not None

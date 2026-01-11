@@ -37,7 +37,7 @@ pytz_stub = ModuleType("pytz")
 pytz_stub.timezone = lambda name: _StubTimezone(name)
 sys.modules.setdefault("pytz", pytz_stub)
 
-MODULE_PATH = Path(__file__).resolve().parents[1] / "modules" / "Tools" / "Base_Tools" / "browser_lite.py"
+MODULE_PATH = Path(__file__).resolve().parents[2] / "modules" / "Tools" / "Base_Tools" / "browser_lite.py"
 spec = importlib.util.spec_from_file_location("browser_lite_test_module", MODULE_PATH)
 browser_module = importlib.util.module_from_spec(spec)
 assert spec.loader is not None

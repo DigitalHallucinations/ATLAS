@@ -131,6 +131,44 @@ from core.services.tasks import (
     TaskCircularDependencyError,
 )
 
+# Persona services
+from core.services.personas import (
+    PersonaService,
+    PersonaPermissionChecker,
+    PersonaValidator,
+    # Events
+    PersonaCreated,
+    PersonaUpdated,
+    PersonaDeleted,
+    PersonaActivated,
+    PersonaDeactivated,
+    PersonaValidated,
+    # DTOs
+    PersonaCreate,
+    PersonaUpdate,
+    PersonaFilters,
+    PersonaResponse,
+    PersonaListResponse,
+    PersonaSummary,
+    PersonaCapabilities,
+    ValidationResult as PersonaValidationResult,
+    # Exceptions
+    PersonaError,
+    PersonaNotFoundError,
+    PersonaValidationError,
+    PersonaAlreadyExistsError,
+    PersonaDeleteError,
+    PersonaActiveError,
+    PersonaIOError,
+    PersonaSchemaError,
+    # Permission constants
+    PERMISSION_PERSONAS_READ,
+    PERMISSION_PERSONAS_WRITE,
+    PERMISSION_PERSONAS_DELETE,
+    PERMISSION_PERSONAS_ADMIN,
+    PERMISSION_PERSONAS_ACTIVATE,
+)
+
 # Re-export common service types for convenient access
 from core.services.common import (
     Actor,
@@ -247,6 +285,38 @@ __all__ = [
     "TaskValidationError",
     "TaskTimeoutError",
     "TaskCircularDependencyError",
+    
+    # Persona services
+    "PersonaService",
+    "PersonaPermissionChecker",
+    "PersonaValidator",
+    "PersonaCreated",
+    "PersonaUpdated",
+    "PersonaDeleted",
+    "PersonaActivated",
+    "PersonaDeactivated",
+    "PersonaValidated",
+    "PersonaCreate",
+    "PersonaUpdate",
+    "PersonaFilters",
+    "PersonaResponse",
+    "PersonaListResponse",
+    "PersonaSummary",
+    "PersonaCapabilities",
+    "PersonaValidationResult",
+    "PersonaError",
+    "PersonaNotFoundError",
+    "PersonaValidationError",
+    "PersonaAlreadyExistsError",
+    "PersonaDeleteError",
+    "PersonaActiveError",
+    "PersonaIOError",
+    "PersonaSchemaError",
+    "PERMISSION_PERSONAS_READ",
+    "PERMISSION_PERSONAS_WRITE",
+    "PERMISSION_PERSONAS_DELETE",
+    "PERMISSION_PERSONAS_ADMIN",
+    "PERMISSION_PERSONAS_ACTIVATE",
     
     # Notification services
     "NotificationService",

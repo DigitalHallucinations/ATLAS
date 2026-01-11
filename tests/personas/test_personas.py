@@ -125,7 +125,9 @@ def persona_fixture(tmp_path: Path) -> tuple[_StubConfigManager, Path]:
         specialist_skills,
     )
 
-    schema_src = Path(__file__).resolve().parents[1] / "modules" / "Personas" / "schema.json"
+    # Schema is at project_root/modules/Personas/schema.json
+    project_root = Path(__file__).resolve().parents[2]
+    schema_src = project_root / "modules" / "Personas" / "schema.json"
     schema_dest = root / "modules" / "Personas" / "schema.json"
     schema_dest.parent.mkdir(parents=True, exist_ok=True)
     schema_dest.write_text(schema_src.read_text(encoding="utf-8"), encoding="utf-8")
@@ -360,6 +362,7 @@ def test_build_skill_state_enables_owned_skills(persona_fixture: tuple[_StubConf
                     "end_locked": "",
                 },
                 "allowed_skills": ["specialist_insight"],
+                "allowed_tools": ["beta_tool"],
             }
         ]
     }

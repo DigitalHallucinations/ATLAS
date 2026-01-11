@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 import pytest
 from sqlalchemy.engine.url import make_url as sa_make_url
 
-_BOOTSTRAP_PATH = Path(__file__).resolve().parents[1] / "modules" / "conversation_store" / "bootstrap.py"
+_BOOTSTRAP_PATH = Path(__file__).resolve().parents[2] / "modules" / "conversation_store" / "bootstrap.py"
 _BOOTSTRAP_SPEC = importlib.util.spec_from_file_location(
     "conversation_store_bootstrap", _BOOTSTRAP_PATH
 )

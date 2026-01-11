@@ -1,10 +1,11 @@
 # Persona Service
 
-> **Status**: 📋 Planning  
+> **Status**: ✅ Phase 1 Complete  
 > **Priority**: Medium  
 > **Complexity**: Medium  
 > **Effort**: 3-4 days  
-> **Created**: 2026-01-07
+> **Created**: 2026-01-07  
+> **Updated**: 2026-01-10
 
 ---
 
@@ -21,14 +22,15 @@ Extract persona management from `GTKUI/Persona_manager/` and `modules/Personas/`
 
 ## Phases
 
-### Phase 1: Service Creation
+### Phase 1: Service Creation ✅
 
-- [ ] **1.1** Create `core/services/personas/` package:
+- [x] **1.1** Create `core/services/personas/` package:
   - `types.py` - PersonaConfig, PersonaEvent
   - `permissions.py` - Persona permission checker
   - `service.py` - PersonaService
   - `validation.py` - Schema validation (from persona_manager.py)
-- [ ] **1.2** Implement PersonaService:
+  - `exceptions.py` - Custom exception hierarchy
+- [x] **1.2** Implement PersonaService:
   - `list_personas()` - Get all available personas
   - `get_persona(persona_id)` - Get single persona config
   - `create_persona(actor, config)` - Create custom persona
@@ -38,13 +40,14 @@ Extract persona management from `GTKUI/Persona_manager/` and `modules/Personas/`
   - `get_active_persona()` - Get currently active
   - `set_active_persona(actor, persona_id)` - Switch persona
   - `get_persona_capabilities(persona_id)` - List tools/skills
-- [ ] **1.3** Add MessageBus events:
+- [x] **1.3** Add MessageBus events:
   - `persona.created`
   - `persona.updated`
   - `persona.deleted`
   - `persona.activated`
   - `persona.deactivated`
-- [ ] **1.4** Write unit tests
+  - `persona.validated`
+- [x] **1.4** Write unit tests - **42 tests passing**
 
 ### Phase 2: UI Integration
 

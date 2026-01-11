@@ -134,9 +134,9 @@ job_store_repository_stub = types.ModuleType("modules.job_store.repository")
 job_store_repository_stub.JobStoreRepository = type("JobStoreRepository", (), {})
 sys.modules["modules.job_store.repository"] = job_store_repository_stub
 
-config_module = types.ModuleType("ATLAS.config")
+config_module = types.ModuleType("core.config")
 config_module.__path__ = []
-_real_config_module = importlib.import_module("ATLAS.config")
+_real_config_module = importlib.import_module("core.config")
 config_module.ConfigManager = type("ConfigManager", (), {"UNSET": object()})
 config_module.StorageArchitecture = _real_config_module.StorageArchitecture
 config_module.PerformanceMode = _real_config_module.PerformanceMode
@@ -155,8 +155,8 @@ config_module.get_default_conversation_store_backends = (
     lambda: config_module._DEFAULT_CONVERSATION_STORE_BACKENDS
 )
 config_module.infer_conversation_store_backend = lambda value: "postgresql"
-sys.modules["ATLAS.config"] = config_module
-sys.modules["ATLAS.config.config_manager"] = _real_config_module.config_manager
+sys.modules["core.config"] = config_module
+sys.modules["core.config.config_manager"] = _real_config_module.config_manager
 
 bootstrap_module = types.ModuleType("modules.conversation_store.bootstrap")
 bootstrap_module.BootstrapError = Exception
