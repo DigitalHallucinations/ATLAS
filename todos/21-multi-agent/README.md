@@ -24,7 +24,7 @@ Implement multi-agent orchestration patterns based on state-of-the-art research:
 
 ### 1. Orchestrator-Worker Pattern
 
-```
+```Text
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                              Orchestrator                                    │
 │  • Task decomposition  • Subtask assignment  • Result synthesis             │
@@ -119,7 +119,7 @@ Implement multi-agent orchestration patterns based on state-of-the-art research:
 
 ## Architecture
 
-```
+```Text
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                         Orchestration Service                                │
 │                    (core/services/orchestration/)                            │
@@ -153,7 +153,7 @@ Implement multi-agent orchestration patterns based on state-of-the-art research:
 ## MessageBus Events
 
 | Event Type | Payload | Emitted By |
-|------------|---------|------------|
+| ------------ | --------- | ------------ |
 | `orchestration.plan_started` | `PlanEvent` | OrchestratorService |
 | `orchestration.task_assigned` | `TaskAssignmentEvent` | OrchestratorService |
 | `orchestration.task_completed` | `TaskResultEvent` | OrchestratorService |
@@ -168,7 +168,7 @@ Implement multi-agent orchestration patterns based on state-of-the-art research:
 ## Files to Create
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `core/services/orchestration/__init__.py` | Package exports |
 | `core/services/orchestration/types.py` | Types and events |
 | `core/services/orchestration/registry.py` | AgentRegistry |
@@ -234,7 +234,7 @@ class PersonaAgentManifest:
 The following services from `core/services/personas/` should be leveraged:
 
 | Service | Integration Point |
-|---------|-------------------|
+| --------- | ------------------- |
 | `PersonaSwitchingService` | Use handoff protocol for persona-to-persona delegation |
 | `PersonaMemoryService` | Share working memory context during orchestration |
 | `PersonaSafetyService` | Apply per-persona safety policies to delegated tasks |
@@ -256,7 +256,7 @@ The following services from `core/services/personas/` should be leveraged:
 ## Open Questions
 
 | Question | Options | Decision |
-|----------|---------|----------|
+| ---------- | --------- | ---------- |
 | Agent selection strategy? | Capability-based / LLM-guided / Hybrid | TBD |
 | Maximum parallel agents? | Fixed limit / Dynamic / Resource-based | TBD |
 | Handoff approval requirement? | Always automatic / User approval / Risk-based | TBD |

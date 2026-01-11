@@ -119,6 +119,7 @@ class HandoffContext:
 ### 2.3 Conditional Switching
 
 - [x] **2.3.1** Intent-based switching rules:
+
   ```python
   class SwitchingRule:
       trigger: str  # Intent pattern or keyword
@@ -127,6 +128,7 @@ class HandoffContext:
       priority: int
       conditions: List[Condition]
   ```
+
 - [x] **2.3.2** Automatic persona suggestion based on user query
 - [x] **2.3.3** User confirmation flow for suggested switches
 
@@ -237,6 +239,7 @@ class PersonaPerformanceMetrics:
 ### 4.4 A/B Testing
 
 - [ ] **4.4.1** Persona variation support:
+
   ```python
   class PersonaVariant:
       base_persona_id: str
@@ -245,6 +248,7 @@ class PersonaPerformanceMetrics:
       traffic_percentage: float
       metrics: PersonaPerformanceMetrics
   ```
+
 - [x] **4.4.2** Traffic splitting
 - [x] **4.4.3** Statistical significance testing
 - [x] **4.4.4** Automatic winner promotion
@@ -307,6 +311,7 @@ class PersonaSafetyPolicy:
 - [x] **5.4.1** Configurable HITL triggers per persona
 - [x] **5.4.2** Approval workflow integration
 - [x] **5.4.3** Escalation paths:
+
   ```python
   class EscalationPath:
       from_persona: str
@@ -321,7 +326,7 @@ class PersonaSafetyPolicy:
 ## Implementation Priority
 
 | Phase | Priority | Dependencies | Effort |
-|-------|----------|--------------|--------|
+| ------- | ---------- | -------------- | -------- |
 | Phase 5: Guardrails | 🔴 High | 22-guardrails | 3-4 days |
 | Phase 1: Memory | 🔴 High | 20-memory | 3-4 days |
 | Phase 4: Self-Improvement | 🟡 Medium | 11-analytics | 3-4 days |
@@ -333,7 +338,7 @@ class PersonaSafetyPolicy:
 ## New Files Created
 
 | File | Purpose | Status |
-|------|---------|--------|
+| ------ | --------- | -------- |
 | `core/services/personas/memory.py` | PersonaMemoryService | ✅ Created |
 | `core/services/personas/switching.py` | PersonaSwitchingService, HandoffProtocol | ✅ Created |
 | `core/services/personas/orchestration.py` | PersonaOrchestrator | ⏳ Deferred to 21-multi-agent |
@@ -350,21 +355,25 @@ class PersonaSafetyPolicy:
 ## Integration Points
 
 ### With Memory Service (20-memory)
+
 - Persona-scoped working memory
 - Episodic memory per persona
 - Semantic knowledge extraction
 
 ### With Multi-Agent (21-multi-agent)
+
 - Personas as agents in orchestration
 - Task delegation between personas
 - Ledger participation
 
 ### With Guardrails (22-guardrails)
+
 - Per-persona safety policies
 - Persona-specific HITL triggers
 - Content filtering rules
 
 ### With Analytics (11-analytics)
+
 - Performance metrics per persona
 - Usage tracking
 - Quality scoring
@@ -386,7 +395,7 @@ class PersonaSafetyPolicy:
 ## Open Questions
 
 | Question | Options | Decision |
-|----------|---------|----------|
+| ---------- | --------- | ---------- |
 | Should memory persist across conversation restarts? | Yes / No / Configurable | Configurable |
 | Who can modify persona safety policies? | Admin only / Owner / Any user | Admin + Owner |
 | Automatic vs. manual prompt refinement? | Auto / Manual / Hybrid with approval | Hybrid |
